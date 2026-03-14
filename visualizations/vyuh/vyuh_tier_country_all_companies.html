@@ -352,7 +352,7 @@
 
         <div class="controls-section">
             <button onclick="fitGraph()">Fit to View</button>
-            <button onclick="togglePhysics()">Toggle Physics</button>
+            <button onclick="togglePhysics()" id="physicsBtn">Physics: On</button>
             <button onclick="resetFilters()">Reset Filters</button>
         </div>
 
@@ -10802,6 +10802,9 @@
         function buildGraph() {
             allNodes = vyuhData.nodes
                 .filter(node => {
+                    // Remove continent and country hyperedge nodes
+                    if (node.data.type === 'continent_hyperedge' || node.data.type === 'country_hyperedge') return false;
+                    if (node.id && (node.id.startsWith('hyperedge_country_') || node.id.startsWith('hyperedge_continent_'))) return false;
                     if (node.data.is_hyperedge) {
                         if (node.data.type === 'tier_hyperedge') {
                             return activeTiers.has(node.data.tier);
@@ -10847,7 +10850,13 @@
             const activeNodeIds = new Set(allNodes.map(n => n.id));
 
             allEdges = vyuhData.connections
-                .filter(conn => activeNodeIds.has(conn.source) && activeNodeIds.has(conn.target))
+                .filter(conn => {
+                    // Remove continent/country connections
+                    if (conn.type === 'country_semantic_relationship') return false;
+                    if (conn.type === 'company_to_country') return false;
+                    if (conn.type === 'company_to_continent') return false;
+                    return activeNodeIds.has(conn.source) && activeNodeIds.has(conn.target);
+                })
                 .map(conn => ({
                     id: conn.id,
                     from: conn.source,
@@ -10905,6 +10914,7 @@
             network.on('stabilized', () => {
                 network.setOptions({ physics: { enabled: false } });
                 physicsEnabled = false;
+                document.getElementById('physicsBtn').textContent = 'Physics: Off';
             });
 
             // Click handler
@@ -11007,6 +11017,7 @@
         function togglePhysics() {
             physicsEnabled = !physicsEnabled;
             if (network) network.setOptions({ physics: { enabled: physicsEnabled } });
+            document.getElementById('physicsBtn').textContent = physicsEnabled ? 'Physics: On' : 'Physics: Off';
         }
 
         // Search
