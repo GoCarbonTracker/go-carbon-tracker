@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ferrari Supply Chain Network</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/reactflow@11/dist/umd/index.js"></script>
+    <link href="https://unpkg.com/reactflow@11/dist/style.css" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #d32f2f 0%, #c62828 100%);
+        }
+        #root {
+            width: 100vw;
+            height: 100vh;
+            background: white;
+        }
+        .header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+        .title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .subtitle {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-presets="react">
+        const { useState, useCallback, useMemo } = React;
+        const ReactFlow = window.ReactFlow.default;
+        const {
+            Controls,
+            Background,
+            MiniMap,
+            Handle,
+            Position,
+            MarkerType,
+            useNodesState,
+            useEdgesState,
+            ConnectionMode
+        } = window.ReactFlow;
+
+        // Custom Supplier Node Component
+        const SupplierNode = ({ data, selected }) => {
+            const getNodeStyle = () => {
+                const baseStyle = {
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '2px solid #555',
+                    background: '#fff',
+                    minWidth: '180px',
+                    fontSize: '12px',
+                    boxShadow: selected ? '0 0 0 3px #4a9eff' : '0 2px 8px rgba(0,0,0,0.15)',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease'
+                };
+
+                // Color coding by tier/type
+                if (data.tier === 'Tier 1') {
+                    baseStyle.background = '#e3f2fd';
+                    baseStyle.border = '2px solid #2196f3';
+                } else if (data.tier === 'Battery') {
+                    baseStyle.background = '#fff3e0';
+                    baseStyle.border = '2px solid #ff9800';
+                } else if (data.tier === 'Technology') {
+                    baseStyle.background = '#f3e5f5';
+                    baseStyle.border = '2px solid #9c27b0';
+                } else if (data.tier === 'Luxury') {
+                    baseStyle.background = '#fff9e6';
+                    baseStyle.border = '2px solid #ffc107';
+                } else if (data.tier === 'Ferrari') {
+                    baseStyle.background = '#ffebee';
+                    baseStyle.border = '3px solid #d32f2f';
+                    baseStyle.minWidth = '220px';
+                    baseStyle.fontSize = '16px';
+                    baseStyle.fontWeight = 'bold';
+                }
+
+                return baseStyle;
+            };
+
+            return (
+                <div style={getNodeStyle()}>
+                    {data.inputHandles && data.inputHandles.map((handle, idx) => (
+                        <Handle
+                            key={`input-${idx}`}
+                            type="target"
+                            position={handle.position}
+                            id={handle.id}
+                            style={{ background: '#555', width: 10, height: 10 }}
+                        />
+                    ))}
+
+                    <div style={{ fontWeight: 'bold', marginBottom: '4px', fontSize: data.tier === 'Ferrari' ? '18px' : '14px' }}>
+                        {data.label}
+                    </div>
+
+                    {data.tier && data.tier !== 'Ferrari' && (
+                        <div style={{ fontSize: '11px', color: '#666', marginBottom: '4px' }}>
+                            {data.tier}
+                        </div>
+                    )}
+
+                    {data.category && (
+                        <div style={{ fontSize: '10px', color: '#888', marginBottom: '4px' }}>
+                            {data.category}
+                        </div>
+                    )}
+
+                    {data.mentions && (
+                        <div style={{ fontSize: '10px', color: '#d32f2f', marginTop: '4px', fontWeight: 'bold' }}>
+                            {data.mentions} mentions in KB
+                        </div>
+                    )}
+
+                    {data.outputHandles && data.outputHandles.map((handle, idx) => (
+                        <Handle
+                            key={`output-${idx}`}
+                            type="source"
+                            position={handle.position}
+                            id={handle.id}
+                            style={{ background: '#555', width: 10, height: 10 }}
+                        />
+                    ))}
+                </div>
+            );
+        };
+
+        const nodeTypes = {
+            supplierNode: SupplierNode,
+        };
+
+        // Calculate positions in a radial layout
+        const calculateRadialPosition = (index, total, radius, centerX, centerY) => {
+            const angle = (2 * Math.PI * index) / total - Math.PI / 2; // Start from top
+            const x = centerX + radius * Math.cos(angle);
+            const y = centerY + radius * Math.sin(angle);
+            return { x, y };
+        };
+
+        const FerrariSupplyChainFlow = () => {
+            // Ferrari suppliers from knowledge base
+            const suppliers = [
+                // Tier 1 Mega Suppliers
+                { id: 'magna', name: 'Magna', tier: 'Tier 1', category: 'Body Systems, Chassis', mentions: 50 },
+                { id: 'bosch', name: 'Bosch', tier: 'Tier 1', category: 'Powertrain, Electronics', mentions: null },
+                { id: 'continental', name: 'Continental', tier: 'Tier 1', category: 'Tires, Electronics', mentions: null },
+                { id: 'pirelli', name: 'Pirelli', tier: 'Tier 1', category: 'Tires', mentions: null },
+                { id: 'brembo', name: 'Brembo', tier: 'Tier 1', category: 'Braking Systems', mentions: null },
+                { id: 'schaeffler', name: 'Schaeffler', tier: 'Tier 1', category: 'Bearings, Powertrain', mentions: null },
+                { id: 'valeo', name: 'Valeo', tier: 'Tier 1', category: 'Lighting, Electronics', mentions: null },
+                { id: 'aptiv', name: 'Aptiv', tier: 'Tier 1', category: 'Electronics', mentions: null },
+                
+                // Technology Partners
+                { id: 'intel', name: 'Intel', tier: 'Technology', category: 'Semiconductors', mentions: 122 },
+                { id: 'siemens', name: 'Siemens', tier: 'Technology', category: 'Industrial Automation', mentions: 6 },
+                { id: 'abb', name: 'ABB', tier: 'Technology', category: 'Charging Infrastructure', mentions: 12 },
+                
+                // Luxury/Specialty Suppliers
+                { id: 'scaglietti', name: 'Scaglietti', tier: 'Luxury', category: 'Bodywork', mentions: null },
+                { id: 'pininfarina', name: 'Pininfarina', tier: 'Luxury', category: 'Design, Engineering', mentions: null },
+                { id: 'marenello', name: 'Marenello', tier: 'Luxury', category: 'Manufacturing', mentions: null },
+                
+                // Battery/EV Suppliers (for hybrid models)
+                { id: 'lg-energy', name: 'LG Energy', tier: 'Battery', category: 'Battery Cells', mentions: null },
+                { id: 'samsung-sdi', name: 'Samsung SDI', tier: 'Battery', category: 'Battery Cells', mentions: null },
+            ];
+
+            const centerX = 500;
+            const centerY = 400;
+            const radius = 350;
+
+            // Create nodes with radial positioning
+            const initialNodes = [
+                // Ferrari at center
+                {
+                    id: 'ferrari',
+                    type: 'supplierNode',
+                    position: { x: centerX - 110, y: centerY - 40 },
+                    data: {
+                        label: 'Ferrari N.V.',
+                        tier: 'Ferrari',
+                        category: 'Luxury Sports Car Manufacturer',
+                        outputHandles: suppliers.map((_, idx) => ({
+                            position: Position.Top,
+                            id: `out-${idx}`,
+                        })),
+                    },
+                },
+                // Suppliers arranged in a circle
+                ...suppliers.map((supplier, index) => {
+                    const pos = calculateRadialPosition(index, suppliers.length, radius, centerX, centerY);
+                    return {
+                        id: supplier.id,
+                        type: 'supplierNode',
+                        position: { x: pos.x - 90, y: pos.y - 40 },
+                        data: {
+                            label: supplier.name,
+                            tier: supplier.tier,
+                            category: supplier.category,
+                            mentions: supplier.mentions,
+                            inputHandles: [{ position: Position.Bottom, id: 'in' }],
+                        },
+                    };
+                }),
+            ];
+
+            // Create edges from Ferrari to all suppliers
+            const initialEdges = suppliers.map((supplier, index) => {
+                let edgeStyle = { strokeWidth: 2 };
+                
+                if (supplier.tier === 'Tier 1') {
+                    edgeStyle.stroke = '#2196f3';
+                } else if (supplier.tier === 'Battery') {
+                    edgeStyle.stroke = '#ff9800';
+                } else if (supplier.tier === 'Technology') {
+                    edgeStyle.stroke = '#9c27b0';
+                    edgeStyle.strokeDasharray = '5,5';
+                } else if (supplier.tier === 'Luxury') {
+                    edgeStyle.stroke = '#ffc107';
+                    edgeStyle.strokeDasharray = '3,3';
+                }
+
+                return {
+                    id: `e-ferrari-${supplier.id}`,
+                    source: 'ferrari',
+                    target: supplier.id,
+                    sourceHandle: `out-${index}`,
+                    targetHandle: 'in',
+                    type: 'smoothstep',
+                    style: edgeStyle,
+                    label: supplier.tier,
+                    labelStyle: { fontSize: 10, fill: edgeStyle.stroke },
+                    markerEnd: {
+                        type: MarkerType.ArrowClosed,
+                        color: edgeStyle.stroke,
+                    },
+                };
+            });
+
+            const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+            const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+            const onNodeClick = useCallback((event, node) => {
+                console.log('Clicked node:', node);
+            }, []);
+
+            // Statistics
+            const stats = useMemo(() => {
+                const tier1Count = suppliers.filter(s => s.tier === 'Tier 1').length;
+                const batteryCount = suppliers.filter(s => s.tier === 'Battery').length;
+                const techCount = suppliers.filter(s => s.tier === 'Technology').length;
+                const luxuryCount = suppliers.filter(s => s.tier === 'Luxury').length;
+                return { tier1Count, batteryCount, techCount, luxuryCount, total: suppliers.length };
+            }, []);
+
+            return (
+                <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
+                    <div className="header">
+                        <div className="title">Ferrari Supply Chain Network</div>
+                        <div className="subtitle">Complete mapping of Ferrari's suppliers and partners from our Knowledge Base</div>
+                    </div>
+
+                    {/* Statistics overlay */}
+                    <div style={{
+                        position: 'absolute',
+                        top: '100px',
+                        left: '20px',
+                        background: 'white',
+                        padding: '15px',
+                        borderRadius: '8px',
+                        boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+                        zIndex: 1000,
+                        fontSize: '12px',
+                    }}>
+                        <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '14px' }}>Ferrari Supply Chain</div>
+                        <div>Total Suppliers: <strong>{stats.total}</strong></div>
+                        <div>Tier 1: <strong style={{ color: '#2196f3' }}>{stats.tier1Count}</strong></div>
+                        <div>Battery: <strong style={{ color: '#ff9800' }}>{stats.batteryCount}</strong></div>
+                        <div>Technology: <strong style={{ color: '#9c27b0' }}>{stats.techCount}</strong></div>
+                        <div>Luxury: <strong style={{ color: '#ffc107' }}>{stats.luxuryCount}</strong></div>
+                        <div style={{ marginTop: '8px', fontSize: '10px', color: '#666' }}>
+                            Data from Knowledge Base
+                        </div>
+                    </div>
+
+                    {/* Legend */}
+                    <div style={{
+                        position: 'absolute',
+                        bottom: '20px',
+                        right: '20px',
+                        background: 'white',
+                        padding: '15px',
+                        borderRadius: '8px',
+                        boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+                        zIndex: 1000,
+                        fontSize: '11px',
+                    }}>
+                        <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>Legend</div>
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                            <div style={{ width: '20px', height: '3px', background: '#2196f3', marginRight: '8px' }}></div>
+                            <span>Tier 1 Suppliers</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                            <div style={{ width: '20px', height: '3px', background: '#ff9800', marginRight: '8px' }}></div>
+                            <span>Battery Suppliers</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                            <div style={{ width: '20px', height: '3px', background: '#9c27b0', marginRight: '8px', borderTop: '2px dashed #9c27b0' }}></div>
+                            <span>Technology Partners</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <div style={{ width: '20px', height: '3px', background: '#ffc107', marginRight: '8px', borderTop: '2px dashed #ffc107' }}></div>
+                            <span>Luxury/Specialty</span>
+                        </div>
+                    </div>
+
+                    <div style={{ position: 'absolute', top: '80px', left: 0, right: 0, bottom: 0 }}>
+                        <ReactFlow
+                            nodes={nodes}
+                            edges={edges}
+                            onNodesChange={onNodesChange}
+                            onEdgesChange={onEdgesChange}
+                            onNodeClick={onNodeClick}
+                            nodeTypes={nodeTypes}
+                            connectionMode={ConnectionMode.Loose}
+                            fitView
+                            fitViewOptions={{ padding: 0.2 }}
+                            attributionPosition="bottom-left"
+                        >
+                            <Background variant="dots" gap={12} size={1} />
+                            <Controls />
+                            <MiniMap
+                                nodeColor={(node) => {
+                                    if (node.data?.tier === 'Ferrari') return '#d32f2f';
+                                    if (node.data?.tier === 'Tier 1') return '#2196f3';
+                                    if (node.data?.tier === 'Battery') return '#ff9800';
+                                    if (node.data?.tier === 'Technology') return '#9c27b0';
+                                    if (node.data?.tier === 'Luxury') return '#ffc107';
+                                    return '#888';
+                                }}
+                                style={{
+                                    height: 120,
+                                }}
+                            />
+                        </ReactFlow>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            return <FerrariSupplyChainFlow />;
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</body>
+</html>
+

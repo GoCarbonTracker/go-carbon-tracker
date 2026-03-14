@@ -1,0 +1,1740 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HyperGraph RAG - Tier + Relationships Visualization</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+        }
+        .header {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .title {
+            margin: 0 0 15px 0;
+            font-size: 28px;
+            color: #1a1a1a;
+        }
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .stat {
+            background: #f0f0f0;
+            padding: 10px 15px;
+            border-radius: 6px;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1976D2;
+        }
+        .legend {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e0e0e0;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+        #graph-container {
+            width: 100%;
+            height: calc(100vh - 300px);
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1 class="title">🎯 HyperGraph RAG - Tier Organization + Discovered Relationships</h1>
+        
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-label">Total Nodes</div>
+                <div class="stat-value">39</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Connections</div>
+                <div class="stat-value">85</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Supplier Links</div>
+                <div class="stat-value">8</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Tech Partners</div>
+                <div class="stat-value">7</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Shared Commitments</div>
+                <div class="stat-value">4</div>
+            </div>
+        </div>
+        
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: #EF5350;"></div>
+                <span><strong>OEM</strong> - Original Equipment Manufacturers</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #FF9800;"></div>
+                <span><strong>Tier 1</strong> - Direct Suppliers</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #4CAF50;"></div>
+                <span><strong>Tier 2</strong> - Battery Suppliers</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #2196F3;"></div>
+                <span><strong>Tier 3</strong> - Material Suppliers</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #EF5350; width: 2px;"></div>
+                <span><strong>Supplier Links</strong> - Direct supplier relationships</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #7C4DFF; width: 2px;"></div>
+                <span><strong>Tech Partners</strong> - Technology partnerships</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #26A69A;"></div>
+                <span><strong>Commitments</strong> - Shared ESG commitments</span>
+            </div>
+        </div>
+    </div>
+    
+    <div id="graph-container"></div>
+    
+    <script type="text/javascript">
+        const vyuhData = {
+        "nodes": [
+                {
+                        "id": "tier_hub_OEM",
+                        "type": "tier_hub",
+                        "position": {
+                                "x": 200,
+                                "y": 200
+                        },
+                        "data": {
+                                "name": "OEM Suppliers",
+                                "type": "tier_hub",
+                                "tier": "OEM",
+                                "company_count": 11,
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "entity_bcb48dddff8c14b5",
+                        "type": "company",
+                        "position": {
+                                "x": 650.0,
+                                "y": 125
+                        },
+                        "data": {
+                                "name": "BMW",
+                                "type": "company",
+                                "tier": "OEM",
+                                "original_id": "bcb48dddff8c14b5",
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "entity_1680b49c176b01c2",
+                        "type": "company",
+                        "position": {
+                                "x": 800.0,
+                                "y": 125
+                        },
+                        "data": {
+                                "name": "VOLKSWAGEN",
+                                "type": "company",
+                                "tier": "OEM",
+                                "original_id": "1680b49c176b01c2",
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "entity_6b1ce1675f9141cb",
+                        "type": "company",
+                        "position": {
+                                "x": 950.0,
+                                "y": 125
+                        },
+                        "data": {
+                                "name": "FERRARI",
+                                "type": "company",
+                                "tier": "OEM",
+                                "original_id": "6b1ce1675f9141cb",
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "entity_cbba98f80402e787",
+                        "type": "company",
+                        "position": {
+                                "x": 650.0,
+                                "y": 275
+                        },
+                        "data": {
+                                "name": "VOLVO",
+                                "type": "company",
+                                "tier": "OEM",
+                                "original_id": "cbba98f80402e787",
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "entity_be7979e8e8af20cd",
+                        "type": "company",
+                        "position": {
+                                "x": 800.0,
+                                "y": 275
+                        },
+                        "data": {
+                                "name": "PORSCHE",
+                                "type": "company",
+                                "tier": "OEM",
+                                "original_id": "be7979e8e8af20cd",
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "entity_8ca14db8752b6f53",
+                        "type": "company",
+                        "position": {
+                                "x": 950.0,
+                                "y": 275
+                        },
+                        "data": {
+                                "name": "FORD-OTOMOTIV",
+                                "type": "company",
+                                "tier": "OEM",
+                                "original_id": "8ca14db8752b6f53",
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "entity_7fd64ca5ae7eba35",
+                        "type": "company",
+                        "position": {
+                                "x": 650.0,
+                                "y": 425
+                        },
+                        "data": {
+                                "name": "STELLANTIS",
+                                "type": "company",
+                                "tier": "OEM",
+                                "original_id": "7fd64ca5ae7eba35",
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "entity_8bbeef74f6eddddf",
+                        "type": "company",
+                        "position": {
+                                "x": 800.0,
+                                "y": 425
+                        },
+                        "data": {
+                                "name": "POLESTAR",
+                                "type": "company",
+                                "tier": "OEM",
+                                "original_id": "8bbeef74f6eddddf",
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "entity_12f3f83675958c5c",
+                        "type": "company",
+                        "position": {
+                                "x": 950.0,
+                                "y": 425
+                        },
+                        "data": {
+                                "name": "MERCEDES",
+                                "type": "company",
+                                "tier": "OEM",
+                                "original_id": "12f3f83675958c5c",
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "entity_92b457e4c4f13dba",
+                        "type": "company",
+                        "position": {
+                                "x": 650.0,
+                                "y": 575
+                        },
+                        "data": {
+                                "name": "Audi",
+                                "type": "company",
+                                "tier": "OEM",
+                                "original_id": "92b457e4c4f13dba",
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "entity_a3c6ac924dd99967",
+                        "type": "company",
+                        "position": {
+                                "x": 800.0,
+                                "y": 575
+                        },
+                        "data": {
+                                "name": "RENAULT",
+                                "type": "company",
+                                "tier": "OEM",
+                                "original_id": "a3c6ac924dd99967",
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "tier_hub_Tier_4",
+                        "type": "tier_hub",
+                        "position": {
+                                "x": 200,
+                                "y": 1800
+                        },
+                        "data": {
+                                "name": "Tier 4 Suppliers",
+                                "type": "tier_hub",
+                                "tier": "Tier 4",
+                                "company_count": 4,
+                                "color": "#9C27B0"
+                        }
+                },
+                {
+                        "id": "entity_fccb1796002a5db9",
+                        "type": "company",
+                        "position": {
+                                "x": 650.0,
+                                "y": 1800
+                        },
+                        "data": {
+                                "name": "OTOKAR",
+                                "type": "company",
+                                "tier": "Tier 4",
+                                "original_id": "fccb1796002a5db9",
+                                "color": "#9C27B0"
+                        }
+                },
+                {
+                        "id": "entity_763af75a2dfb9307",
+                        "type": "company",
+                        "position": {
+                                "x": 800.0,
+                                "y": 1800
+                        },
+                        "data": {
+                                "name": "HOWDEN",
+                                "type": "company",
+                                "tier": "Tier 4",
+                                "original_id": "763af75a2dfb9307",
+                                "color": "#9C27B0"
+                        }
+                },
+                {
+                        "id": "entity_e07b2c86c3248717",
+                        "type": "company",
+                        "position": {
+                                "x": 950.0,
+                                "y": 1800
+                        },
+                        "data": {
+                                "name": "LG-ENERGY",
+                                "type": "company",
+                                "tier": "Tier 4",
+                                "original_id": "e07b2c86c3248717",
+                                "color": "#9C27B0"
+                        }
+                },
+                {
+                        "id": "entity_53c006bcf8db0bba",
+                        "type": "company",
+                        "position": {
+                                "x": 650.0,
+                                "y": 1950
+                        },
+                        "data": {
+                                "name": "SAMSUNG-SDI",
+                                "type": "company",
+                                "tier": "Tier 4",
+                                "original_id": "53c006bcf8db0bba",
+                                "color": "#9C27B0"
+                        }
+                },
+                {
+                        "id": "tier_hub_Tier_1",
+                        "type": "tier_hub",
+                        "position": {
+                                "x": 200,
+                                "y": 600
+                        },
+                        "data": {
+                                "name": "Tier 1 Suppliers",
+                                "type": "tier_hub",
+                                "tier": "Tier 1",
+                                "company_count": 11,
+                                "color": "#FF9800"
+                        }
+                },
+                {
+                        "id": "entity_9d492ea635bf0ef0",
+                        "type": "company",
+                        "position": {
+                                "x": 650.0,
+                                "y": 525
+                        },
+                        "data": {
+                                "name": "BREMBO",
+                                "type": "company",
+                                "tier": "Tier 1",
+                                "original_id": "9d492ea635bf0ef0",
+                                "color": "#FF9800"
+                        }
+                },
+                {
+                        "id": "entity_9aea2d982828c597",
+                        "type": "company",
+                        "position": {
+                                "x": 800.0,
+                                "y": 525
+                        },
+                        "data": {
+                                "name": "CONTINENTAL AG",
+                                "type": "company",
+                                "tier": "Tier 1",
+                                "original_id": "9aea2d982828c597",
+                                "color": "#FF9800"
+                        }
+                },
+                {
+                        "id": "entity_2f91f66ae30635be",
+                        "type": "company",
+                        "position": {
+                                "x": 950.0,
+                                "y": 525
+                        },
+                        "data": {
+                                "name": "FORVIA_SE",
+                                "type": "company",
+                                "tier": "Tier 1",
+                                "original_id": "2f91f66ae30635be",
+                                "color": "#FF9800"
+                        }
+                },
+                {
+                        "id": "entity_44b888210d99f308",
+                        "type": "company",
+                        "position": {
+                                "x": 650.0,
+                                "y": 675
+                        },
+                        "data": {
+                                "name": "HELLA",
+                                "type": "company",
+                                "tier": "Tier 1",
+                                "original_id": "44b888210d99f308",
+                                "color": "#FF9800"
+                        }
+                },
+                {
+                        "id": "entity_15c3f1d31907e333",
+                        "type": "company",
+                        "position": {
+                                "x": 800.0,
+                                "y": 675
+                        },
+                        "data": {
+                                "name": "KNORR-BREMSE",
+                                "type": "company",
+                                "tier": "Tier 1",
+                                "original_id": "15c3f1d31907e333",
+                                "color": "#FF9800"
+                        }
+                },
+                {
+                        "id": "entity_68b01ab88711d367",
+                        "type": "company",
+                        "position": {
+                                "x": 950.0,
+                                "y": 675
+                        },
+                        "data": {
+                                "name": "PIRELLI",
+                                "type": "company",
+                                "tier": "Tier 1",
+                                "original_id": "68b01ab88711d367",
+                                "color": "#FF9800"
+                        }
+                },
+                {
+                        "id": "entity_d02194dc8859a0ed",
+                        "type": "company",
+                        "position": {
+                                "x": 650.0,
+                                "y": 825
+                        },
+                        "data": {
+                                "name": "AUTOLIV_INC",
+                                "type": "company",
+                                "tier": "Tier 1",
+                                "original_id": "d02194dc8859a0ed",
+                                "color": "#FF9800"
+                        }
+                },
+                {
+                        "id": "entity_60a737f68719fb85",
+                        "type": "company",
+                        "position": {
+                                "x": 800.0,
+                                "y": 825
+                        },
+                        "data": {
+                                "name": "SCHAEFFLER",
+                                "type": "company",
+                                "tier": "Tier 1",
+                                "original_id": "60a737f68719fb85",
+                                "color": "#FF9800"
+                        }
+                },
+                {
+                        "id": "entity_2e36c165b37ab0ae",
+                        "type": "company",
+                        "position": {
+                                "x": 950.0,
+                                "y": 825
+                        },
+                        "data": {
+                                "name": "VALEO",
+                                "type": "company",
+                                "tier": "Tier 1",
+                                "original_id": "2e36c165b37ab0ae",
+                                "color": "#FF9800"
+                        }
+                },
+                {
+                        "id": "entity_591a99f342b24573",
+                        "type": "company",
+                        "position": {
+                                "x": 650.0,
+                                "y": 975
+                        },
+                        "data": {
+                                "name": "ADIENT",
+                                "type": "company",
+                                "tier": "Tier 1",
+                                "original_id": "591a99f342b24573",
+                                "color": "#FF9800"
+                        }
+                },
+                {
+                        "id": "entity_fd97b533cb1e6806",
+                        "type": "company",
+                        "position": {
+                                "x": 800.0,
+                                "y": 975
+                        },
+                        "data": {
+                                "name": "BOSCH",
+                                "type": "company",
+                                "tier": "Tier 1",
+                                "original_id": "fd97b533cb1e6806",
+                                "color": "#FF9800"
+                        }
+                },
+                {
+                        "id": "tier_hub_Tier_3",
+                        "type": "tier_hub",
+                        "position": {
+                                "x": 200,
+                                "y": 1400
+                        },
+                        "data": {
+                                "name": "Tier 3 Suppliers",
+                                "type": "tier_hub",
+                                "tier": "Tier 3",
+                                "company_count": 2,
+                                "color": "#2196F3"
+                        }
+                },
+                {
+                        "id": "entity_0ef2dfa911b33f93",
+                        "type": "company",
+                        "position": {
+                                "x": 650.0,
+                                "y": 1400
+                        },
+                        "data": {
+                                "name": "ARCELOR-MITTAL",
+                                "type": "company",
+                                "tier": "Tier 3",
+                                "original_id": "0ef2dfa911b33f93",
+                                "color": "#2196F3"
+                        }
+                },
+                {
+                        "id": "entity_844c964c81433800",
+                        "type": "company",
+                        "position": {
+                                "x": 800.0,
+                                "y": 1400
+                        },
+                        "data": {
+                                "name": "ARCELOR-MITTAL-GEMINI-ENHANCED",
+                                "type": "company",
+                                "tier": "Tier 3",
+                                "original_id": "844c964c81433800",
+                                "color": "#2196F3"
+                        }
+                },
+                {
+                        "id": "tier_hub_Tier_2",
+                        "type": "tier_hub",
+                        "position": {
+                                "x": 200,
+                                "y": 1000
+                        },
+                        "data": {
+                                "name": "Tier 2 Suppliers",
+                                "type": "tier_hub",
+                                "tier": "Tier 2",
+                                "company_count": 2,
+                                "color": "#4CAF50"
+                        }
+                },
+                {
+                        "id": "entity_abb5567eb1c23afd",
+                        "type": "company",
+                        "position": {
+                                "x": 650.0,
+                                "y": 1000
+                        },
+                        "data": {
+                                "name": "CATL",
+                                "type": "company",
+                                "tier": "Tier 2",
+                                "original_id": "abb5567eb1c23afd",
+                                "color": "#4CAF50"
+                        }
+                },
+                {
+                        "id": "entity_a436ac4c1221807a",
+                        "type": "company",
+                        "position": {
+                                "x": 800.0,
+                                "y": 1000
+                        },
+                        "data": {
+                                "name": "NORTHVOLT",
+                                "type": "company",
+                                "tier": "Tier 2",
+                                "original_id": "a436ac4c1221807a",
+                                "color": "#4CAF50"
+                        }
+                },
+                {
+                        "id": "commitment_hub_0",
+                        "type": "commitment_hub",
+                        "position": {
+                                "x": 1200,
+                                "y": 400
+                        },
+                        "data": {
+                                "name": "Shared net zero 2050: BMW, VOLKSWAGEN, FERRARI, AU",
+                                "type": "commitment_hub",
+                                "description": "Shared net zero 2050: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7148118706942236,
+                                "company_count": 29,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_hub_1",
+                        "type": "commitment_hub",
+                        "position": {
+                                "x": 1600,
+                                "y": 400
+                        },
+                        "data": {
+                                "name": "Shared net zero 2030: BMW, VOLKSWAGEN, FERRARI, AU",
+                                "type": "commitment_hub",
+                                "description": "Shared net zero 2030: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7250132485426602,
+                                "company_count": 29,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_hub_2",
+                        "type": "commitment_hub",
+                        "position": {
+                                "x": 1200,
+                                "y": 800
+                        },
+                        "data": {
+                                "name": "Shared net zero 2040: BMW, VOLKSWAGEN, FERRARI, AU",
+                                "type": "commitment_hub",
+                                "description": "Shared net zero 2040: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.713751987281399,
+                                "company_count": 29,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_hub_3",
+                        "type": "commitment_hub",
+                        "position": {
+                                "x": 1600,
+                                "y": 800
+                        },
+                        "data": {
+                                "name": "Shared science based targets: BMW, VOLKSWAGEN, FER",
+                                "type": "commitment_hub",
+                                "description": "Shared science based targets: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7056867417677642,
+                                "company_count": 26,
+                                "color": "#26A69A"
+                        }
+                }
+        ],
+        "connections": [
+                {
+                        "id": "tier_conn_tier_hub_OEM_entity_bcb48dddff8c14b5",
+                        "source": "entity_bcb48dddff8c14b5",
+                        "target": "tier_hub_OEM",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "OEM"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_OEM_entity_1680b49c176b01c2",
+                        "source": "entity_1680b49c176b01c2",
+                        "target": "tier_hub_OEM",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "OEM"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_OEM_entity_6b1ce1675f9141cb",
+                        "source": "entity_6b1ce1675f9141cb",
+                        "target": "tier_hub_OEM",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "OEM"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_OEM_entity_cbba98f80402e787",
+                        "source": "entity_cbba98f80402e787",
+                        "target": "tier_hub_OEM",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "OEM"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_OEM_entity_be7979e8e8af20cd",
+                        "source": "entity_be7979e8e8af20cd",
+                        "target": "tier_hub_OEM",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "OEM"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_OEM_entity_8ca14db8752b6f53",
+                        "source": "entity_8ca14db8752b6f53",
+                        "target": "tier_hub_OEM",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "OEM"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_OEM_entity_7fd64ca5ae7eba35",
+                        "source": "entity_7fd64ca5ae7eba35",
+                        "target": "tier_hub_OEM",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "OEM"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_OEM_entity_8bbeef74f6eddddf",
+                        "source": "entity_8bbeef74f6eddddf",
+                        "target": "tier_hub_OEM",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "OEM"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_OEM_entity_12f3f83675958c5c",
+                        "source": "entity_12f3f83675958c5c",
+                        "target": "tier_hub_OEM",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "OEM"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_OEM_entity_92b457e4c4f13dba",
+                        "source": "entity_92b457e4c4f13dba",
+                        "target": "tier_hub_OEM",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "OEM"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_OEM_entity_a3c6ac924dd99967",
+                        "source": "entity_a3c6ac924dd99967",
+                        "target": "tier_hub_OEM",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "OEM"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_4_entity_fccb1796002a5db9",
+                        "source": "entity_fccb1796002a5db9",
+                        "target": "tier_hub_Tier_4",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 4"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_4_entity_763af75a2dfb9307",
+                        "source": "entity_763af75a2dfb9307",
+                        "target": "tier_hub_Tier_4",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 4"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_4_entity_e07b2c86c3248717",
+                        "source": "entity_e07b2c86c3248717",
+                        "target": "tier_hub_Tier_4",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 4"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_4_entity_53c006bcf8db0bba",
+                        "source": "entity_53c006bcf8db0bba",
+                        "target": "tier_hub_Tier_4",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 4"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_1_entity_9d492ea635bf0ef0",
+                        "source": "entity_9d492ea635bf0ef0",
+                        "target": "tier_hub_Tier_1",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 1"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_1_entity_9aea2d982828c597",
+                        "source": "entity_9aea2d982828c597",
+                        "target": "tier_hub_Tier_1",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 1"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_1_entity_2f91f66ae30635be",
+                        "source": "entity_2f91f66ae30635be",
+                        "target": "tier_hub_Tier_1",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 1"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_1_entity_44b888210d99f308",
+                        "source": "entity_44b888210d99f308",
+                        "target": "tier_hub_Tier_1",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 1"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_1_entity_15c3f1d31907e333",
+                        "source": "entity_15c3f1d31907e333",
+                        "target": "tier_hub_Tier_1",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 1"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_1_entity_68b01ab88711d367",
+                        "source": "entity_68b01ab88711d367",
+                        "target": "tier_hub_Tier_1",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 1"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_1_entity_d02194dc8859a0ed",
+                        "source": "entity_d02194dc8859a0ed",
+                        "target": "tier_hub_Tier_1",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 1"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_1_entity_60a737f68719fb85",
+                        "source": "entity_60a737f68719fb85",
+                        "target": "tier_hub_Tier_1",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 1"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_1_entity_2e36c165b37ab0ae",
+                        "source": "entity_2e36c165b37ab0ae",
+                        "target": "tier_hub_Tier_1",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 1"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_1_entity_591a99f342b24573",
+                        "source": "entity_591a99f342b24573",
+                        "target": "tier_hub_Tier_1",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 1"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_1_entity_fd97b533cb1e6806",
+                        "source": "entity_fd97b533cb1e6806",
+                        "target": "tier_hub_Tier_1",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 1"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_3_entity_0ef2dfa911b33f93",
+                        "source": "entity_0ef2dfa911b33f93",
+                        "target": "tier_hub_Tier_3",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 3"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_3_entity_844c964c81433800",
+                        "source": "entity_844c964c81433800",
+                        "target": "tier_hub_Tier_3",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 3"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_2_entity_abb5567eb1c23afd",
+                        "source": "entity_abb5567eb1c23afd",
+                        "target": "tier_hub_Tier_2",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 2"
+                        }
+                },
+                {
+                        "id": "tier_conn_tier_hub_Tier_2_entity_a436ac4c1221807a",
+                        "source": "entity_a436ac4c1221807a",
+                        "target": "tier_hub_Tier_2",
+                        "type": "tier_membership",
+                        "data": {
+                                "tier": "Tier 2"
+                        }
+                },
+                {
+                        "id": "supplier_e66f34dd8dcd5a42",
+                        "source": "entity_7fd64ca5ae7eba35",
+                        "target": "entity_abb5567eb1c23afd",
+                        "type": "supplier_link",
+                        "data": {
+                                "description": "Shared supplier relationship: CATL (STELLANTIS, CATL)",
+                                "confidence": 0.95,
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "supplier_583e67e344853de1",
+                        "source": "entity_1680b49c176b01c2",
+                        "target": "entity_d02194dc8859a0ed",
+                        "type": "supplier_link",
+                        "data": {
+                                "description": "Shared supplier relationship: BYD (VOLKSWAGEN, AUTOLIV_INC)",
+                                "confidence": 0.89,
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "supplier_d62140eb5971e8e1",
+                        "source": "entity_e07b2c86c3248717",
+                        "target": "entity_a3c6ac924dd99967",
+                        "type": "supplier_link",
+                        "data": {
+                                "description": "Shared supplier relationship: LG ENERGY SOLUTION (LG-ENERGY, RENAULT)",
+                                "confidence": 0.95,
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "supplier_045f5b6893b01a1b",
+                        "source": "entity_cbba98f80402e787",
+                        "target": "entity_a436ac4c1221807a",
+                        "type": "supplier_link",
+                        "data": {
+                                "description": "Shared supplier relationship: NORTHVOLT (VOLVO, NORTHVOLT)",
+                                "confidence": 0.95,
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "supplier_022a025a354acbfe",
+                        "source": "entity_cbba98f80402e787",
+                        "target": "entity_9d492ea635bf0ef0",
+                        "type": "supplier_link",
+                        "data": {
+                                "description": "Shared supplier relationship: BOSCH (VOLVO, BREMBO, CONTINENTAL AG, KNORR-BREMSE, PIRELLI, BOSCH)",
+                                "confidence": 0.95,
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "supplier_f5a50444b294df52",
+                        "source": "entity_bcb48dddff8c14b5",
+                        "target": "entity_1680b49c176b01c2",
+                        "type": "supplier_link",
+                        "data": {
+                                "description": "Shared supplier relationship: CONTINENTAL (BMW, VOLKSWAGEN, VOLVO, CONTINENTAL AG, PIRELLI, SCHAEFFLER, Audi, LG-ENERGY)",
+                                "confidence": 0.95,
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "supplier_a5af71d237e95563",
+                        "source": "entity_d02194dc8859a0ed",
+                        "target": "entity_9aea2d982828c597",
+                        "type": "supplier_link",
+                        "data": {
+                                "description": "Shared supplier relationship: ZF (AUTOLIV_INC, CONTINENTAL AG, HELLA, KNORR-BREMSE)",
+                                "confidence": 0.95,
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "supplier_3972cc949ed45d59",
+                        "source": "entity_bcb48dddff8c14b5",
+                        "target": "entity_6b1ce1675f9141cb",
+                        "type": "supplier_link",
+                        "data": {
+                                "description": "Shared supplier relationship: MAGNA (BMW, FERRARI, PIRELLI)",
+                                "confidence": 0.95,
+                                "color": "#EF5350"
+                        }
+                },
+                {
+                        "id": "tech_d1692559f235bfbf",
+                        "source": "entity_bcb48dddff8c14b5",
+                        "target": "entity_cbba98f80402e787",
+                        "type": "technology_partner_link",
+                        "data": {
+                                "description": "Shared technology_partner relationship: QUALCOMM (BMW, VOLVO, VALEO, RENAULT)",
+                                "confidence": 0.95,
+                                "color": "#7C4DFF"
+                        }
+                },
+                {
+                        "id": "tech_ac80b5751aaf5c2b",
+                        "source": "entity_bcb48dddff8c14b5",
+                        "target": "entity_1680b49c176b01c2",
+                        "type": "technology_partner_link",
+                        "data": {
+                                "description": "Shared technology_partner relationship: INTEL (BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT)",
+                                "confidence": 0.95,
+                                "color": "#7C4DFF"
+                        }
+                },
+                {
+                        "id": "tech_147eb5e6da886754",
+                        "source": "entity_cbba98f80402e787",
+                        "target": "entity_92b457e4c4f13dba",
+                        "type": "technology_partner_link",
+                        "data": {
+                                "description": "Shared technology_partner relationship: MICROSOFT (VOLVO, Audi, HOWDEN)",
+                                "confidence": 0.92,
+                                "color": "#7C4DFF"
+                        }
+                },
+                {
+                        "id": "tech_d4dccdf72b8e9250",
+                        "source": "entity_bcb48dddff8c14b5",
+                        "target": "entity_cbba98f80402e787",
+                        "type": "technology_partner_link",
+                        "data": {
+                                "description": "Shared technology_partner relationship: GOOGLE (BMW, VOLVO, VALEO, RENAULT)",
+                                "confidence": 0.95,
+                                "color": "#7C4DFF"
+                        }
+                },
+                {
+                        "id": "tech_5759cbf56114024f",
+                        "source": "entity_7fd64ca5ae7eba35",
+                        "target": "entity_68b01ab88711d367",
+                        "type": "technology_partner_link",
+                        "data": {
+                                "description": "Shared technology_partner relationship: AMAZON (STELLANTIS, PIRELLI)",
+                                "confidence": 0.8300000000000001,
+                                "color": "#7C4DFF"
+                        }
+                },
+                {
+                        "id": "tech_b52a02f16ed52e3b",
+                        "source": "entity_1680b49c176b01c2",
+                        "target": "entity_6b1ce1675f9141cb",
+                        "type": "technology_partner_link",
+                        "data": {
+                                "description": "Shared technology_partner relationship: SIEMENS (VOLKSWAGEN, FERRARI, CONTINENTAL AG)",
+                                "confidence": 0.95,
+                                "color": "#7C4DFF"
+                        }
+                },
+                {
+                        "id": "tech_82575ae4a56512a3",
+                        "source": "entity_bcb48dddff8c14b5",
+                        "target": "entity_6b1ce1675f9141cb",
+                        "type": "technology_partner_link",
+                        "data": {
+                                "description": "Shared technology_partner relationship: ABB (BMW, FERRARI, AUTOLIV_INC, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, CONTINENTAL AG, MERCEDES, HELLA, SCHAEFFLER, Audi, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, RENAULT)",
+                                "confidence": 0.95,
+                                "color": "#7C4DFF"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_0_entity_bcb48dddff8c14b5",
+                        "source": "entity_bcb48dddff8c14b5",
+                        "target": "commitment_hub_0",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2050: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7148118706942236,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_0_entity_1680b49c176b01c2",
+                        "source": "entity_1680b49c176b01c2",
+                        "target": "commitment_hub_0",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2050: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7148118706942236,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_0_entity_6b1ce1675f9141cb",
+                        "source": "entity_6b1ce1675f9141cb",
+                        "target": "commitment_hub_0",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2050: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7148118706942236,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_0_entity_d02194dc8859a0ed",
+                        "source": "entity_d02194dc8859a0ed",
+                        "target": "commitment_hub_0",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2050: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7148118706942236,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_0_entity_fccb1796002a5db9",
+                        "source": "entity_fccb1796002a5db9",
+                        "target": "commitment_hub_0",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2050: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7148118706942236,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_0_entity_cbba98f80402e787",
+                        "source": "entity_cbba98f80402e787",
+                        "target": "commitment_hub_0",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2050: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7148118706942236,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_0_entity_be7979e8e8af20cd",
+                        "source": "entity_be7979e8e8af20cd",
+                        "target": "commitment_hub_0",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2050: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7148118706942236,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_0_entity_8ca14db8752b6f53",
+                        "source": "entity_8ca14db8752b6f53",
+                        "target": "commitment_hub_0",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2050: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7148118706942236,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_0_entity_7fd64ca5ae7eba35",
+                        "source": "entity_7fd64ca5ae7eba35",
+                        "target": "commitment_hub_0",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2050: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7148118706942236,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_0_entity_8bbeef74f6eddddf",
+                        "source": "entity_8bbeef74f6eddddf",
+                        "target": "commitment_hub_0",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2050: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7148118706942236,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_1_entity_bcb48dddff8c14b5",
+                        "source": "entity_bcb48dddff8c14b5",
+                        "target": "commitment_hub_1",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2030: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7250132485426602,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_1_entity_1680b49c176b01c2",
+                        "source": "entity_1680b49c176b01c2",
+                        "target": "commitment_hub_1",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2030: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7250132485426602,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_1_entity_6b1ce1675f9141cb",
+                        "source": "entity_6b1ce1675f9141cb",
+                        "target": "commitment_hub_1",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2030: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7250132485426602,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_1_entity_d02194dc8859a0ed",
+                        "source": "entity_d02194dc8859a0ed",
+                        "target": "commitment_hub_1",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2030: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7250132485426602,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_1_entity_fccb1796002a5db9",
+                        "source": "entity_fccb1796002a5db9",
+                        "target": "commitment_hub_1",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2030: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7250132485426602,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_1_entity_cbba98f80402e787",
+                        "source": "entity_cbba98f80402e787",
+                        "target": "commitment_hub_1",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2030: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7250132485426602,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_1_entity_be7979e8e8af20cd",
+                        "source": "entity_be7979e8e8af20cd",
+                        "target": "commitment_hub_1",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2030: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7250132485426602,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_1_entity_8ca14db8752b6f53",
+                        "source": "entity_8ca14db8752b6f53",
+                        "target": "commitment_hub_1",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2030: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7250132485426602,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_1_entity_7fd64ca5ae7eba35",
+                        "source": "entity_7fd64ca5ae7eba35",
+                        "target": "commitment_hub_1",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2030: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7250132485426602,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_1_entity_8bbeef74f6eddddf",
+                        "source": "entity_8bbeef74f6eddddf",
+                        "target": "commitment_hub_1",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2030: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7250132485426602,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_2_entity_bcb48dddff8c14b5",
+                        "source": "entity_bcb48dddff8c14b5",
+                        "target": "commitment_hub_2",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2040: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.713751987281399,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_2_entity_1680b49c176b01c2",
+                        "source": "entity_1680b49c176b01c2",
+                        "target": "commitment_hub_2",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2040: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.713751987281399,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_2_entity_6b1ce1675f9141cb",
+                        "source": "entity_6b1ce1675f9141cb",
+                        "target": "commitment_hub_2",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2040: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.713751987281399,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_2_entity_d02194dc8859a0ed",
+                        "source": "entity_d02194dc8859a0ed",
+                        "target": "commitment_hub_2",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2040: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.713751987281399,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_2_entity_fccb1796002a5db9",
+                        "source": "entity_fccb1796002a5db9",
+                        "target": "commitment_hub_2",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2040: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.713751987281399,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_2_entity_cbba98f80402e787",
+                        "source": "entity_cbba98f80402e787",
+                        "target": "commitment_hub_2",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2040: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.713751987281399,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_2_entity_be7979e8e8af20cd",
+                        "source": "entity_be7979e8e8af20cd",
+                        "target": "commitment_hub_2",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2040: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.713751987281399,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_2_entity_8ca14db8752b6f53",
+                        "source": "entity_8ca14db8752b6f53",
+                        "target": "commitment_hub_2",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2040: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.713751987281399,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_2_entity_7fd64ca5ae7eba35",
+                        "source": "entity_7fd64ca5ae7eba35",
+                        "target": "commitment_hub_2",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2040: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.713751987281399,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_2_entity_8bbeef74f6eddddf",
+                        "source": "entity_8bbeef74f6eddddf",
+                        "target": "commitment_hub_2",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared net zero 2040: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, ARCELOR-MITTAL, ARCELOR-MITTAL-GEMINI-ENHANCED, CATL, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.713751987281399,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_3_entity_bcb48dddff8c14b5",
+                        "source": "entity_bcb48dddff8c14b5",
+                        "target": "commitment_hub_3",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared science based targets: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7056867417677642,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_3_entity_1680b49c176b01c2",
+                        "source": "entity_1680b49c176b01c2",
+                        "target": "commitment_hub_3",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared science based targets: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7056867417677642,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_3_entity_6b1ce1675f9141cb",
+                        "source": "entity_6b1ce1675f9141cb",
+                        "target": "commitment_hub_3",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared science based targets: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7056867417677642,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_3_entity_d02194dc8859a0ed",
+                        "source": "entity_d02194dc8859a0ed",
+                        "target": "commitment_hub_3",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared science based targets: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7056867417677642,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_3_entity_fccb1796002a5db9",
+                        "source": "entity_fccb1796002a5db9",
+                        "target": "commitment_hub_3",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared science based targets: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7056867417677642,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_3_entity_cbba98f80402e787",
+                        "source": "entity_cbba98f80402e787",
+                        "target": "commitment_hub_3",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared science based targets: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7056867417677642,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_3_entity_be7979e8e8af20cd",
+                        "source": "entity_be7979e8e8af20cd",
+                        "target": "commitment_hub_3",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared science based targets: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7056867417677642,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_3_entity_8ca14db8752b6f53",
+                        "source": "entity_8ca14db8752b6f53",
+                        "target": "commitment_hub_3",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared science based targets: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7056867417677642,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_3_entity_7fd64ca5ae7eba35",
+                        "source": "entity_7fd64ca5ae7eba35",
+                        "target": "commitment_hub_3",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared science based targets: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7056867417677642,
+                                "color": "#26A69A"
+                        }
+                },
+                {
+                        "id": "commitment_commitment_hub_3_entity_8bbeef74f6eddddf",
+                        "source": "entity_8bbeef74f6eddddf",
+                        "target": "commitment_hub_3",
+                        "type": "shared_commitment",
+                        "data": {
+                                "description": "Shared science based targets: BMW, VOLKSWAGEN, FERRARI, AUTOLIV_INC, OTOKAR, VOLVO, PORSCHE, FORD-OTOMOTIV, STELLANTIS, POLESTAR, BREMBO, CONTINENTAL AG, FORVIA_SE, MERCEDES, HELLA, KNORR-BREMSE, PIRELLI, SCHAEFFLER, VALEO, ADIENT, Audi, HOWDEN, LG-ENERGY, SAMSUNG-SDI, BOSCH, RENAULT",
+                                "confidence": 0.7056867417677642,
+                                "color": "#26A69A"
+                        }
+                }
+        ],
+        "metadata": {
+                "source": "HyperGraph RAG with Relationships",
+                "converted_at": "2025-11-10T00:17:33.448256",
+                "entity_count": 30,
+                "hyperedge_count": 67,
+                "node_count": 39,
+                "connection_count": 85,
+                "tier_count": 5,
+                "supplier_links": 8,
+                "tech_partner_links": 7,
+                "shared_commitments": 4,
+                "layout": "tier_based_with_relationships"
+        }
+};
+        
+        // Create nodes
+        const nodes = new vis.DataSet(
+            vyuhData.nodes.map(node => {
+                const isHub = node.type === 'tier_hub' || node.type === 'commitment_hub';
+                const nodeColor = node.data.color || '#1976D2';
+                
+                return {
+                    id: node.id,
+                    label: node.data.name || node.id,
+                    x: node.position.x,
+                    y: node.position.y,
+                    color: {
+                        background: nodeColor,
+                        border: nodeColor === '#EF5350' ? '#C62828' : 
+                                nodeColor === '#FF9800' ? '#E65100' :
+                                nodeColor === '#4CAF50' ? '#2E7D32' :
+                                nodeColor === '#2196F3' ? '#1565C0' :
+                                nodeColor === '#9C27B0' ? '#6A1B9A' :
+                                nodeColor === '#26A69A' ? '#00695C' : '#0D47A1',
+                        highlight: {
+                            background: nodeColor,
+                            border: '#000'
+                        }
+                    },
+                    shape: isHub ? 'diamond' : 'dot',
+                    size: isHub ? 25 : 18,
+                    borderWidth: 2,
+                    font: {
+                        size: 13,
+                        color: '#333'
+                    },
+                    title: `
+                        <strong>${node.data.name}</strong><br>
+                        Type: ${node.type}<br>
+                        ${node.data.tier ? `Tier: ${node.data.tier}<br>` : ''}
+                        ${node.data.company_count ? `Companies: ${node.data.company_count}<br>` : ''}
+                        ${node.data.confidence ? `Confidence: ${(node.data.confidence * 100).toFixed(1)}%<br>` : ''}
+                    `
+                };
+            })
+        );
+        
+        // Create edges with different styles
+        const edges = new vis.DataSet(
+            vyuhData.connections.map(conn => {
+                const connType = conn.type;
+                const connColor = conn.data?.color || '#BDBDBD';
+                
+                let edgeStyle = {
+                    color: connColor,
+                    width: 2,
+                    smooth: { type: 'continuous', roundness: 0.5 }
+                };
+                
+                // Different styles for different relationship types
+                if (connType === 'supplier_link') {
+                    edgeStyle.width = 3;
+                    edgeStyle.dashes = false;
+                    edgeStyle.arrows = 'to';
+                } else if (connType === 'technology_partner_link') {
+                    edgeStyle.width = 2;
+                    edgeStyle.dashes = [5, 5];
+                    edgeStyle.arrows = 'to';
+                } else if (connType === 'shared_commitment') {
+                    edgeStyle.width = 2;
+                    edgeStyle.dashes = [10, 5];
+                    edgeStyle.arrows = 'to';
+                } else {
+                    edgeStyle.width = 1;
+                    edgeStyle.dashes = false;
+                }
+                
+                return {
+                    id: conn.id,
+                    from: conn.source,
+                    to: conn.target,
+                    ...edgeStyle,
+                    title: conn.data?.description || connType
+                };
+            })
+        );
+        
+        // Create network
+        const container = document.getElementById('graph-container');
+        const data = { nodes: nodes, edges: edges };
+        
+        const options = {
+            nodes: {
+                font: { size: 13, color: '#333' },
+                shadow: { enabled: true }
+            },
+            edges: {
+                shadow: { enabled: true }
+            },
+            physics: {
+                enabled: true,
+                stabilization: { iterations: 200 },
+                barnesHut: {
+                    gravitationalConstant: -2000,
+                    centralGravity: 0.1,
+                    springLength: 200,
+                    springConstant: 0.05,
+                    damping: 0.09
+                }
+            },
+            interaction: {
+                hover: true,
+                tooltipDelay: 100,
+                zoomView: true,
+                dragView: true
+            }
+        };
+        
+        const network = new vis.Network(container, data, options);
+        
+        // Fit to view
+        network.once('stabilizationEnd', () => {
+            network.fit({ animation: { duration: 1000 } });
+        });
+    </script>
+</body>
+</html>

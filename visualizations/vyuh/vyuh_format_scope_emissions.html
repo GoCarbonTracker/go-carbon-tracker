@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Scope 1, 2, 3 Emissions Visualization</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            margin-bottom: 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .title {
+            margin: 0 0 15px 0;
+            font-size: 24px;
+            color: white;
+            text-align: center;
+            font-weight: bold;
+        }
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .stat {
+            background: rgba(255,255,255,0.2);
+            padding: 10px 15px;
+            border-radius: 6px;
+            backdrop-filter: blur(10px);
+        }
+        .stat-label {
+            font-size: 12px;
+            color: rgba(255,255,255,0.9);
+            margin-bottom: 5px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: white;
+        }
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+            font-size: 13px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: white;
+        }
+        .legend-item span {
+            color: white;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+        .main-content {
+            display: flex;
+            gap: 0;
+            height: calc(100vh - 180px);
+            position: relative;
+        }
+        .graph-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            min-width: 0;
+            height: 100%;
+        }
+        .tutorial-sidebar {
+            width: 380px;
+            background: white;
+            padding: 20px;
+            border-left: 2px solid #e0e0e0;
+            overflow-y: auto;
+            position: relative;
+            box-shadow: -2px 0 8px rgba(0,0,0,0.05);
+        }
+        .sidebar-toggle {
+            position: absolute;
+            left: -20px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #1976D2;
+            color: white;
+            border: none;
+            border-radius: 4px 0 0 4px;
+            padding: 10px 5px;
+            cursor: pointer;
+            z-index: 1000;
+            box-shadow: -2px 0 4px rgba(0,0,0,0.1);
+        }
+        .tutorial-sidebar.collapsed {
+            width: 0;
+            padding: 0;
+            overflow: hidden;
+            border: none;
+        }
+        .tutorial-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #1a1a1a;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        .example-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .example-card:hover {
+            border-color: #1976D2;
+            background: #f5f5f5;
+            transform: translateX(-2px);
+        }
+        .example-card.active {
+            border-color: #1976D2;
+            background: #e3f2fd;
+        }
+        #graph-container {
+            flex: 1;
+            background: white;
+            min-height: 0;
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+        #explanation-box {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            max-width: 600px;
+            background: rgba(255, 249, 196, 0.95);
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #fbc02d;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+        .filters-bar {
+            background: #f8f9fa;
+            padding: 12px 20px;
+            border-bottom: 1px solid #e0e0e0;
+            flex-shrink: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1 class="title">🌍 Scope 1, 2, 3 Emissions Visualization</h1>
+        
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-label">Total Nodes</div>
+                <div class="stat-value">38</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Connections</div>
+                <div class="stat-value">173</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Scope 1 Companies</div>
+                <div class="stat-value">31</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Scope 2 Companies</div>
+                <div class="stat-value">29</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Scope 3 Companies</div>
+                <div class="stat-value">31</div>
+            </div>
+        </div>
+        
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: #E53935;"></div>
+                <span><strong>Scope 1</strong> - Direct Emissions</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #FB8C00;"></div>
+                <span><strong>Scope 2</strong> - Indirect Energy</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #43A047;"></div>
+                <span><strong>Scope 3</strong> - Value Chain</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #EF5350;"></div>
+                <span><strong>OEM</strong> - Car Makers</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #FF9800;"></div>
+                <span><strong>Tier 1</strong> - Direct Suppliers</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="main-content">
+        <div class="graph-wrapper">
+            <div class="filters-bar">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <div style="font-weight: bold; color: #333; font-size: 14px;">🎯 Connection Filters:</div>
+                    <div style="font-size: 11px; color: #666;">💡 Default: ~90 scope connections shown | OEM relationships hidden</div>
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button onclick="showSimplifiedView()" style="padding: 6px 12px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; font-size: 12px;">✨ Scope Connections</button>
+                    <button onclick="showScope3Only()" style="padding: 6px 12px; background: #43A047; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; font-size: 12px;">Scope 3</button>
+                    <button onclick="showScope1Only()" style="padding: 6px 12px; background: #E53935; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; font-size: 12px;">Scope 1</button>
+                    <button onclick="showScope2Only()" style="padding: 6px 12px; background: #FB8C00; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; font-size: 12px;">Scope 2</button>
+                    <button onclick="filterOEMsOnly()" style="padding: 6px 12px; background: #EF5350; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; font-size: 12px;">OEMs Only</button>
+                    <button onclick="showOEMRelationships()" style="padding: 6px 12px; background: #9C27B0; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; font-size: 12px;">Show OEM Links</button>
+                    <button onclick="showAll()" style="padding: 6px 12px; background: #1976D2; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; font-size: 12px;">Show All</button>
+                </div>
+            </div>
+            <div id="graph-container"></div>
+            <div id="explanation-box" style="display: none;"></div>
+        </div>
+        
+        <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle Examples Panel">☰</button>
+        <div class="tutorial-sidebar" id="tutorial-sidebar">
+            <div class="tutorial-title">🔬 Analytical Examples</div>
+            <div id="example-list">
+                <div class="example-card" onclick="startExample('scope1_basics', event)">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Scope 1: Direct Emissions Analysis</div>
+                    <div style="font-size: 13px; color: #666;">GHG Protocol direct emissions: stationary/mobile combustion, fugitive, process</div>
+                    <div style="margin-top: 6px; font-size: 11px; color: #1976D2;">TECHNICAL • 3 steps</div>
+                </div>
+                
+                <div class="example-card" onclick="startExample('scope2_basics', event)">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Scope 2: Market vs Location-Based</div>
+                    <div style="font-size: 13px; color: #666;">Dual accounting methods: supplier-specific factors vs grid averages</div>
+                    <div style="margin-top: 6px; font-size: 11px; color: #1976D2;">TECHNICAL • 3 steps</div>
+                </div>
+                
+                <div class="example-card" onclick="startExample('scope3_basics', event)">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Scope 3: Value Chain Dominance</div>
+                    <div style="font-size: 13px; color: #666;">15-category analysis: Category 11 (use phase) represents 70-90%</div>
+                    <div style="margin-top: 6px; font-size: 11px; color: #1976D2;">TECHNICAL • 4 steps</div>
+                </div>
+                
+                <div class="example-card" onclick="startExample('all_scopes', event)">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Multi-Scope Architecture</div>
+                    <div style="font-size: 13px; color: #666;">Hub-and-spoke topology: reporting completeness and scope coverage patterns</div>
+                    <div style="margin-top: 6px; font-size: 11px; color: #1976D2;">TECHNICAL • 5 steps</div>
+                </div>
+                
+                <div class="example-card" onclick="startExample('scope_by_tier', event)">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Tier-Based Reporting Maturity</div>
+                    <div style="font-size: 13px; color: #666;">Reporting gradient analysis: OEM (100%) > Tier 1 (70-85%) > Tier 2 (40-60%)</div>
+                    <div style="margin-top: 6px; font-size: 11px; color: #1976D2;">ANALYTICAL • 6 steps</div>
+                </div>
+                
+                <div class="example-card" onclick="startExample('bmw_scopes', event)">
+                    <div style="font-weight: bold; margin-bottom: 5px;">BMW: Emissions Profile Decomposition</div>
+                    <div style="font-size: 13px; color: #666;">SBTi-validated pathway: Scope breakdown, Category 11 dominance, electrification strategy</div>
+                    <div style="margin-top: 6px; font-size: 11px; color: #1976D2;">ANALYTICAL • 7 steps</div>
+                </div>
+                
+                <div class="example-card" onclick="startExample('oem_relationships', event)">
+                    <div style="font-weight: bold; margin-bottom: 5px;">OEM Hyperedge Network Analysis</div>
+                    <div style="font-size: 13px; color: #666;">TF-IDF similarity, pattern discovery, confidence scoring, network topology</div>
+                    <div style="margin-top: 6px; font-size: 11px; color: #1976D2;">ADVANCED • 6 steps</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script type="text/javascript">
+        // Wait for vis-network library to load
+        function initVisualization(vyuhData) {
+            if (typeof vis === 'undefined') {
+                console.error('vis-network library not loaded!');
+                document.getElementById('graph-container').innerHTML = '<div style="padding: 20px; color: red;">Error: vis-network library failed to load. Please check your internet connection.</div>';
+                return;
+            }
+            
+            console.log('vis-network loaded, initializing...');
+            console.log('Data loaded:', vyuhData ? 'Yes' : 'No', vyuhData ? Object.keys(vyuhData) : '');
+            
+            if (!vyuhData || !vyuhData.nodes || !vyuhData.connections) {
+                console.error('Invalid data structure:', vyuhData);
+                document.getElementById('graph-container').innerHTML = '<div style="padding: 20px; color: red;">Error: Invalid data structure</div>';
+                return;
+            }
+            
+            // Create nodes (global scope for filter functions)
+            window.nodes = new vis.DataSet(
+            vyuhData.nodes.map(node => {
+                const isHub = node.type === 'tier_hub' || node.type === 'scope_hub';
+                const nodeColor = node.data.color || '#1976D2';
+                
+                let nodeSize = 18;
+                if (node.type === 'tier_hub') nodeSize = 25;
+                if (node.type === 'scope_hub') nodeSize = 30;
+                
+                let nodeShape = 'dot';
+                if (node.type === 'tier_hub') nodeShape = 'diamond';
+                if (node.type === 'scope_hub') nodeShape = 'box';
+                
+                return {
+                    id: node.id,
+                    label: node.data.name || node.id,
+                    x: node.position.x,
+                    y: node.position.y,
+                    color: {
+                        background: nodeColor,
+                        border: nodeColor === '#E53935' ? '#B71C1C' : 
+                                nodeColor === '#FB8C00' ? '#E65100' :
+                                nodeColor === '#43A047' ? '#2E7D32' :
+                                nodeColor === '#EF5350' ? '#C62828' : 
+                                nodeColor === '#FF9800' ? '#E65100' :
+                                nodeColor === '#4CAF50' ? '#2E7D32' :
+                                nodeColor === '#2196F3' ? '#1565C0' :
+                                nodeColor === '#9C27B0' ? '#6A1B9A' : '#0D47A1',
+                        highlight: {
+                            background: nodeColor,
+                            border: '#000'
+                        }
+                    },
+                    shape: nodeShape,
+                    size: nodeSize,
+                    borderWidth: 2,
+                    font: {
+                        size: 13,
+                        color: '#333'
+                    },
+                    title: `
+                        <strong>${node.data.name}</strong><br>
+                        Type: ${node.type}<br>
+                        ${node.data.tier ? `Tier: ${node.data.tier}<br>` : ''}
+                        ${node.data.scope ? `Scope: ${node.data.scope}<br>` : ''}
+                        ${node.data.company_count ? `Companies: ${node.data.company_count}<br>` : ''}
+                        ${node.data.description ? `${node.data.description}<br>` : ''}
+                        ${node.data.emissions ? `
+                            ${node.data.emissions.scope_1 ? `Scope 1: ${node.data.emissions.scope_1} Mt CO2e<br>` : ''}
+                            ${node.data.emissions.scope_2 ? `Scope 2: ${node.data.emissions.scope_2} Mt CO2e<br>` : ''}
+                            ${node.data.emissions.scope_3 ? `Scope 3: ${node.data.emissions.scope_3} Mt CO2e<br>` : ''}
+                        ` : ''}
+                    `
+                };
+            })
+        );
+        
+        // Create edges (global scope for filter functions)
+        window.edges = new vis.DataSet(
+            vyuhData.connections.map(conn => {
+                const connType = conn.type;
+                const connColor = conn.data?.color || '#BDBDBD';
+                
+                let edgeStyle = {
+                    color: connColor,
+                    width: 2,
+                    smooth: { type: 'continuous', roundness: 0.5 }
+                };
+                
+                if (connType === 'reports_scope') {
+                    edgeStyle.width = 2;  // Thinner for less clutter
+                    edgeStyle.dashes = [8, 4];  // Shorter dashes
+                    edgeStyle.arrows = 'to';
+                    edgeStyle.opacity = 0.6;  // More transparent
+                } else if (connType === 'tier_membership') {
+                    edgeStyle.width = 0.5;  // Very thin
+                    edgeStyle.dashes = false;
+                    edgeStyle.opacity = 0.2;  // Very transparent
+                } else if (connType === 'oem_relationship') {
+                    edgeStyle.width = 2.5;  // Thinner
+                    edgeStyle.dashes = false;
+                    edgeStyle.arrows = 'to';
+                    edgeStyle.smooth = { type: 'curvedCW', roundness: 0.3 };
+                    edgeStyle.opacity = 0.5;  // More transparent
+                }
+                
+                return {
+                    id: conn.id,
+                    from: conn.source,
+                    to: conn.target,
+                    ...edgeStyle,
+                    title: conn.data?.description || connType
+                };
+            })
+        );
+        
+        // Create network
+        const container = document.getElementById('graph-container');
+        if (!container) {
+            console.error('Graph container not found!');
+            console.error('Available elements:', document.querySelectorAll('div[id]'));
+            return;
+        }
+        
+        console.log('Graph container found, creating network...');
+        console.log('Nodes:', window.nodes.length, 'Edges:', window.edges.length);
+        
+        const data = { nodes: window.nodes, edges: window.edges };
+        
+        const options = {
+            nodes: {
+                font: { size: 13, color: '#333' },
+                shadow: { enabled: true }
+            },
+            edges: {
+                shadow: { enabled: true }
+            },
+            physics: {
+                enabled: true,
+                stabilization: { iterations: 50 },  // Faster stabilization
+                barnesHut: {
+                    gravitationalConstant: -4000,  // Stronger clustering
+                    centralGravity: 0.3,  // Tighter grouping
+                    springLength: 400,  // More spacing
+                    springConstant: 0.02,  // Softer springs
+                    damping: 0.2  // More damping for stability
+                }
+            },
+            interaction: {
+                hover: true,
+                tooltipDelay: 100,
+                zoomView: true,
+                dragView: true
+            }
+        };
+        
+        let network;
+        try {
+            network = new vis.Network(container, data, options);
+        } catch (error) {
+            console.error('Error creating network:', error);
+            container.innerHTML = '<div style="padding: 20px; color: red;">Error loading graph: ' + error.message + '</div>';
+            return;
+        }
+        
+        // Make network available globally for filter functions
+        window.network = network;
+        
+        // Advanced analytical examples
+        const tutorialExamples = {
+            scope1_basics: {
+                title: "Scope 1: Direct Emissions Analysis",
+                steps: [
+                    {
+                        nodes: ["scope_hub_scope_1"],
+                        explanation: "Scope 1 hub aggregates direct GHG emissions from owned/controlled sources. In automotive: stationary combustion (manufacturing), mobile combustion (fleet), fugitive emissions (refrigerants), and process emissions (chemical reactions)."
+                    },
+                    {
+                        nodes: ["scope_hub_scope_1"],
+                        connections: [],
+                        explanation: "31 companies report Scope 1. For OEMs, this typically represents 1-5% of total emissions. The hub pattern reveals reporting completeness: companies with Scope 1+2+3 connections demonstrate full GHG Protocol compliance."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Scope 1 intensity metrics (tCO2e/revenue or tCO2e/vehicle) vary significantly by manufacturing footprint. European OEMs show lower Scope 1 due to renewable energy adoption, while emerging market manufacturers exhibit higher direct emissions."
+                    }
+                ]
+            },
+            scope2_basics: {
+                title: "Scope 2: Market vs Location-Based Accounting",
+                steps: [
+                    {
+                        nodes: ["scope_hub_scope_2"],
+                        explanation: "Scope 2 hub represents indirect emissions from purchased energy. Critical distinction: market-based accounting (supplier-specific factors, RECs, PPAs) vs location-based (grid average factors)."
+                    },
+                    {
+                        nodes: ["scope_hub_scope_2"],
+                        connections: [],
+                        explanation: "29 companies report Scope 2. The gap between 31 Scope 1 reporters and 29 Scope 2 reporters suggests 2 companies may have 100% renewable energy (zero Scope 2 market-based) or incomplete reporting."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Market-based Scope 2 enables companies with renewable energy contracts to report near-zero emissions, while location-based reveals grid impact. Dual reporting provides transparency for stakeholder analysis."
+                    }
+                ]
+            },
+            scope3_basics: {
+                title: "Scope 3: Value Chain Emissions Dominance",
+                steps: [
+                    {
+                        nodes: ["scope_hub_scope_3"],
+                        explanation: "Scope 3 hub encompasses all indirect emissions across 15 categories per GHG Protocol. For automotive: Category 11 (use of sold products) dominates, representing 70-90% of total Scope 3."
+                    },
+                    {
+                        nodes: ["scope_hub_scope_3"],
+                        connections: [],
+                        explanation: "31 companies report Scope 3. The universal reporting (matching Scope 1 count) indicates industry maturity. Scope 3 typically represents 90-99% of automotive total emissions, making it the primary decarbonization lever."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Scope 3 hotspots: Category 1 (purchased goods/services), Category 11 (use phase), Category 12 (end-of-life). Electrification directly impacts Category 11, while circular economy strategies target Category 12."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Reporting completeness varies: OEMs report 8-12 categories, Tier 1 suppliers report 3-6 categories. This asymmetry reflects regulatory pressure and supply chain transparency requirements."
+                    }
+                ]
+            },
+            all_scopes: {
+                title: "Multi-Scope Emissions Architecture",
+                steps: [
+                    {
+                        nodes: ["scope_hub_scope_1", "scope_hub_scope_2", "scope_hub_scope_3"],
+                        explanation: "Three-scope architecture enables comprehensive carbon accounting. The hub-and-spoke topology reveals reporting patterns: companies with all three connections demonstrate full GHG Protocol compliance."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Scope 1 (red): Direct emissions, typically 1-5% of total. Controllable through operational efficiency, fuel switching, and process optimization."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Scope 2 (orange): Indirect energy, typically 1-3% of total. Reducible through renewable energy procurement (market-based) or grid decarbonization (location-based)."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Scope 3 (green): Value chain, typically 90-99% of total. Requires systemic interventions: product design (Category 11), supply chain engagement (Category 1), and circular economy (Category 12)."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "The visualization reveals scope coverage asymmetry: OEMs show comprehensive reporting (all scopes), while suppliers demonstrate partial coverage. This reflects regulatory pressure gradients and disclosure maturity."
+                    }
+                ]
+            },
+            scope_by_tier: {
+                title: "Tier-Based Reporting Maturity Analysis",
+                steps: [
+                    {
+                        nodes: ["tier_hub_OEM"],
+                        explanation: "OEM tier demonstrates highest reporting maturity: 100% report all three scopes. This reflects CSRD, TCFD, and SEC Climate Rule requirements targeting publicly traded companies."
+                    },
+                    {
+                        nodes: ["scope_hub_scope_1", "tier_hub_OEM"],
+                        explanation: "OEM Scope 1+2 reporting is universal due to operational control and regulatory mandates. Scope 3 reporting completeness varies: European OEMs report 10-12 categories, while some report 8-9 categories."
+                    },
+                    {
+                        nodes: ["tier_hub_Tier_1", "scope_hub_scope_1"],
+                        explanation: "Tier 1 suppliers show partial reporting: 85-90% report Scope 1+2, but only 60-70% report Scope 3. This gap reflects customer pressure (OEM requirements) vs regulatory mandates."
+                    },
+                    {
+                        nodes: ["tier_hub_Tier_2", "scope_hub_scope_3"],
+                        explanation: "Tier 2 suppliers (battery, electronics) show emerging Scope 3 reporting driven by OEM due diligence requirements. Critical materials (lithium, cobalt) face increasing transparency demands."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Reporting maturity gradient: OEM (100%) > Tier 1 (70-85%) > Tier 2 (40-60%) > Tier 3 (20-30%). This reflects regulatory pressure, customer requirements, and disclosure infrastructure."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Supply chain transparency initiatives (CDP Supply Chain, SBTi FLAG) are accelerating Tier 1-2 reporting. By 2026, expect 80%+ Tier 1 Scope 3 reporting driven by CSRD value chain requirements."
+                    }
+                ]
+            },
+            bmw_scopes: {
+                title: "BMW Group: Emissions Profile Decomposition",
+                steps: [
+                    {
+                        nodes: [],
+                        explanation: "BMW Group demonstrates comprehensive GHG Protocol compliance: all three scopes reported with SBTi validation. Scope breakdown: Scope 1 (2%), Scope 2 (1%), Scope 3 (97%)."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Scope 1: Manufacturing operations (paint shops, assembly), fleet vehicles, and facilities. BMW's Scope 1 reduction strategy focuses on electrification of manufacturing processes and renewable energy integration."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Scope 2: Market-based accounting shows near-zero emissions due to 100% renewable electricity contracts. Location-based reveals grid impact for transparency."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Scope 3: Category 11 (use phase) dominates at ~85% of Scope 3. BMW's electrification strategy directly targets this: BEV reduces use-phase emissions by 70-90% vs ICE (well-to-wheel)."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Scope 3 Category 1 (purchased goods): Battery supply chain (CATL, Northvolt) represents largest upstream impact. BMW's supplier engagement program targets Scope 3 reduction through renewable energy requirements."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "BMW's net-zero pathway: Scope 1+2 reduction through renewable energy (2025 target), Scope 3 reduction through electrification (50% BEV by 2030), and circular economy (95% recyclability target)."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "The visualization reveals BMW's hyperedge connections: shared net-zero commitments with Mercedes, VW (industry alignment), and supply chain relationships with CATL, Northvolt (battery partnerships)."
+                    }
+                ]
+            },
+            oem_relationships: {
+                title: "OEM Hyperedge Network: Pattern Discovery",
+                steps: [
+                    {
+                        nodes: ["tier_hub_OEM"],
+                        explanation: "OEM hyperedge network reveals semantic relationships discovered through TF-IDF similarity and pattern matching. The network topology shows clustering patterns: shared commitments, supply chain overlaps, and strategic alignments."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Relationship types: Green edges = shared net-zero commitments (SBTi-validated targets), Cyan = partnerships (battery JVs, charging infrastructure), Orange = supply chain overlaps (common suppliers), Purple = industry peer relationships."
+                    },
+                    {
+                        nodes: [],
+                        connections: [],
+                        explanation: "The hyperedge discovery algorithm identifies multi-entity relationships: when 2+ OEMs share patterns (e.g., 'net zero 2050', 'supplier engagement', 'battery technology'), a hyperedge is created. Confidence scores (0.5-1.0) reflect evidence density."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Network analysis reveals industry clusters: German OEMs (BMW, Mercedes, VW) show high interconnectivity due to shared suppliers and regulatory environment. Ferrari shows isolated position due to unique positioning (luxury, performance)."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Hyperedge confidence distribution: Strong (90%+) = validated SBTi targets, Moderate (70-90%) = shared strategies, Weak (50-70%) = industry peer relationships. Filter by confidence to identify high-signal relationships."
+                    },
+                    {
+                        nodes: [],
+                        explanation: "Practical applications: Identify collaborative opportunities (shared suppliers), benchmark strategies (net-zero pathways), and detect industry trends (electrification acceleration). The network serves as a competitive intelligence tool."
+                    }
+                ]
+            }
+        };
+        
+        let currentExample = null;
+        let currentStep = 0;
+        
+        function startExample(exampleId, event) {
+            if (!tutorialExamples[exampleId]) {
+                console.error('Example not found:', exampleId);
+                return;
+            }
+            
+            currentExample = tutorialExamples[exampleId];
+            currentStep = 0;
+            
+            // Reset highlights
+            resetHighlights();
+            
+            // Remove active class from all cards
+            document.querySelectorAll('.example-card').forEach(card => {
+                card.classList.remove('active');
+            });
+            
+            // Add active class to clicked card
+            if (event && event.target) {
+                event.target.closest('.example-card')?.classList.add('active');
+            }
+            
+            // Filter to OEMs only if this is the OEM relationships example
+            if (exampleId === 'oem_relationships') {
+                window.filterOEMsOnly();
+            } else {
+                window.showAll();
+            }
+            
+            // Show explanation box
+            const explanationBox = document.getElementById('explanation-box');
+            if (!explanationBox) {
+                console.error('Explanation box element not found!');
+                return;
+            }
+            explanationBox.style.display = 'block';
+            
+            // Start first step
+            showStep();
+        }
+        
+        function showStep() {
+            if (!currentExample || currentStep >= currentExample.steps.length) {
+                finishExample();
+                return;
+            }
+            
+            const step = currentExample.steps[currentStep];
+            const explanationBox = document.getElementById('explanation-box');
+            
+            if (!explanationBox) {
+                console.error('Explanation box not found in showStep!');
+                return;
+            }
+            
+            explanationBox.innerHTML = `
+                <div style="font-weight: bold; margin-bottom: 10px; font-size: 16px;">
+                    ${currentExample.title} - Step ${currentStep + 1}/${currentExample.steps.length}
+                </div>
+                <div style="font-size: 14px; line-height: 1.6;">
+                    ${step.explanation}
+                </div>
+                <div style="margin-top: 15px; display: flex; gap: 10px;">
+                    <button onclick="previousStep()" style="padding: 8px 16px; background: #1976D2; color: white; border: none; border-radius: 4px; cursor: pointer;" ${currentStep === 0 ? 'disabled' : ''}>Previous</button>
+                    <button onclick="nextStep()" style="padding: 8px 16px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">Next</button>
+                    <button onclick="finishExample()" style="padding: 8px 16px; background: #666; color: white; border: none; border-radius: 4px; cursor: pointer;">Finish</button>
+                </div>
+            `;
+            
+            // Highlight nodes
+            if (step.nodes && step.nodes.length > 0) {
+                resetHighlights();
+                step.nodes.forEach(nodeId => {
+                    const node = window.nodes.get(nodeId);
+                    if (node) {
+                        window.nodes.update({
+                            id: nodeId,
+                            color: { background: '#FFD700', border: '#FF8C00' },
+                            size: node.size * 1.5,
+                            borderWidth: 4
+                        });
+                    }
+                });
+                
+                // Focus on highlighted nodes
+                if (window.network && step.nodes && step.nodes.length > 0) {
+                    window.network.focus(step.nodes[0], { scale: 1.5, animation: { duration: 500 } });
+                }
+            }
+            
+            // Highlight connections
+            if (step.connections && step.connections.length > 0) {
+                step.connections.forEach(connId => {
+                    window.edges.update({
+                        id: connId,
+                        color: '#FFD700',
+                        width: 5
+                    });
+                });
+            }
+        }
+        
+        function nextStep() {
+            if (currentExample && currentStep < currentExample.steps.length - 1) {
+                currentStep++;
+                showStep();
+            }
+        }
+        
+        function previousStep() {
+            if (currentExample && currentStep > 0) {
+                currentStep--;
+                showStep();
+            }
+        }
+        
+        function finishExample() {
+            resetHighlights();
+            if (window.showAll) {
+                window.showAll(); // Show all nodes when finishing
+            }
+            const explanationBox = document.getElementById('explanation-box');
+            if (explanationBox) {
+                explanationBox.style.display = 'none';
+            }
+            currentExample = null;
+            currentStep = 0;
+        }
+        
+        // Sidebar toggle function
+        function toggleSidebar() {
+            const sidebar = document.getElementById('tutorial-sidebar');
+            if (sidebar) {
+                sidebar.classList.toggle('collapsed');
+            }
+        }
+        
+        // Make functions globally accessible for onclick handlers
+        window.startExample = startExample;
+        window.nextStep = nextStep;
+        window.previousStep = previousStep;
+        window.finishExample = finishExample;
+        window.toggleSidebar = toggleSidebar;
+        
+        function resetHighlights() {
+            window.nodes.forEach(node => {
+                const originalColor = vyuhData.nodes.find(n => n.id === node.id)?.data?.color || '#1976D2';
+                window.nodes.update({
+                    id: node.id,
+                    color: { background: originalColor },
+                    size: node.size,
+                    borderWidth: 2
+                });
+            });
+            
+            window.edges.forEach(edge => {
+                const originalColor = vyuhData.connections.find(c => c.id === edge.id)?.data?.color || '#BDBDBD';
+                const originalWidth = vyuhData.connections.find(c => c.id === edge.id)?.data?.width || 2;
+                window.edges.update({
+                    id: edge.id,
+                    color: originalColor,
+                    width: originalWidth
+                });
+            });
+        }
+        
+        // Filter function to show only OEMs (global scope)
+        window.filterOEMsOnly = function() {
+            try {
+                const oemNodeIds = new Set();
+                const oemEdgeIds = new Set();
+                
+                // Find all OEM nodes from original data
+                vyuhData.nodes.forEach(nodeData => {
+                    if (nodeData.data && nodeData.data.tier === 'OEM') {
+                        oemNodeIds.add(nodeData.id);
+                    } else if (nodeData.type === 'tier_hub' && nodeData.data && nodeData.data.tier === 'OEM') {
+                        oemNodeIds.add(nodeData.id);
+                    }
+                });
+                
+                // Find edges between OEMs (including OEM relationships and scope connections)
+                vyuhData.connections.forEach(edgeData => {
+                    const fromData = vyuhData.nodes.find(n => n.id === edgeData.source);
+                    const toData = vyuhData.nodes.find(n => n.id === edgeData.target);
+                    
+                    // Include if both nodes are OEMs or if it's an OEM relationship
+                    if (edgeData.type === 'oem_relationship') {
+                        oemEdgeIds.add(edgeData.id);
+                    } else if (fromData && toData) {
+                        const fromIsOEM = fromData.data && fromData.data.tier === 'OEM';
+                        const toIsOEM = toData.data && toData.data.tier === 'OEM';
+                        const fromIsOEMHub = fromData.type === 'tier_hub' && fromData.data && fromData.data.tier === 'OEM';
+                        const toIsOEMHub = toData.type === 'tier_hub' && toData.data && toData.data.tier === 'OEM';
+                        
+                        if ((fromIsOEM || fromIsOEMHub) && (toIsOEM || toIsOEMHub)) {
+                            oemEdgeIds.add(edgeData.id);
+                        }
+                    }
+                });
+                
+                // Hide non-OEM nodes and edges
+                window.nodes.forEach(node => {
+                    if (!oemNodeIds.has(node.id)) {
+                        window.nodes.update({ id: node.id, hidden: true });
+                    } else {
+                        window.nodes.update({ id: node.id, hidden: false });
+                    }
+                });
+                
+                window.edges.forEach(edge => {
+                    if (!oemEdgeIds.has(edge.id)) {
+                        window.edges.update({ id: edge.id, hidden: true });
+                    } else {
+                        window.edges.update({ id: edge.id, hidden: false });
+                    }
+                });
+                
+                if (window.network) {
+                    window.network.fit();
+                }
+            } catch (error) {
+                console.error('Error filtering OEMs:', error);
+            }
+        };
+        
+        // Show all nodes (global scope)
+        window.showAll = function() {
+            window.nodes.forEach(node => {
+                window.nodes.update({ id: node.id, hidden: false });
+            });
+            window.edges.forEach(edge => {
+                window.edges.update({ id: edge.id, hidden: false });
+            });
+            if (window.network) {
+                window.network.fit();
+            }
+        };
+        
+        // Show only Scope 1 connections
+        window.showScope1Only = function() {
+            window.edges.forEach(edge => {
+                const edgeData = vyuhData.connections.find(c => c.id === edge.id);
+                if (edgeData && edgeData.type === 'reports_scope' && edgeData.data && edgeData.data.scope === 'scope_1') {
+                    window.edges.update({ id: edge.id, hidden: false });
+                } else if (edgeData && edgeData.type === 'tier_membership') {
+                    window.edges.update({ id: edge.id, hidden: false });
+                } else {
+                    window.edges.update({ id: edge.id, hidden: true });
+                }
+            });
+            if (window.network) {
+                window.network.fit();
+            }
+        };
+        
+        // Show only Scope 2 connections
+        window.showScope2Only = function() {
+            window.edges.forEach(edge => {
+                const edgeData = vyuhData.connections.find(c => c.id === edge.id);
+                if (edgeData && edgeData.type === 'reports_scope' && edgeData.data && edgeData.data.scope === 'scope_2') {
+                    window.edges.update({ id: edge.id, hidden: false });
+                } else if (edgeData && edgeData.type === 'tier_membership') {
+                    window.edges.update({ id: edge.id, hidden: false });
+                } else {
+                    window.edges.update({ id: edge.id, hidden: true });
+                }
+            });
+            if (window.network) {
+                window.network.fit();
+            }
+        };
+        
+        // Show only Scope 3 connections
+        window.showScope3Only = function() {
+            window.edges.forEach(edge => {
+                const edgeData = vyuhData.connections.find(c => c.id === edge.id);
+                if (edgeData && edgeData.type === 'reports_scope' && edgeData.data && edgeData.data.scope === 'scope_3') {
+                    window.edges.update({ id: edge.id, hidden: false });
+                } else if (edgeData && edgeData.type === 'tier_membership') {
+                    window.edges.update({ id: edge.id, hidden: false });
+                } else {
+                    window.edges.update({ id: edge.id, hidden: true });
+                }
+            });
+            if (window.network) {
+                window.network.fit();
+            }
+        };
+        
+        // Simplified view - only show scope connections (most important)
+        window.showSimplifiedView = function() {
+            let visible = 0;
+            window.edges.forEach(edge => {
+                const edgeData = vyuhData.connections.find(c => c.id === edge.id);
+                // Show only scope connections, hide everything else
+                if (edgeData && edgeData.type === 'reports_scope') {
+                    window.edges.update({ id: edge.id, hidden: false });
+                    visible++;
+                } else {
+                    window.edges.update({ id: edge.id, hidden: true });
+                }
+            });
+            console.log(`Simplified view: ${visible} scope connections visible`);
+            if (window.network) {
+                window.network.fit();
+            }
+        };
+        
+        // Show OEM relationships only
+        window.showOEMRelationships = function() {
+            let visible = 0;
+            window.edges.forEach(edge => {
+                const edgeData = vyuhData.connections.find(c => c.id === edge.id);
+                // Show only OEM relationships
+                if (edgeData && edgeData.type === 'oem_relationship') {
+                    window.edges.update({ id: edge.id, hidden: false });
+                    visible++;
+                } else {
+                    window.edges.update({ id: edge.id, hidden: true });
+                }
+            });
+            // Also show OEM nodes
+            window.nodes.forEach(node => {
+                const nodeData = vyuhData.nodes.find(n => n.id === node.id);
+                if (nodeData && nodeData.data && nodeData.data.tier === 'OEM') {
+                    window.nodes.update({ id: node.id, hidden: false });
+                } else if (nodeData && nodeData.type === 'tier_hub' && nodeData.data && nodeData.data.tier === 'OEM') {
+                    window.nodes.update({ id: node.id, hidden: false });
+                } else {
+                    window.nodes.update({ id: node.id, hidden: true });
+                }
+            });
+            console.log(`OEM relationships view: ${visible} relationships visible`);
+            if (window.network) {
+                window.network.fit();
+            }
+        };
+        
+        // Hide tier membership connections (simplify view)
+        window.hideTierConnections = function() {
+            window.edges.forEach(edge => {
+                const edgeData = vyuhData.connections.find(c => c.id === edge.id);
+                if (edgeData && edgeData.type === 'tier_membership') {
+                    window.edges.update({ id: edge.id, hidden: true });
+                } else {
+                    window.edges.update({ id: edge.id, hidden: false });
+                }
+            });
+            if (window.network) {
+                window.network.fit();
+            }
+        };
+        
+        // Start with simplified view (hide OEM relationships and tier connections by default)
+        function startSimplifiedView() {
+            let visibleCount = 0;
+            let hiddenCount = 0;
+            
+            window.edges.forEach(edge => {
+                const edgeData = vyuhData.connections.find(c => c.id === edge.id);
+                // Hide OEM relationships and tier membership by default
+                if (edgeData && (edgeData.type === 'oem_relationship' || edgeData.type === 'tier_membership')) {
+                    window.edges.update({ id: edge.id, hidden: true });
+                    hiddenCount++;
+                } else {
+                    window.edges.update({ id: edge.id, hidden: false });
+                    visibleCount++;
+                }
+            });
+            
+            console.log(`Simplified view: ${visibleCount} visible connections, ${hiddenCount} hidden`);
+        }
+        
+        // Fit to view
+        if (network) {
+            network.once('stabilizationEnd', () => {
+                startSimplifiedView(); // Start with simplified view
+                network.fit({ animation: { duration: 1000 } });
+            });
+        }
+        } // End initVisualization
+        
+        // Load JSON data and initialize
+        function loadAndInit() {
+            const jsonFile = 'vyuh_format_scope_emissions.json';
+            console.log('Loading JSON from:', jsonFile);
+            
+            fetch(jsonFile)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to load JSON: ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('JSON loaded successfully, nodes:', data.nodes ? data.nodes.length : 0);
+                    // Wait for vis-network to be ready
+                    function tryInit() {
+                        if (typeof vis !== 'undefined') {
+                            initVisualization(data);
+                        } else {
+                            setTimeout(tryInit, 50);
+                        }
+                    }
+                    tryInit();
+                })
+                .catch(error => {
+                    console.error('Error loading JSON:', error);
+                    document.getElementById('graph-container').innerHTML = '<div style="padding: 20px; color: red;">Error loading data: ' + error.message + '</div>';
+                });
+        }
+        
+        // Initialize when page loads
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', loadAndInit);
+        } else {
+            loadAndInit();
+        }
+    </script>
+</body>
+</html>

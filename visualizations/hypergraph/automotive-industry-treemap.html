@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automotive Industry Treemap - Top-Down Hierarchy</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            padding: 30px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .title {
+            font-size: 32px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            font-size: 16px;
+            color: #666;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .control-btn {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        .control-btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        .control-btn.active {
+            background: #4caf50;
+        }
+        #treemap {
+            width: 100%;
+            height: 800px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 12px;
+            border-radius: 6px;
+            pointer-events: none;
+            font-size: 13px;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .tooltip-title {
+            font-weight: bold;
+            margin-bottom: 6px;
+            font-size: 14px;
+        }
+        .tooltip-info {
+            margin: 3px 0;
+            font-size: 12px;
+        }
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .stat-card {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="title">Automotive Industry Supply Chain Treemap</div>
+            <div class="subtitle">Top-Down Hierarchy: From OEMs to Raw Materials</div>
+        </div>
+
+        <div class="controls">
+            <button class="control-btn active" onclick="updateTreemap('companies')">Size by Companies</button>
+            <button class="control-btn" onclick="updateTreemap('coverage')">Size by Coverage %</button>
+            <button class="control-btn" onclick="updateTreemap('target')">Size by Target</button>
+            <button class="control-btn" onclick="updateTreemap('contexts')">Size by Contexts</button>
+        </div>
+
+        <div style="display: flex; gap: 15px; margin-bottom: 20px; align-items: center; flex-wrap: wrap;">
+            <input type="text" id="searchBox" placeholder="🔍 Search companies..."
+                   style="padding: 10px 15px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; flex: 1; min-width: 250px;"
+                   oninput="handleSearch(this.value)">
+            <select id="tierFilter" onchange="handleTierFilter(this.value)"
+                    style="padding: 10px 15px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; background: white; cursor: pointer;">
+                <option value="all">All Tiers</option>
+            </select>
+            <button class="control-btn" onclick="toggleCompletedOnly()">
+                <span id="filterText">Show All</span>
+            </button>
+            <button class="control-btn" onclick="resetView()" style="background: #ff9800;">
+                ↺ Reset View
+            </button>
+        </div>
+
+        <div id="breadcrumb" style="display: none; margin-bottom: 15px; padding: 10px; background: #f5f5f5; border-radius: 6px; font-size: 14px;">
+            <span style="color: #666;">Current view:</span> <span id="breadcrumbText" style="font-weight: bold; color: #667eea;"></span>
+        </div>
+
+        <div id="treemap"></div>
+
+        <div class="stats" id="stats"></div>
+
+        <div class="legend" id="legend"></div>
+    </div>
+
+    <div class="tooltip" id="tooltip" style="display: none;"></div>
+
+    <script>
+        // Global data variable (will be loaded dynamically)
+        let automotiveData = null;
+        let isDataLoaded = false;
+
+        // Load live data from HyperGraph RAG export
+        async function loadTreemapData() {
+            try {
+                const response = await fetch('/treemap-data.json');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                automotiveData = data;
+                isDataLoaded = true;
+
+                console.log('✅ Loaded live KB data:', {
+                    companies: data.metadata.total_companies,
+                    completed: data.metadata.total_completed,
+                    contexts: data.metadata.total_contexts,
+                    tiers: data.metadata.total_tiers
+                });
+
+                return data;
+            } catch (error) {
+                console.error('Failed to load treemap data:', error);
+                // Fallback to minimal data structure
+                automotiveData = getFallbackData();
+                isDataLoaded = true;
+                return automotiveData;
+            }
+        }
+
+        // Fallback data if fetch fails
+        function getFallbackData() {
+            return {
+                name: "Automotive Industry",
+                metadata: {
+                    generated_at: new Date().toISOString().split('T')[0],
+                    total_companies: 0,
+                    total_completed: 0,
+                    total_contexts: 0,
+                    data_source: "Fallback (failed to load live data)"
+                },
+                children: [
+                {
+                    name: "Tier 0: OEMs",
+                    tier: 0,
+                    description: "Original Equipment Manufacturers",
+                    targetCompanies: 29,
+                    currentCompanies: 12,
+                    coverage: 41,
+                    color: "#D32F2F",
+                    children: [
+                        { name: "BMW", value: 1, inKB: true },
+                        { name: "Mercedes-Benz", value: 1, inKB: true },
+                        { name: "Ferrari", value: 1, inKB: true },
+                        { name: "Volkswagen", value: 1, inKB: true },
+                        { name: "Audi", value: 1, inKB: true },
+                        { name: "Porsche", value: 1, inKB: true },
+                        { name: "Stellantis", value: 1, inKB: true },
+                        { name: "Renault", value: 1, inKB: true },
+                        { name: "Volvo Group", value: 1, inKB: true },
+                        { name: "Volvo Car AB", value: 1, inKB: true },
+                        { name: "Polestar", value: 1, inKB: true },
+                        { name: "Ford Otosan", value: 1, inKB: true },
+                    ]
+                },
+                {
+                    name: "Tier 1: Mega-Suppliers",
+                    tier: 1,
+                    description: "Large direct suppliers - Complete systems",
+                    targetCompanies: 23,
+                    currentCompanies: 13,
+                    coverage: 57,
+                    color: "#1976D2",
+                    children: [
+                        { name: "Bosch", value: 1, inKB: true },
+                        { name: "Continental AG", value: 1, inKB: true },
+                        { name: "ZF", value: 1, inKB: false },
+                        { name: "Magna", value: 1, inKB: false },
+                        { name: "Denso", value: 1, inKB: false },
+                        { name: "Aptiv", value: 1, inKB: true },
+                        { name: "Valeo", value: 1, inKB: true },
+                        { name: "Schaeffler", value: 1, inKB: true },
+                        { name: "HELLA", value: 1, inKB: true },
+                        { name: "Brembo", value: 1, inKB: true },
+                        { name: "Autoliv", value: 1, inKB: true },
+                        { name: "Adient", value: 1, inKB: true },
+                        { name: "Forvia", value: 1, inKB: true },
+                    ]
+                },
+                {
+                    name: "Tier 2: Battery Ecosystem",
+                    tier: 2,
+                    description: "EV battery supply chain",
+                    targetCompanies: 25,
+                    currentCompanies: 4,
+                    coverage: 16,
+                    color: "#388E3C",
+                    children: [
+                        { name: "LG Energy", value: 1, inKB: true },
+                        { name: "Samsung SDI", value: 1, inKB: true },
+                        { name: "CATL", value: 1, inKB: true },
+                        { name: "Northvolt", value: 1, inKB: true },
+                    ]
+                },
+                {
+                    name: "Tier 2.5: Critical SMEs",
+                    tier: 2.5,
+                    description: "Small-Medium Enterprises - CRITICAL GAP",
+                    targetCompanies: 50,
+                    currentCompanies: 0,
+                    coverage: 0,
+                    color: "#F44336",
+                    children: []
+                },
+                {
+                    name: "Tier 3: Raw Materials",
+                    tier: 3,
+                    description: "Steel, aluminum, plastics, rubber",
+                    targetCompanies: 20,
+                    currentCompanies: 3,
+                    coverage: 15,
+                    color: "#795548",
+                    children: [
+                        { name: "Pirelli", value: 1, inKB: true },
+                        { name: "ArcelorMittal", value: 1, inKB: true },
+                        { name: "ArcelorMittal Gemini", value: 1, inKB: true },
+                    ]
+                },
+                {
+                    name: "Tier 4: Electronics/Software",
+                    tier: 4,
+                    description: "Semiconductors, sensors, software",
+                    targetCompanies: 30,
+                    currentCompanies: 0,
+                    coverage: 0,
+                    color: "#9C27B0",
+                    children: []
+                },
+                {
+                    name: "Tier 5: Specialty Components",
+                    tier: 5,
+                    description: "Lighting, HVAC, wiring, glass",
+                    targetCompanies: 20,
+                    currentCompanies: 0,
+                    coverage: 0,
+                    color: "#FF9800",
+                    children: []
+                },
+                {
+                    name: "Tier 6: Infrastructure/Logistics",
+                    tier: 6,
+                    description: "Supply chain, warehousing, transportation",
+                    targetCompanies: 25,
+                    currentCompanies: 0,
+                    coverage: 0,
+                    color: "#607D8B",
+                    children: []
+                },
+                {
+                    name: "Tier 7: Mobility Services",
+                    tier: 7,
+                    description: "Ride-sharing, fleet management, charging",
+                    targetCompanies: 15,
+                    currentCompanies: 0,
+                    coverage: 0,
+                    color: "#00BCD4",
+                    children: []
+                },
+                {
+                    name: "Tier 8: Financial Ecosystem",
+                    tier: 8,
+                    description: "Leasing, insurance, financing",
+                    targetCompanies: 10,
+                    currentCompanies: 0,
+                    coverage: 0,
+                    color: "#FFC107",
+                    children: []
+                }
+            ]
+        };
+
+        let currentSizeBy = 'companies';
+        let currentTierFilter = 'all';
+        let searchTerm = '';
+        let showCompletedOnly = false;
+        let currentView = null; // null = full view, or tier object for drilled-down view
+        let originalData = null; // Store original for reset
+        const width = 1360;
+        const height = 800;
+        const tooltip = d3.select("#tooltip");
+
+        // Filter and search functions
+        function handleSearch(value) {
+            searchTerm = value.toLowerCase();
+            updateTreemap(currentSizeBy);
+        }
+
+        function handleTierFilter(value) {
+            currentTierFilter = value;
+            updateTreemap(currentSizeBy);
+        }
+
+        function toggleCompletedOnly() {
+            showCompletedOnly = !showCompletedOnly;
+            document.getElementById('filterText').textContent = showCompletedOnly ? 'Show All' : 'Completed Only';
+            updateTreemap(currentSizeBy);
+        }
+
+        function resetView() {
+            currentView = null;
+            currentTierFilter = 'all';
+            searchTerm = '';
+            showCompletedOnly = false;
+            document.getElementById('searchBox').value = '';
+            document.getElementById('tierFilter').value = 'all';
+            document.getElementById('filterText').textContent = 'Show All';
+            document.getElementById('breadcrumb').style.display = 'none';
+            updateTreemap(currentSizeBy);
+        }
+
+        function drillIntoTier(tierData) {
+            currentView = tierData;
+            document.getElementById('breadcrumb').style.display = 'block';
+            document.getElementById('breadcrumbText').textContent = tierData.name;
+            updateTreemap(currentSizeBy);
+        }
+
+        function populateTierFilter() {
+            const select = document.getElementById('tierFilter');
+            select.innerHTML = '<option value="all">All Tiers</option>';
+
+            if (automotiveData && automotiveData.children) {
+                automotiveData.children.forEach(tier => {
+                    const option = document.createElement('option');
+                    option.value = tier.tier_label || tier.tier;
+                    option.textContent = tier.name;
+                    select.appendChild(option);
+                });
+            }
+        }
+
+        function filterData(data) {
+            if (!data || !data.children) return data;
+
+            let filtered = { ...data };
+            filtered.children = [...data.children];
+
+            // Filter by tier
+            if (currentTierFilter !== 'all') {
+                filtered.children = filtered.children.filter(tier =>
+                    String(tier.tier_label || tier.tier) === String(currentTierFilter)
+                );
+            }
+
+            // Filter companies by search and completed status
+            filtered.children = filtered.children.map(tier => {
+                let tierCopy = { ...tier };
+                if (tier.children) {
+                    tierCopy.children = tier.children.filter(company => {
+                        // Search filter
+                        const matchesSearch = !searchTerm ||
+                            company.name.toLowerCase().includes(searchTerm);
+
+                        // Completed filter
+                        const matchesCompleted = !showCompletedOnly || company.inKB;
+
+                        return matchesSearch && matchesCompleted;
+                    });
+                }
+                return tierCopy;
+            }).filter(tier => !tier.children || tier.children.length > 0); // Remove empty tiers
+
+            return filtered;
+        }
+
+        // Initialize (async to load data first)
+        async function init() {
+            // Show loading state
+            d3.select("#treemap").html('<div style="display: flex; align-items: center; justify-content: center; height: 100%; font-size: 18px; color: #666;"><div>Loading live data from HyperGraph RAG KB...</div></div>');
+
+            // Load live data
+            await loadTreemapData();
+            originalData = JSON.parse(JSON.stringify(automotiveData)); // Deep copy
+
+            // Populate tier filter dropdown
+            populateTierFilter();
+
+            // Render treemap
+            updateTreemap('companies');
+            createLegend();
+            updateStats();
+        }
+
+        function updateTreemap(sizeBy) {
+            currentSizeBy = sizeBy;
+            
+            // Update button states
+            d3.selectAll(".control-btn")
+                .classed("active", false);
+            d3.selectAll(".control-btn")
+                .filter(function() {
+                    const text = this.textContent;
+                    return (sizeBy === 'companies' && text.includes('Companies')) ||
+                           (sizeBy === 'coverage' && text.includes('Coverage')) ||
+                           (sizeBy === 'target' && text.includes('Target')) ||
+                           (sizeBy === 'contexts' && text.includes('Contexts'));
+                })
+                .classed("active", true);
+
+            // Calculate values based on sizeBy
+            function calculateValue(node) {
+                if (node.children) {
+                    // For parent nodes, sum children or use tier metrics
+                    if (sizeBy === 'companies') {
+                        return node.currentCompanies || node.children.length;
+                    } else if (sizeBy === 'coverage') {
+                        return node.coverage || 0;
+                    } else if (sizeBy === 'contexts') {
+                        return node.totalContexts || node.contexts || 1;
+                    } else {
+                        return node.targetCompanies || 10;
+                    }
+                } else {
+                    // For leaf nodes (companies)
+                    if (sizeBy === 'contexts') {
+                        return node.contexts || 1;
+                    }
+                    return sizeBy === 'companies' ? 1 : (sizeBy === 'coverage' ? 100 : 1);
+                }
+            }
+
+            // Process data
+            function processNode(node) {
+                const processed = {
+                    name: node.name,
+                    value: calculateValue(node),
+                    tier: node.tier,
+                    description: node.description,
+                    color: node.color,
+                    targetCompanies: node.targetCompanies,
+                    currentCompanies: node.currentCompanies,
+                    completedCompanies: node.completedCompanies,
+                    coverage: node.coverage,
+                    contexts: node.contexts || 0,
+                    totalContexts: node.totalContexts || 0,
+                    status: node.status,
+                    inKB: node.inKB
+                };
+                
+                if (node.children && node.children.length > 0) {
+                    processed.children = node.children.map(processNode);
+                }
+                
+                return processed;
+            }
+
+            // Apply filters and drill-down
+            let dataToRender = currentView ? {
+                name: currentView.name,
+                children: currentView.children || []
+            } : automotiveData;
+
+            dataToRender = filterData(dataToRender);
+            const processedData = processNode(dataToRender);
+
+            // Clear previous
+            d3.select("#treemap").selectAll("*").remove();
+
+            const svg = d3.select("#treemap")
+                .append("svg")
+                .attr("width", width)
+                .attr("height", height);
+
+            const g = svg.append("g");
+
+            // Create treemap layout
+            const treemap = d3.treemap()
+                .size([width, height])
+                .paddingInner(2)
+                .paddingOuter(10)
+                .round(true);
+
+            const root = d3.hierarchy(processedData)
+                .sum(d => d.value)
+                .sort((a, b) => b.value - a.value);
+
+            treemap(root);
+
+            // Color scale
+            const colorScale = d3.scaleOrdinal()
+                .domain([0, 1, 2, 2.5, 3, 4, 5, 6, 7, 8])
+                .range([
+                    "#D32F2F", // Tier 0 - Red
+                    "#1976D2", // Tier 1 - Blue
+                    "#388E3C", // Tier 2 - Green
+                    "#F44336", // Tier 2.5 - Red (gap)
+                    "#795548", // Tier 3 - Brown
+                    "#9C27B0", // Tier 4 - Purple
+                    "#FF9800", // Tier 5 - Orange
+                    "#607D8B", // Tier 6 - Blue Grey
+                    "#00BCD4", // Tier 7 - Cyan
+                    "#FFC107"  // Tier 8 - Amber
+                ]);
+
+            // Draw cells
+            const cells = g.selectAll("g")
+                .data(root.descendants())
+                .enter()
+                .append("g")
+                .attr("transform", d => `translate(${d.x0},${d.y0})`);
+
+            cells.append("rect")
+                .attr("width", d => d.x1 - d.x0)
+                .attr("height", d => d.y1 - d.y0)
+                .attr("fill", d => {
+                    if (d.depth === 0) return "#667eea";
+                    if (d.depth === 1) return d.data.color || colorScale(d.data.tier);
+                    return d3.color(d.data.color || colorScale(d.parent.data.tier)).brighter(0.5);
+                })
+                .attr("stroke", "#fff")
+                .attr("stroke-width", d => d.depth === 0 ? 3 : d.depth === 1 ? 2 : 1)
+                .style("cursor", "pointer")
+                .on("mouseover", function(event, d) {
+                    d3.select(this).attr("stroke-width", 4).attr("stroke", "#333");
+                    showTooltip(event, d);
+                })
+                .on("mousemove", function(event) {
+                    tooltip.style("left", (event.pageX + 10) + "px")
+                           .style("top", (event.pageY - 10) + "px");
+                })
+                .on("mouseout", function(event, d) {
+                    d3.select(this).attr("stroke-width", d.depth === 0 ? 3 : d.depth === 1 ? 2 : 1).attr("stroke", "#fff");
+                    tooltip.style("display", "none");
+                })
+                .on("click", function(event, d) {
+                    if (d.depth === 1 && d.children) {
+                        // Zoom into tier
+                        zoomToTier(d);
+                    }
+                });
+
+            // Add labels
+            cells.filter(d => (d.x1 - d.x0) > 60 && (d.y1 - d.y0) > 30)
+                .append("text")
+                .attr("x", 5)
+                .attr("y", 20)
+                .attr("font-size", d => {
+                    if (d.depth === 0) return "24px";
+                    if (d.depth === 1) return "14px";
+                    return "11px";
+                })
+                .attr("font-weight", d => d.depth <= 1 ? "bold" : "normal")
+                .attr("fill", "#333")
+                .text(d => {
+                    if (d.depth === 0) return d.data.name;
+                    if (d.depth === 1) return d.data.name.split(":")[1] || d.data.name;
+                    return d.data.name;
+                });
+
+            // Add value labels for tier level
+            cells.filter(d => d.depth === 1 && (d.x1 - d.x0) > 100 && (d.y1 - d.y0) > 50)
+                .append("text")
+                .attr("x", 5)
+                .attr("y", 40)
+                .attr("font-size", "12px")
+                .attr("fill", "#666")
+                .text(d => {
+                    if (sizeBy === 'companies') {
+                        return `${d.data.currentCompanies || 0}/${d.data.targetCompanies || 0} companies`;
+                    } else if (sizeBy === 'coverage') {
+                        return `${d.data.coverage || 0}% coverage`;
+                    } else {
+                        return `Target: ${d.data.targetCompanies || 0}`;
+                    }
+                });
+        }
+
+        function showTooltip(event, d) {
+            let content = `<div class="tooltip-title">${d.data.name}</div>`;
+
+            if (d.depth === 1) {
+                // Tier level
+                content += `
+                    ${d.data.description ? `<div class="tooltip-info">${d.data.description}</div>` : ''}
+                    <div class="tooltip-info">📊 Companies: ${d.data.currentCompanies}/${d.data.targetCompanies || 0}</div>
+                    <div class="tooltip-info">✅ Completed: ${d.data.completedCompanies || 0}</div>
+                    <div class="tooltip-info">📈 Coverage: ${d.data.coverage}%</div>
+                    <div class="tooltip-info">📄 Contexts: ${(d.data.totalContexts || 0).toLocaleString()}</div>
+                    <div class="tooltip-info" style="margin-top: 6px; font-style: italic; color: #aaa;">Click to drill down →</div>
+                `;
+            } else if (d.depth === 2) {
+                // Company level
+                const statusBadge = d.data.inKB ? '✅ In KB' : '⏳ Pending';
+                const statusColor = d.data.inKB ? '#4caf50' : '#ff9800';
+                content += `
+                    <div class="tooltip-info">Tier: ${d.data.tier}</div>
+                    <div class="tooltip-info" style="color: ${statusColor};">${statusBadge}</div>
+                    <div class="tooltip-info">📄 Contexts: ${(d.data.contexts || 0).toLocaleString()}</div>
+                    ${d.data.status ? `<div class="tooltip-info">Status: ${d.data.status}</div>` : ''}
+                `;
+            } else {
+                // Root level
+                content += `
+                    <div class="tooltip-info">Total Companies: ${automotiveData.metadata?.total_companies || 0}</div>
+                    <div class="tooltip-info">Completed: ${automotiveData.metadata?.total_completed || 0}</div>
+                    <div class="tooltip-info">Contexts: ${(automotiveData.metadata?.total_contexts || 0).toLocaleString()}</div>
+                `;
+            }
+
+            tooltip.html(content)
+                   .style("display", "block")
+                   .style("left", (event.pageX + 10) + "px")
+                   .style("top", (event.pageY - 10) + "px");
+        }
+
+        function createLegend() {
+            const legendData = [
+                { name: "Tier 0: OEMs", color: "#D32F2F" },
+                { name: "Tier 1: Mega-Suppliers", color: "#1976D2" },
+                { name: "Tier 2: Battery", color: "#388E3C" },
+                { name: "Tier 2.5: SMEs (Gap)", color: "#F44336" },
+                { name: "Tier 3: Materials", color: "#795548" },
+                { name: "Tier 4: Electronics", color: "#9C27B0" },
+                { name: "Tier 5: Specialty", color: "#FF9800" },
+                { name: "Tier 6: Infrastructure", color: "#607D8B" },
+                { name: "Tier 7: Mobility", color: "#00BCD4" },
+                { name: "Tier 8: Financial", color: "#FFC107" }
+            ];
+
+            const legend = d3.select("#legend");
+            legend.selectAll("*").remove();
+
+            legend.selectAll(".legend-item")
+                .data(legendData)
+                .enter()
+                .append("div")
+                .attr("class", "legend-item")
+                .html(d => `
+                    <div class="legend-color" style="background: ${d.color}"></div>
+                    <span>${d.name}</span>
+                `);
+        }
+
+        function updateStats() {
+            const totalCompanies = automotiveData.children.reduce((sum, tier) => sum + tier.currentCompanies, 0);
+            const totalCompleted = automotiveData.children.reduce((sum, tier) => sum + (tier.completedCompanies || 0), 0);
+            const totalTarget = automotiveData.children.reduce((sum, tier) => sum + tier.targetCompanies, 0);
+            const avgCoverage = automotiveData.children.reduce((sum, tier) => sum + (tier.coverage || 0), 0) / automotiveData.children.length;
+            const tiersWithData = automotiveData.children.filter(tier => (tier.completedCompanies || 0) > 0).length;
+            const totalContexts = automotiveData.metadata?.total_contexts || 0;
+
+            const stats = d3.select("#stats");
+            stats.selectAll("*").remove();
+
+            stats.selectAll(".stat-card")
+                .data([
+                    { label: "Total Companies in KB", value: totalCompanies },
+                    { label: "Completed (with data)", value: `${totalCompleted}/${totalCompanies}` },
+                    { label: "Knowledge Contexts", value: totalContexts.toLocaleString() },
+                    { label: "Target Companies", value: totalTarget },
+                    { label: "Avg Coverage", value: `${avgCoverage.toFixed(1)}%` },
+                    { label: "Tiers with Data", value: `${tiersWithData}/${automotiveData.children.length}` }
+                ])
+                .enter()
+                .append("div")
+                .attr("class", "stat-card")
+                .html(d => `
+                    <div class="stat-value">${d.value}</div>
+                    <div class="stat-label">${d.label}</div>
+                `);
+        }
+
+        function zoomToTier(tierNode) {
+            // Find the original tier data from automotiveData
+            const tierData = automotiveData.children.find(t =>
+                (t.tier === tierNode.data.tier) || (t.name === tierNode.data.name)
+            );
+
+            if (tierData) {
+                drillIntoTier(tierData);
+            }
+        }
+
+        // Initialize on load (async)
+        init().catch(error => {
+            console.error('Failed to initialize treemap:', error);
+            d3.select("#treemap").html('<div style="display: flex; align-items: center; justify-content: center; height: 100%; font-size: 18px; color: #d32f2f;"><div>Failed to load treemap data. Check console for details.</div></div>');
+        });
+    </script>
+</body>
+</html>
+

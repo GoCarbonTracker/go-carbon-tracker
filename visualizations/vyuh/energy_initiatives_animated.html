@@ -1,0 +1,1729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Energy Initiatives - Animated Network with Tier Clustering</title>
+    <link href="https://unpkg.com/vis-network@latest/dist/dist/vis-network.min.css" rel="stylesheet" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #7e22ce 100%);
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #header {
+            background: rgba(255, 255, 255, 0.98);
+            padding: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            z-index: 1000;
+            position: relative;
+        }
+
+        h1 {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 32px;
+            font-weight: 900;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #64748b;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        #mynetwork {
+            width: 100%;
+            height: calc(100vh - 220px);
+            background: radial-gradient(circle at center, #ffffff 0%, #f1f5f9 100%);
+        }
+
+        #controls {
+            background: rgba(255, 255, 255, 0.98);
+            padding: 15px 20px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.2);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            padding: 0 10px;
+            border-right: 2px solid #e2e8f0;
+        }
+
+        .btn-group:last-child { border-right: none; }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(102, 126, 234, 0.6);
+        }
+
+        button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-tier0 { background: linear-gradient(135deg, #D32F2F, #B71C1C); }
+        .btn-tier1 { background: linear-gradient(135deg, #1976D2, #0D47A1); }
+        .btn-tier2 { background: linear-gradient(135deg, #388E3C, #1B5E20); }
+        .btn-focus { background: linear-gradient(135deg, #F57C00, #E65100); }
+        .btn-reset { background: linear-gradient(135deg, #7B1FA2, #4A148C); }
+
+        #focusMode {
+            position: absolute;
+            top: 90px;
+            right: 20px;
+            background: rgba(15, 23, 42, 0.95);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            z-index: 100;
+            min-width: 250px;
+            display: none;
+            backdrop-filter: blur(10px);
+        }
+
+        #focusMode.active { display: block; animation: slideIn 0.3s ease-out; }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        #focusMode h3 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #fbbf24;
+            font-weight: 700;
+        }
+
+        #focusMode .companies {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        #focusMode .company-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 4px solid;
+            font-weight: 600;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        #focusMode .company-item:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateX(5px);
+        }
+
+        .tier-legend {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.98);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            z-index: 100;
+        }
+
+        .tier-legend h3 {
+            font-size: 16px;
+            margin-bottom: 12px;
+            color: #1e293b;
+            font-weight: 700;
+        }
+
+        .tier-item {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .tier-dot {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            margin-right: 10px;
+            border: 3px solid white;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        }
+
+        .stats-panel {
+            position: absolute;
+            top: 90px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.98);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            z-index: 100;
+            min-width: 200px;
+        }
+
+        .stats-panel h3 {
+            font-size: 16px;
+            margin-bottom: 12px;
+            color: #1e293b;
+            font-weight: 700;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+            font-size: 13px;
+        }
+
+        .stat-label {
+            color: #64748b;
+            font-weight: 500;
+        }
+
+        .stat-value {
+            color: #1e293b;
+            font-weight: 700;
+        }
+
+        .mode-indicator {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(15, 23, 42, 0.95);
+            color: white;
+            padding: 30px 50px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            font-size: 24px;
+            font-weight: 700;
+            z-index: 2000;
+            display: none;
+            backdrop-filter: blur(10px);
+        }
+
+        .mode-indicator.show {
+            display: block;
+            animation: popIn 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        @keyframes popIn {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+            100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <h1>🌍 Energy Initiatives Network - Animated with Tier Clustering</h1>
+        <div class="subtitle">Click on initiatives to focus | Tier-based clustering | 10 Companies | 10 Initiatives | Generated 2025-11-21</div>
+    </div>
+
+    <div id="mynetwork"></div>
+
+    <div id="controls">
+        <div class="btn-group">
+            <button onclick="clusterByTier(0)" class="btn-tier0">🏭 Cluster OEMs</button>
+            <button onclick="clusterByTier(1)" class="btn-tier1">🔧 Cluster Suppliers</button>
+            <button onclick="clusterByTier(2)" class="btn-tier2">🔋 Cluster Battery</button>
+        </div>
+        <div class="btn-group">
+            <button onclick="togglePhysics()" id="physicsBtn">🎯 Physics: ON</button>
+            <button onclick="clearFocus()" class="btn-focus">👁️ Clear Focus</button>
+            <button onclick="resetNetwork()" class="btn-reset">🔄 Reset All</button>
+        </div>
+        <div class="btn-group">
+            <button onclick="fitNetwork()">📍 Fit View</button>
+            <button onclick="exportNetwork()">💾 Export</button>
+        </div>
+    </div>
+
+    <div class="stats-panel">
+        <h3>📊 Network Stats</h3>
+        <div class="stat-row">
+            <span class="stat-label">Visible Nodes:</span>
+            <span class="stat-value" id="visibleNodes">20</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Connections:</span>
+            <span class="stat-value">38</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Mode:</span>
+            <span class="stat-value" id="currentMode">Normal</span>
+        </div>
+    </div>
+
+    <div id="focusMode">
+        <h3 id="focusTitle">Initiative Focus</h3>
+        <div class="companies" id="focusCompanies"></div>
+    </div>
+
+    <div class="tier-legend">
+        <h3>Automotive Tiers</h3>
+        <div class="tier-item">
+            <div class="tier-dot" style="background: #D32F2F;"></div>
+            <span>Tier 0 - OEMs</span>
+        </div>
+        <div class="tier-item">
+            <div class="tier-dot" style="background: #1976D2;"></div>
+            <span>Tier 1 - Mega Suppliers</span>
+        </div>
+        <div class="tier-item">
+            <div class="tier-dot" style="background: #388E3C;"></div>
+            <span>Tier 2 - Battery Ecosystem</span>
+        </div>
+    </div>
+
+    <div class="mode-indicator" id="modeIndicator"></div>
+
+    <script src="https://unpkg.com/vis-network@latest/dist/vis-network.min.js"></script>
+    <script>
+        const nodesData = [
+        {
+                "id": "company_AUDI",
+                "label": "AUDI",
+                "group": "company",
+                "tier": "Tier 0 - OEM",
+                "tier_num": 0,
+                "title": "<b>AUDI</b><br>Tier 0 - OEM<br>Initiatives: 2",
+                "size": 33,
+                "color": {
+                        "background": "#D32F2F",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#D32F2F",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 13,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 3,
+                "borderWidthSelected": 5,
+                "shape": "dot",
+                "mass": 3
+        },
+        {
+                "id": "company_AUTOLIV_INC",
+                "label": "AUTOLIV_INC",
+                "group": "company",
+                "tier": "Tier 1 - Mega Supplier",
+                "tier_num": 1,
+                "title": "<b>AUTOLIV_INC</b><br>Tier 1 - Mega Supplier<br>Initiatives: 3",
+                "size": 37,
+                "color": {
+                        "background": "#1976D2",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#1976D2",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 13,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 3,
+                "borderWidthSelected": 5,
+                "shape": "dot",
+                "mass": 3
+        },
+        {
+                "id": "company_BOSCH",
+                "label": "BOSCH",
+                "group": "company",
+                "tier": "Tier 1 - Mega Supplier",
+                "tier_num": 1,
+                "title": "<b>BOSCH</b><br>Tier 1 - Mega Supplier<br>Initiatives: 7",
+                "size": 53,
+                "color": {
+                        "background": "#1976D2",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#1976D2",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 13,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 3,
+                "borderWidthSelected": 5,
+                "shape": "dot",
+                "mass": 3
+        },
+        {
+                "id": "company_FORD-OTOMOTIV",
+                "label": "FORD-OTOMOTIV",
+                "group": "company",
+                "tier": "Tier 0 - OEM",
+                "tier_num": 0,
+                "title": "<b>FORD-OTOMOTIV</b><br>Tier 0 - OEM<br>Initiatives: 4",
+                "size": 41,
+                "color": {
+                        "background": "#D32F2F",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#D32F2F",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 13,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 3,
+                "borderWidthSelected": 5,
+                "shape": "dot",
+                "mass": 3
+        },
+        {
+                "id": "company_KNORR-BREMSE",
+                "label": "KNORR-BREMSE",
+                "group": "company",
+                "tier": "Tier 1 - Mega Supplier",
+                "tier_num": 1,
+                "title": "<b>KNORR-BREMSE</b><br>Tier 1 - Mega Supplier<br>Initiatives: 4",
+                "size": 41,
+                "color": {
+                        "background": "#1976D2",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#1976D2",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 13,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 3,
+                "borderWidthSelected": 5,
+                "shape": "dot",
+                "mass": 3
+        },
+        {
+                "id": "company_LG-ENERGY",
+                "label": "LG-ENERGY",
+                "group": "company",
+                "tier": "Tier 2 - Battery",
+                "tier_num": 2,
+                "title": "<b>LG-ENERGY</b><br>Tier 2 - Battery<br>Initiatives: 5",
+                "size": 45,
+                "color": {
+                        "background": "#388E3C",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#388E3C",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 13,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 3,
+                "borderWidthSelected": 5,
+                "shape": "dot",
+                "mass": 3
+        },
+        {
+                "id": "company_OTOKAR",
+                "label": "OTOKAR",
+                "group": "company",
+                "tier": "Tier 0 - OEM",
+                "tier_num": 0,
+                "title": "<b>OTOKAR</b><br>Tier 0 - OEM<br>Initiatives: 4",
+                "size": 41,
+                "color": {
+                        "background": "#D32F2F",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#D32F2F",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 13,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 3,
+                "borderWidthSelected": 5,
+                "shape": "dot",
+                "mass": 3
+        },
+        {
+                "id": "company_PIRELLI",
+                "label": "PIRELLI",
+                "group": "company",
+                "tier": "Tier 1 - Mega Supplier",
+                "tier_num": 1,
+                "title": "<b>PIRELLI</b><br>Tier 1 - Mega Supplier<br>Initiatives: 4",
+                "size": 41,
+                "color": {
+                        "background": "#1976D2",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#1976D2",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 13,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 3,
+                "borderWidthSelected": 5,
+                "shape": "dot",
+                "mass": 3
+        },
+        {
+                "id": "company_SAMSUNG-SDI",
+                "label": "SAMSUNG-SDI",
+                "group": "company",
+                "tier": "Tier 2 - Battery",
+                "tier_num": 2,
+                "title": "<b>SAMSUNG-SDI</b><br>Tier 2 - Battery<br>Initiatives: 3",
+                "size": 37,
+                "color": {
+                        "background": "#388E3C",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#388E3C",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 13,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 3,
+                "borderWidthSelected": 5,
+                "shape": "dot",
+                "mass": 3
+        },
+        {
+                "id": "company_VOLKSWAGEN",
+                "label": "VOLKSWAGEN",
+                "group": "company",
+                "tier": "Tier 0 - OEM",
+                "tier_num": 0,
+                "title": "<b>VOLKSWAGEN</b><br>Tier 0 - OEM<br>Initiatives: 2",
+                "size": 33,
+                "color": {
+                        "background": "#D32F2F",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#D32F2F",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 13,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 3,
+                "borderWidthSelected": 5,
+                "shape": "dot",
+                "mass": 3
+        },
+        {
+                "id": "initiative_Power Purchase Agreement (PPA)",
+                "label": "PPA",
+                "fullLabel": "Power Purchase Agreement (PPA)",
+                "group": "initiative",
+                "title": "<b>Power Purchase Agreement (PPA)</b><br>Companies: 5<br>BOSCH, LG-ENERGY, FORD-OTOMOTIV, SAMSUNG-SDI, KNORR-BREMSE",
+                "size": 60,
+                "color": {
+                        "background": "#4CAF50",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#4CAF50",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 11,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 4,
+                "borderWidthSelected": 6,
+                "shape": "box",
+                "shapeProperties": {
+                        "borderRadius": 6
+                },
+                "mass": 8
+        },
+        {
+                "id": "initiative_Renewable Energy Certificates",
+                "label": "REC",
+                "fullLabel": "Renewable Energy Certificates",
+                "group": "initiative",
+                "title": "<b>Renewable Energy Certificates</b><br>Companies: 6<br>LG-ENERGY, PIRELLI, BOSCH, OTOKAR, SAMSUNG-SDI, AUTOLIV_INC",
+                "size": 65,
+                "color": {
+                        "background": "#2196F3",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#2196F3",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 11,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 4,
+                "borderWidthSelected": 6,
+                "shape": "box",
+                "shapeProperties": {
+                        "borderRadius": 6
+                },
+                "mass": 8
+        },
+        {
+                "id": "initiative_Energy Attribute Certificates",
+                "label": "EAC",
+                "fullLabel": "Energy Attribute Certificates",
+                "group": "initiative",
+                "title": "<b>Energy Attribute Certificates</b><br>Companies: 3<br>OTOKAR, FORD-OTOMOTIV, BOSCH",
+                "size": 50,
+                "color": {
+                        "background": "#FF9800",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#FF9800",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 11,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 4,
+                "borderWidthSelected": 6,
+                "shape": "box",
+                "shapeProperties": {
+                        "borderRadius": 6
+                },
+                "mass": 8
+        },
+        {
+                "id": "initiative_Carbon Offsetting",
+                "label": "Offset",
+                "fullLabel": "Carbon Offsetting",
+                "group": "initiative",
+                "title": "<b>Carbon Offsetting</b><br>Companies: 5<br>PIRELLI, VOLKSWAGEN, AUDI, BOSCH, KNORR-BREMSE",
+                "size": 60,
+                "color": {
+                        "background": "#9C27B0",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#9C27B0",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 11,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 4,
+                "borderWidthSelected": 6,
+                "shape": "box",
+                "shapeProperties": {
+                        "borderRadius": 6
+                },
+                "mass": 8
+        },
+        {
+                "id": "initiative_Green Gas/Biofuel",
+                "label": "Biofuel",
+                "fullLabel": "Green Gas/Biofuel",
+                "group": "initiative",
+                "title": "<b>Green Gas/Biofuel</b><br>Companies: 2<br>VOLKSWAGEN, AUDI",
+                "size": 45,
+                "color": {
+                        "background": "#00BCD4",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#00BCD4",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 11,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 4,
+                "borderWidthSelected": 6,
+                "shape": "box",
+                "shapeProperties": {
+                        "borderRadius": 6
+                },
+                "mass": 8
+        },
+        {
+                "id": "initiative_Carbon Projects",
+                "label": "Projects",
+                "fullLabel": "Carbon Projects",
+                "group": "initiative",
+                "title": "<b>Carbon Projects</b><br>Companies: 6<br>PIRELLI, FORD-OTOMOTIV, OTOKAR, BOSCH, KNORR-BREMSE, AUTOLIV_INC",
+                "size": 65,
+                "color": {
+                        "background": "#F44336",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#F44336",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 11,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 4,
+                "borderWidthSelected": 6,
+                "shape": "box",
+                "shapeProperties": {
+                        "borderRadius": 6
+                },
+                "mass": 8
+        },
+        {
+                "id": "initiative_Energy Efficiency Programs",
+                "label": "Efficiency",
+                "fullLabel": "Energy Efficiency Programs",
+                "group": "initiative",
+                "title": "<b>Energy Efficiency Programs</b><br>Companies: 7<br>BOSCH, FORD-OTOMOTIV, OTOKAR, SAMSUNG-SDI, KNORR-BREMSE, AUTOLIV_INC, LG-ENERGY",
+                "size": 70,
+                "color": {
+                        "background": "#FFC107",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#FFC107",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 11,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 4,
+                "borderWidthSelected": 6,
+                "shape": "box",
+                "shapeProperties": {
+                        "borderRadius": 6
+                },
+                "mass": 8
+        },
+        {
+                "id": "initiative_RE100 Initiative",
+                "label": "RE100",
+                "fullLabel": "RE100 Initiative",
+                "group": "initiative",
+                "title": "<b>RE100 Initiative</b><br>Companies: 1<br>LG-ENERGY",
+                "size": 40,
+                "color": {
+                        "background": "#795548",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#795548",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 11,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 4,
+                "borderWidthSelected": 6,
+                "shape": "box",
+                "shapeProperties": {
+                        "borderRadius": 6
+                },
+                "mass": 8
+        },
+        {
+                "id": "initiative_EV100 Initiative",
+                "label": "EV100",
+                "fullLabel": "EV100 Initiative",
+                "group": "initiative",
+                "title": "<b>EV100 Initiative</b><br>Companies: 1<br>LG-ENERGY",
+                "size": 40,
+                "color": {
+                        "background": "#607D8B",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#607D8B",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 11,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 4,
+                "borderWidthSelected": 6,
+                "shape": "box",
+                "shapeProperties": {
+                        "borderRadius": 6
+                },
+                "mass": 8
+        },
+        {
+                "id": "initiative_Internal Carbon Pricing",
+                "label": "Carbon $",
+                "fullLabel": "Internal Carbon Pricing",
+                "group": "initiative",
+                "title": "<b>Internal Carbon Pricing</b><br>Companies: 2<br>PIRELLI, BOSCH",
+                "size": 45,
+                "color": {
+                        "background": "#E91E63",
+                        "border": "#FFFFFF",
+                        "highlight": {
+                                "background": "#E91E63",
+                                "border": "#FFD700"
+                        }
+                },
+                "font": {
+                        "size": 11,
+                        "color": "#FFFFFF",
+                        "face": "Arial Black",
+                        "bold": true
+                },
+                "borderWidth": 4,
+                "borderWidthSelected": 6,
+                "shape": "box",
+                "shapeProperties": {
+                        "borderRadius": 6
+                },
+                "mass": 8
+        }
+];
+        const edgesData = [
+        {
+                "from": "initiative_Power Purchase Agreement (PPA)",
+                "to": "company_BOSCH",
+                "color": {
+                        "color": "#4CAF50",
+                        "opacity": 0.5,
+                        "highlight": "#4CAF50"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Power Purchase Agreement (PPA)",
+                "to": "company_LG-ENERGY",
+                "color": {
+                        "color": "#4CAF50",
+                        "opacity": 0.5,
+                        "highlight": "#4CAF50"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Power Purchase Agreement (PPA)",
+                "to": "company_FORD-OTOMOTIV",
+                "color": {
+                        "color": "#4CAF50",
+                        "opacity": 0.5,
+                        "highlight": "#4CAF50"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Power Purchase Agreement (PPA)",
+                "to": "company_SAMSUNG-SDI",
+                "color": {
+                        "color": "#4CAF50",
+                        "opacity": 0.5,
+                        "highlight": "#4CAF50"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Power Purchase Agreement (PPA)",
+                "to": "company_KNORR-BREMSE",
+                "color": {
+                        "color": "#4CAF50",
+                        "opacity": 0.5,
+                        "highlight": "#4CAF50"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Renewable Energy Certificates",
+                "to": "company_LG-ENERGY",
+                "color": {
+                        "color": "#2196F3",
+                        "opacity": 0.5,
+                        "highlight": "#2196F3"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Renewable Energy Certificates",
+                "to": "company_PIRELLI",
+                "color": {
+                        "color": "#2196F3",
+                        "opacity": 0.5,
+                        "highlight": "#2196F3"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Renewable Energy Certificates",
+                "to": "company_BOSCH",
+                "color": {
+                        "color": "#2196F3",
+                        "opacity": 0.5,
+                        "highlight": "#2196F3"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Renewable Energy Certificates",
+                "to": "company_OTOKAR",
+                "color": {
+                        "color": "#2196F3",
+                        "opacity": 0.5,
+                        "highlight": "#2196F3"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Renewable Energy Certificates",
+                "to": "company_SAMSUNG-SDI",
+                "color": {
+                        "color": "#2196F3",
+                        "opacity": 0.5,
+                        "highlight": "#2196F3"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Renewable Energy Certificates",
+                "to": "company_AUTOLIV_INC",
+                "color": {
+                        "color": "#2196F3",
+                        "opacity": 0.5,
+                        "highlight": "#2196F3"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Energy Attribute Certificates",
+                "to": "company_OTOKAR",
+                "color": {
+                        "color": "#FF9800",
+                        "opacity": 0.5,
+                        "highlight": "#FF9800"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Energy Attribute Certificates",
+                "to": "company_FORD-OTOMOTIV",
+                "color": {
+                        "color": "#FF9800",
+                        "opacity": 0.5,
+                        "highlight": "#FF9800"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Energy Attribute Certificates",
+                "to": "company_BOSCH",
+                "color": {
+                        "color": "#FF9800",
+                        "opacity": 0.5,
+                        "highlight": "#FF9800"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Carbon Offsetting",
+                "to": "company_PIRELLI",
+                "color": {
+                        "color": "#9C27B0",
+                        "opacity": 0.5,
+                        "highlight": "#9C27B0"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Carbon Offsetting",
+                "to": "company_VOLKSWAGEN",
+                "color": {
+                        "color": "#9C27B0",
+                        "opacity": 0.5,
+                        "highlight": "#9C27B0"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Carbon Offsetting",
+                "to": "company_AUDI",
+                "color": {
+                        "color": "#9C27B0",
+                        "opacity": 0.5,
+                        "highlight": "#9C27B0"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Carbon Offsetting",
+                "to": "company_BOSCH",
+                "color": {
+                        "color": "#9C27B0",
+                        "opacity": 0.5,
+                        "highlight": "#9C27B0"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Carbon Offsetting",
+                "to": "company_KNORR-BREMSE",
+                "color": {
+                        "color": "#9C27B0",
+                        "opacity": 0.5,
+                        "highlight": "#9C27B0"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Green Gas/Biofuel",
+                "to": "company_VOLKSWAGEN",
+                "color": {
+                        "color": "#00BCD4",
+                        "opacity": 0.5,
+                        "highlight": "#00BCD4"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Green Gas/Biofuel",
+                "to": "company_AUDI",
+                "color": {
+                        "color": "#00BCD4",
+                        "opacity": 0.5,
+                        "highlight": "#00BCD4"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Carbon Projects",
+                "to": "company_PIRELLI",
+                "color": {
+                        "color": "#F44336",
+                        "opacity": 0.5,
+                        "highlight": "#F44336"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Carbon Projects",
+                "to": "company_FORD-OTOMOTIV",
+                "color": {
+                        "color": "#F44336",
+                        "opacity": 0.5,
+                        "highlight": "#F44336"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Carbon Projects",
+                "to": "company_OTOKAR",
+                "color": {
+                        "color": "#F44336",
+                        "opacity": 0.5,
+                        "highlight": "#F44336"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Carbon Projects",
+                "to": "company_BOSCH",
+                "color": {
+                        "color": "#F44336",
+                        "opacity": 0.5,
+                        "highlight": "#F44336"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Carbon Projects",
+                "to": "company_KNORR-BREMSE",
+                "color": {
+                        "color": "#F44336",
+                        "opacity": 0.5,
+                        "highlight": "#F44336"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Carbon Projects",
+                "to": "company_AUTOLIV_INC",
+                "color": {
+                        "color": "#F44336",
+                        "opacity": 0.5,
+                        "highlight": "#F44336"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Energy Efficiency Programs",
+                "to": "company_BOSCH",
+                "color": {
+                        "color": "#FFC107",
+                        "opacity": 0.5,
+                        "highlight": "#FFC107"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Energy Efficiency Programs",
+                "to": "company_FORD-OTOMOTIV",
+                "color": {
+                        "color": "#FFC107",
+                        "opacity": 0.5,
+                        "highlight": "#FFC107"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Energy Efficiency Programs",
+                "to": "company_OTOKAR",
+                "color": {
+                        "color": "#FFC107",
+                        "opacity": 0.5,
+                        "highlight": "#FFC107"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Energy Efficiency Programs",
+                "to": "company_SAMSUNG-SDI",
+                "color": {
+                        "color": "#FFC107",
+                        "opacity": 0.5,
+                        "highlight": "#FFC107"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Energy Efficiency Programs",
+                "to": "company_KNORR-BREMSE",
+                "color": {
+                        "color": "#FFC107",
+                        "opacity": 0.5,
+                        "highlight": "#FFC107"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Energy Efficiency Programs",
+                "to": "company_AUTOLIV_INC",
+                "color": {
+                        "color": "#FFC107",
+                        "opacity": 0.5,
+                        "highlight": "#FFC107"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Energy Efficiency Programs",
+                "to": "company_LG-ENERGY",
+                "color": {
+                        "color": "#FFC107",
+                        "opacity": 0.5,
+                        "highlight": "#FFC107"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_RE100 Initiative",
+                "to": "company_LG-ENERGY",
+                "color": {
+                        "color": "#795548",
+                        "opacity": 0.5,
+                        "highlight": "#795548"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_EV100 Initiative",
+                "to": "company_LG-ENERGY",
+                "color": {
+                        "color": "#607D8B",
+                        "opacity": 0.5,
+                        "highlight": "#607D8B"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Internal Carbon Pricing",
+                "to": "company_PIRELLI",
+                "color": {
+                        "color": "#E91E63",
+                        "opacity": 0.5,
+                        "highlight": "#E91E63"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        },
+        {
+                "from": "initiative_Internal Carbon Pricing",
+                "to": "company_BOSCH",
+                "color": {
+                        "color": "#E91E63",
+                        "opacity": 0.5,
+                        "highlight": "#E91E63"
+                },
+                "width": 2.5,
+                "smooth": {
+                        "type": "continuous",
+                        "roundness": 0.6
+                },
+                "hoverWidth": 5
+        }
+];
+
+        const nodes = new vis.DataSet(nodesData);
+        const edges = new vis.DataSet(edgesData);
+
+        const container = document.getElementById('mynetwork');
+
+        const options = {
+            physics: {
+                enabled: true,
+                forceAtlas2Based: {
+                    gravitationalConstant: -80,
+                    centralGravity: 0.015,
+                    springLength: 250,
+                    springConstant: 0.04,
+                    damping: 0.5,
+                    avoidOverlap: 0.9
+                },
+                maxVelocity: 40,
+                minVelocity: 0.1,
+                solver: 'forceAtlas2Based',
+                stabilization: {
+                    enabled: true,
+                    iterations: 1500,
+                    updateInterval: 20
+                }
+            },
+            interaction: {
+                dragNodes: true,
+                dragView: true,
+                zoomView: true,
+                hover: true,
+                navigationButtons: true,
+                keyboard: true,
+                tooltipDelay: 100
+            },
+            nodes: {
+                shadow: {
+                    enabled: true,
+                    color: 'rgba(0,0,0,0.4)',
+                    size: 12,
+                    x: 4,
+                    y: 4
+                }
+            },
+            edges: {
+                smooth: {
+                    type: 'continuous',
+                    roundness: 0.6
+                },
+                shadow: {
+                    enabled: true,
+                    color: 'rgba(0,0,0,0.15)',
+                    size: 6,
+                    x: 2,
+                    y: 2
+                }
+            }
+        };
+
+        const network = new vis.Network(container, { nodes, edges }, options);
+
+        let physicsEnabled = true;
+        let focusActive = false;
+        let currentFocusInitiative = null;
+
+        // Click handler for initiative focus
+        network.on('click', function(params) {
+            if (params.nodes.length > 0) {
+                const nodeId = params.nodes[0];
+                const node = nodes.get(nodeId);
+
+                if (node.group === 'initiative') {
+                    focusOnInitiative(nodeId, node);
+                } else if (node.group === 'company') {
+                    highlightCompany(nodeId);
+                }
+            }
+        });
+
+        function focusOnInitiative(initiativeId, initiativeNode) {
+            showModeIndicator('🎯 Focus Mode');
+
+            // Get connected companies
+            const connectedCompanies = network.getConnectedNodes(initiativeId);
+
+            // Fade all nodes
+            nodes.forEach(n => {
+                if (n.group === 'company') {
+                    if (connectedCompanies.includes(n.id)) {
+                        // Connected companies - make bold and prominent
+                        nodes.update({
+                            id: n.id,
+                            opacity: 1,
+                            font: { size: 16, bold: true, color: '#FFFFFF' },
+                            borderWidth: 5,
+                            shadow: { size: 20, x: 5, y: 5 }
+                        });
+                    } else {
+                        // Unconnected companies - fade out
+                        nodes.update({
+                            id: n.id,
+                            opacity: 0.15,
+                            font: { size: 11, color: '#CCCCCC' },
+                            borderWidth: 1,
+                            shadow: { enabled: false }
+                        });
+                    }
+                } else if (n.group === 'initiative') {
+                    if (n.id === initiativeId) {
+                        // Selected initiative - enlarge
+                        nodes.update({
+                            id: n.id,
+                            opacity: 1,
+                            size: n.size * 1.3,
+                            borderWidth: 6
+                        });
+                    } else {
+                        // Other initiatives - fade
+                        nodes.update({
+                            id: n.id,
+                            opacity: 0.2,
+                            borderWidth: 2
+                        });
+                    }
+                }
+            });
+
+            // Highlight connected edges
+            edges.forEach(e => {
+                if (e.from === initiativeId) {
+                    edges.update({
+                        id: e.id,
+                        width: 5,
+                        opacity: 1
+                    });
+                } else {
+                    edges.update({
+                        id: e.id,
+                        width: 1,
+                        opacity: 0.1
+                    });
+                }
+            });
+
+            // Show focus panel with company details
+            showFocusPanel(initiativeNode, connectedCompanies);
+
+            focusActive = true;
+            currentFocusInitiative = initiativeId;
+            document.getElementById('currentMode').textContent = 'Focus';
+        }
+
+        function showFocusPanel(initiativeNode, companyIds) {
+            const panel = document.getElementById('focusMode');
+            const title = document.getElementById('focusTitle');
+            const companiesDiv = document.getElementById('focusCompanies');
+
+            title.textContent = initiativeNode.fullLabel;
+            companiesDiv.innerHTML = '';
+
+            companyIds.forEach(cId => {
+                const company = nodes.get(cId);
+                if (company && company.group === 'company') {
+                    const div = document.createElement('div');
+                    div.className = 'company-item';
+                    div.style.borderLeftColor = company.color.background;
+                    div.textContent = company.label + ' - ' + company.tier;
+                    companiesDiv.appendChild(div);
+                }
+            });
+
+            panel.classList.add('active');
+        }
+
+        function clearFocus() {
+            showModeIndicator('🔓 Focus Cleared');
+
+            // Reset all node opacities and styles
+            nodes.forEach(n => {
+                const originalNode = nodesData.find(orig => orig.id === n.id);
+                nodes.update({
+                    id: n.id,
+                    opacity: 1,
+                    size: originalNode.size,
+                    font: originalNode.font,
+                    borderWidth: originalNode.borderWidth,
+                    shadow: { enabled: true, size: 12, x: 4, y: 4 }
+                });
+            });
+
+            // Reset all edge styles
+            edges.forEach(e => {
+                const originalEdge = edgesData.find(orig => orig.from === e.from && orig.to === e.to);
+                edges.update({
+                    id: e.id,
+                    width: originalEdge.width,
+                    opacity: originalEdge.color.opacity
+                });
+            });
+
+            document.getElementById('focusMode').classList.remove('active');
+            focusActive = false;
+            currentFocusInitiative = null;
+            document.getElementById('currentMode').textContent = 'Normal';
+        }
+
+        function clusterByTier(tierNum) {
+            showModeIndicator('🔗 Clustering Tier ' + tierNum);
+
+            const clusterOptions = {
+                joinCondition: function(nodeOptions) {
+                    return nodeOptions.group === 'company' && nodeOptions.tier_num === tierNum;
+                },
+                clusterNodeProperties: {
+                    label: 'Tier ' + tierNum,
+                    shape: 'database',
+                    size: 80,
+                    font: { size: 20, bold: true },
+                    borderWidth: 6
+                }
+            };
+
+            network.cluster(clusterOptions);
+            document.getElementById('currentMode').textContent = 'Clustered (Tier ' + tierNum + ')';
+        }
+
+        function highlightCompany(companyId) {
+            const connectedEdges = network.getConnectedEdges(companyId);
+            network.selectNodes([companyId]);
+            network.selectEdges(connectedEdges);
+        }
+
+        function togglePhysics() {
+            physicsEnabled = !physicsEnabled;
+            network.setOptions({ physics: { enabled: physicsEnabled } });
+            document.getElementById('physicsBtn').textContent = physicsEnabled ? '🎯 Physics: ON' : '🎯 Physics: OFF';
+        }
+
+        function resetNetwork() {
+            clearFocus();
+            network.setData({ nodes, edges });
+            network.setOptions({ physics: { enabled: true } });
+            physicsEnabled = true;
+            document.getElementById('physicsBtn').textContent = '🎯 Physics: ON';
+            showModeIndicator('🔄 Network Reset');
+        }
+
+        function fitNetwork() {
+            network.fit({
+                animation: { duration: 800, easingFunction: 'easeInOutQuad' }
+            });
+        }
+
+        function exportNetwork() {
+            const data = {
+                nodes: nodes.get(),
+                edges: edges.get(),
+                positions: network.getPositions()
+            };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'energy_initiatives_network_' + new Date().toISOString().split('T')[0] + '.json';
+            a.click();
+        }
+
+        function showModeIndicator(text) {
+            const indicator = document.getElementById('modeIndicator');
+            indicator.textContent = text;
+            indicator.classList.add('show');
+            setTimeout(() => indicator.classList.remove('show'), 1500);
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') clearFocus();
+            if (e.key === 'r' || e.key === 'R') resetNetwork();
+            if (e.key === 'f' || e.key === 'F') fitNetwork();
+        });
+
+        console.log('🌍 Animated Energy Initiatives Network loaded');
+        console.log('📌 Click initiatives to focus | ESC to clear | R to reset');
+    </script>
+</body>
+</html>

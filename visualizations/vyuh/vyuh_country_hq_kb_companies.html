@@ -1,0 +1,2647 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>HyperGraph RAG - Country-Based Visualization (KB Companies Only)</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+        }
+        .header {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .title {
+            margin: 0 0 15px 0;
+            font-size: 28px;
+            color: #1a1a1a;
+        }
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .stat {
+            background: #f0f0f0;
+            padding: 10px 15px;
+            border-radius: 6px;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1976D2;
+        }
+        .legend {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e0e0e0;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+        #graph-container {
+            width: 100%;
+            height: calc(100vh - 300px);
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1 class="title">🌍 HyperGraph RAG - Country-Based Visualization (HQ Classification)</h1>
+        
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-label">Total Companies</div>
+                <div class="stat-value">79</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Total Nodes</div>
+                <div class="stat-value">92</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Connections</div>
+                <div class="stat-value">79</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Countries</div>
+                <div class="stat-value">13</div>
+            </div>
+        </div>
+        
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: #FF0000;"></div>
+                <span><strong>Germany</strong> - German Companies</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #0000FF;"></div>
+                <span><strong>France</strong> - French Companies</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #00FF00;"></div>
+                <span><strong>Italy</strong> - Italian Companies</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #000080;"></div>
+                <span><strong>United States</strong> - US Companies</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #FF1493;"></div>
+                <span><strong>Japan</strong> - Japanese Companies</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #C0C0C0;"></div>
+                <span><strong>Other Countries</strong> - Various HQs</span>
+            </div>
+        </div>
+    </div>
+    
+    <div id="graph-container"></div>
+    
+    <script type="text/javascript">
+        const vyuhData = {
+        "nodes": [
+                {
+                        "id": "hyperedge_country_Germany",
+                        "type": "country_hyperedge",
+                        "position": {
+                                "x": 568.0647467311558,
+                                "y": 822.9838658936563
+                        },
+                        "data": {
+                                "name": "Germany",
+                                "display_name": "\ud83c\udde9\ud83c\uddea Germany",
+                                "flag": "\ud83c\udde9\ud83c\uddea",
+                                "type": "country_hyperedge",
+                                "company_count": 15,
+                                "continent": "Europe",
+                                "color": "#FF0000",
+                                "is_hyperedge": true
+                        }
+                },
+                {
+                        "id": "entity_bmw",
+                        "type": "company",
+                        "position": {
+                                "x": 968.0647467311558,
+                                "y": 822.9838658936563
+                        },
+                        "data": {
+                                "name": "BMW Group",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 439,
+                                "original_id": "bmw",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_mercedes_benz",
+                        "type": "company",
+                        "position": {
+                                "x": 933.4829297881961,
+                                "y": 985.6785231239764
+                        },
+                        "data": {
+                                "name": "Mercedes-Benz Group",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 438,
+                                "original_id": "mercedes_benz",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_volkswagen",
+                        "type": "company",
+                        "position": {
+                                "x": 835.716989274699,
+                                "y": 1120.2417960846142
+                        },
+                        "data": {
+                                "name": "Volkswagen Group",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 340,
+                                "original_id": "volkswagen",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_audi",
+                        "type": "company",
+                        "position": {
+                                "x": 691.6715444811348,
+                                "y": 1203.4064724117177
+                        },
+                        "data": {
+                                "name": "Audi AG",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 179,
+                                "original_id": "audi",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_porsche",
+                        "type": "company",
+                        "position": {
+                                "x": 526.2533614240945,
+                                "y": 1220.7926240409656
+                        },
+                        "data": {
+                                "name": "Porsche AG",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 250,
+                                "original_id": "porsche",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_hella_gmbh_co",
+                        "type": "company",
+                        "position": {
+                                "x": 368.0647467311558,
+                                "y": 1169.3940274074318
+                        },
+                        "data": {
+                                "name": "HELLA GmbH & Co. KGaA",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 333,
+                                "original_id": "hella_gmbh_co",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_knorr_bremse",
+                        "type": "company",
+                        "position": {
+                                "x": 244.45794898117686,
+                                "y": 1058.0979668106456
+                        },
+                        "data": {
+                                "name": "KNORR-BREMSE",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 284,
+                                "original_id": "knorr_bremse",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_schaeffler",
+                        "type": "company",
+                        "position": {
+                                "x": 176.8057064376335,
+                                "y": 906.1485422207601
+                        },
+                        "data": {
+                                "name": "Schaeffler AG",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 259,
+                                "original_id": "schaeffler",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_continental",
+                        "type": "company",
+                        "position": {
+                                "x": 176.8057064376335,
+                                "y": 739.8191895665527
+                        },
+                        "data": {
+                                "name": "Continental AG",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 330,
+                                "original_id": "continental",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_robert_bosch",
+                        "type": "company",
+                        "position": {
+                                "x": 244.4579489811768,
+                                "y": 587.8697649766672
+                        },
+                        "data": {
+                                "name": "Robert Bosch GmbH",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 114,
+                                "original_id": "robert_bosch",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_saf_holland",
+                        "type": "company",
+                        "position": {
+                                "x": 368.0647467311556,
+                                "y": 476.573704379881
+                        },
+                        "data": {
+                                "name": "SAF-HOLLAND SE",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 312,
+                                "original_id": "saf_holland",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_daimler-truck",
+                        "type": "company",
+                        "position": {
+                                "x": 526.2533614240941,
+                                "y": 425.175107746347
+                        },
+                        "data": {
+                                "name": "Daimler Truck",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 299,
+                                "original_id": "daimler-truck",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_scania_ab",
+                        "type": "company",
+                        "position": {
+                                "x": 691.6715444811347,
+                                "y": 442.5612593755949
+                        },
+                        "data": {
+                                "name": "Scania AB",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 174,
+                                "original_id": "scania_ab",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_man_truck_bus",
+                        "type": "company",
+                        "position": {
+                                "x": 835.7169892746991,
+                                "y": 525.7259357026987
+                        },
+                        "data": {
+                                "name": "MAN Truck & Bus",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 167,
+                                "original_id": "man_truck_bus",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_zf_friedrichshafen",
+                        "type": "company",
+                        "position": {
+                                "x": 933.4829297881961,
+                                "y": 660.2892086633362
+                        },
+                        "data": {
+                                "name": "ZF Friedrichshafen AG",
+                                "type": "company",
+                                "country": "Germany",
+                                "contexts": 189,
+                                "original_id": "zf_friedrichshafen",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "hyperedge_country_France",
+                        "type": "country_hyperedge",
+                        "position": {
+                                "x": 885.45602565321,
+                                "y": 464.72317204376856
+                        },
+                        "data": {
+                                "name": "France",
+                                "display_name": "\ud83c\uddeb\ud83c\uddf7 France",
+                                "flag": "\ud83c\uddeb\ud83c\uddf7",
+                                "type": "country_hyperedge",
+                                "company_count": 4,
+                                "continent": "Europe",
+                                "color": "#0000FF",
+                                "is_hyperedge": true
+                        }
+                },
+                {
+                        "id": "entity_stellantis_n_v",
+                        "type": "company",
+                        "position": {
+                                "x": 1285.45602565321,
+                                "y": 464.72317204376856
+                        },
+                        "data": {
+                                "name": "Stellantis N.V.",
+                                "type": "company",
+                                "country": "France",
+                                "contexts": 578,
+                                "original_id": "stellantis_n_v",
+                                "color": "#0000FF"
+                        }
+                },
+                {
+                        "id": "entity_renault",
+                        "type": "company",
+                        "position": {
+                                "x": 885.45602565321,
+                                "y": 864.7231720437685
+                        },
+                        "data": {
+                                "name": "Renault Group",
+                                "type": "company",
+                                "country": "France",
+                                "contexts": 544,
+                                "original_id": "renault",
+                                "color": "#0000FF"
+                        }
+                },
+                {
+                        "id": "entity_forvia",
+                        "type": "company",
+                        "position": {
+                                "x": 485.45602565320996,
+                                "y": 464.7231720437686
+                        },
+                        "data": {
+                                "name": "FORVIA SE",
+                                "type": "company",
+                                "country": "France",
+                                "contexts": 39,
+                                "original_id": "forvia",
+                                "color": "#0000FF"
+                        }
+                },
+                {
+                        "id": "entity_valeo",
+                        "type": "company",
+                        "position": {
+                                "x": 885.4560256532098,
+                                "y": 64.72317204376856
+                        },
+                        "data": {
+                                "name": "Valeo SE",
+                                "type": "company",
+                                "country": "France",
+                                "contexts": 56,
+                                "original_id": "valeo",
+                                "color": "#0000FF"
+                        }
+                },
+                {
+                        "id": "hyperedge_country_Italy",
+                        "type": "country_hyperedge",
+                        "position": {
+                                "x": -748.5107481711012,
+                                "y": 663.1226582407952
+                        },
+                        "data": {
+                                "name": "Italy",
+                                "display_name": "\ud83c\uddee\ud83c\uddf9 Italy",
+                                "flag": "\ud83c\uddee\ud83c\uddf9",
+                                "type": "country_hyperedge",
+                                "company_count": 5,
+                                "continent": "Europe",
+                                "color": "#00FF00",
+                                "is_hyperedge": true
+                        }
+                },
+                {
+                        "id": "entity_ferrari_n_v",
+                        "type": "company",
+                        "position": {
+                                "x": -348.5107481711012,
+                                "y": 663.1226582407952
+                        },
+                        "data": {
+                                "name": "Ferrari N.V.",
+                                "type": "company",
+                                "country": "Italy",
+                                "contexts": 2405,
+                                "original_id": "ferrari_n_v",
+                                "color": "#00FF00"
+                        }
+                },
+                {
+                        "id": "entity_brembo_n_v",
+                        "type": "company",
+                        "position": {
+                                "x": -624.9039504211222,
+                                "y": 1043.5452647588565
+                        },
+                        "data": {
+                                "name": "Brembo N.V.",
+                                "type": "company",
+                                "country": "Italy",
+                                "contexts": 161,
+                                "original_id": "brembo_n_v",
+                                "color": "#00FF00"
+                        }
+                },
+                {
+                        "id": "entity_pirelli_c_s_p_a",
+                        "type": "company",
+                        "position": {
+                                "x": -1072.1175459210801,
+                                "y": 898.2367591577845
+                        },
+                        "data": {
+                                "name": "Pirelli & C. S.p.A",
+                                "type": "company",
+                                "country": "Italy",
+                                "contexts": 531,
+                                "original_id": "pirelli_c_s_p_a",
+                                "color": "#00FF00"
+                        }
+                },
+                {
+                        "id": "entity_pirelli_c",
+                        "type": "company",
+                        "position": {
+                                "x": -1072.1175459210801,
+                                "y": 428.00855732380603
+                        },
+                        "data": {
+                                "name": "Pirelli C SpA",
+                                "type": "company",
+                                "country": "Italy",
+                                "contexts": 531,
+                                "original_id": "pirelli_c",
+                                "color": "#00FF00"
+                        }
+                },
+                {
+                        "id": "entity_iveco",
+                        "type": "company",
+                        "position": {
+                                "x": -624.9039504211223,
+                                "y": 282.70005172273375
+                        },
+                        "data": {
+                                "name": "Iveco Group",
+                                "type": "company",
+                                "country": "Italy",
+                                "contexts": 853,
+                                "original_id": "iveco",
+                                "color": "#00FF00"
+                        }
+                },
+                {
+                        "id": "hyperedge_country_Sweden",
+                        "type": "country_hyperedge",
+                        "position": {
+                                "x": -354.6048870425359,
+                                "y": -935.0162426854147
+                        },
+                        "data": {
+                                "name": "Sweden",
+                                "display_name": "\ud83c\uddf8\ud83c\uddea Sweden",
+                                "flag": "\ud83c\uddf8\ud83c\uddea",
+                                "type": "country_hyperedge",
+                                "company_count": 5,
+                                "continent": "Europe",
+                                "color": "#FFFF00",
+                                "is_hyperedge": true
+                        }
+                },
+                {
+                        "id": "entity_polestar",
+                        "type": "company",
+                        "position": {
+                                "x": 45.39511295746411,
+                                "y": -935.0162426854147
+                        },
+                        "data": {
+                                "name": "Polestar",
+                                "type": "company",
+                                "country": "Sweden",
+                                "contexts": 162,
+                                "original_id": "polestar",
+                                "color": "#FFFF00"
+                        }
+                },
+                {
+                        "id": "entity_volvo",
+                        "type": "company",
+                        "position": {
+                                "x": -230.99808929255693,
+                                "y": -554.5936361673532
+                        },
+                        "data": {
+                                "name": "Volvo Group",
+                                "type": "company",
+                                "country": "Sweden",
+                                "contexts": 583,
+                                "original_id": "volvo",
+                                "color": "#FFFF00"
+                        }
+                },
+                {
+                        "id": "entity_seb",
+                        "type": "company",
+                        "position": {
+                                "x": -678.2116847925148,
+                                "y": -699.9021417684254
+                        },
+                        "data": {
+                                "name": "SEB Group",
+                                "type": "company",
+                                "country": "Sweden",
+                                "contexts": 9558,
+                                "original_id": "seb",
+                                "color": "#FFFF00"
+                        }
+                },
+                {
+                        "id": "entity_northvolt_ab",
+                        "type": "company",
+                        "position": {
+                                "x": -678.2116847925149,
+                                "y": -1170.1303436024039
+                        },
+                        "data": {
+                                "name": "Northvolt AB",
+                                "type": "company",
+                                "country": "Sweden",
+                                "contexts": 10,
+                                "original_id": "northvolt_ab",
+                                "color": "#FFFF00"
+                        }
+                },
+                {
+                        "id": "entity_volvo_car_ab",
+                        "type": "company",
+                        "position": {
+                                "x": -230.99808929255698,
+                                "y": -1315.4388492034761
+                        },
+                        "data": {
+                                "name": "Volvo Car AB",
+                                "type": "company",
+                                "country": "Sweden",
+                                "contexts": 222,
+                                "original_id": "volvo_car_ab",
+                                "color": "#FFFF00"
+                        }
+                },
+                {
+                        "id": "hyperedge_country_Turkey",
+                        "type": "country_hyperedge",
+                        "position": {
+                                "x": 120.5366802553232,
+                                "y": -992.708874098054
+                        },
+                        "data": {
+                                "name": "Turkey",
+                                "display_name": "\ud83c\uddf9\ud83c\uddf7 Turkey",
+                                "flag": "\ud83c\uddf9\ud83c\uddf7",
+                                "type": "country_hyperedge",
+                                "company_count": 1,
+                                "continent": "Europe",
+                                "color": "#9E9E9E",
+                                "is_hyperedge": true
+                        }
+                },
+                {
+                        "id": "entity_otokar_otomotiv_ve_savunma_sanayi_a",
+                        "type": "company",
+                        "position": {
+                                "x": 520.5366802553232,
+                                "y": -992.708874098054
+                        },
+                        "data": {
+                                "name": "Otokar Otomotiv ve Savunma Sanayi A.\u015e.",
+                                "type": "company",
+                                "country": "Turkey",
+                                "contexts": 333,
+                                "original_id": "otokar_otomotiv_ve_savunma_sanayi_a",
+                                "color": "#9E9E9E"
+                        }
+                },
+                {
+                        "id": "hyperedge_country_United_States",
+                        "type": "country_hyperedge",
+                        "position": {
+                                "x": 568.0647467311555,
+                                "y": -822.9838658936566
+                        },
+                        "data": {
+                                "name": "United States",
+                                "display_name": "\ud83c\uddfa\ud83c\uddf8 United States",
+                                "flag": "\ud83c\uddfa\ud83c\uddf8",
+                                "type": "country_hyperedge",
+                                "company_count": 13,
+                                "continent": "North America",
+                                "color": "#000080",
+                                "is_hyperedge": true
+                        }
+                },
+                {
+                        "id": "entity_ford_otomotiv_sanayi_a_s",
+                        "type": "company",
+                        "position": {
+                                "x": 968.0647467311555,
+                                "y": -822.9838658936566
+                        },
+                        "data": {
+                                "name": "Ford Otomotiv Sanayi A.S.",
+                                "type": "company",
+                                "country": "United States",
+                                "contexts": 470,
+                                "original_id": "ford_otomotiv_sanayi_a_s",
+                                "color": "#000080"
+                        }
+                },
+                {
+                        "id": "entity_autoliv",
+                        "type": "company",
+                        "position": {
+                                "x": 922.2471569924395,
+                                "y": -637.0945970761492
+                        },
+                        "data": {
+                                "name": "Autoliv Inc.",
+                                "type": "company",
+                                "country": "United States",
+                                "contexts": 335,
+                                "original_id": "autoliv",
+                                "color": "#000080"
+                        }
+                },
+                {
+                        "id": "entity_howden",
+                        "type": "company",
+                        "position": {
+                                "x": 795.2906454236179,
+                                "y": -493.79031953619403
+                        },
+                        "data": {
+                                "name": "Howden Group",
+                                "type": "company",
+                                "country": "United States",
+                                "contexts": 45,
+                                "original_id": "howden",
+                                "color": "#000080"
+                        }
+                },
+                {
+                        "id": "entity_arcelormittal",
+                        "type": "company",
+                        "position": {
+                                "x": 616.2794188332847,
+                                "y": -425.900316254435
+                        },
+                        "data": {
+                                "name": "ArcelorMittal SA",
+                                "type": "company",
+                                "country": "United States",
+                                "contexts": 78,
+                                "original_id": "arcelormittal",
+                                "color": "#000080"
+                        }
+                },
+                {
+                        "id": "entity_autoneum_holding",
+                        "type": "company",
+                        "position": {
+                                "x": 426.2227919141412,
+                                "y": -448.97736881949066
+                        },
+                        "data": {
+                                "name": "Autoneum Holding AG",
+                                "type": "company",
+                                "country": "United States",
+                                "contexts": 90,
+                                "original_id": "autoneum_holding",
+                                "color": "#000080"
+                        }
+                },
+                {
+                        "id": "entity_ford_motor",
+                        "type": "company",
+                        "position": {
+                                "x": 268.66044746271507,
+                                "y": -557.7348025973386
+                        },
+                        "data": {
+                                "name": "Ford Motor Company",
+                                "type": "company",
+                                "country": "United States",
+                                "contexts": 589,
+                                "original_id": "ford_motor",
+                                "color": "#000080"
+                        }
+                },
+                {
+                        "id": "entity_general_motors",
+                        "type": "company",
+                        "position": {
+                                "x": 179.68801976073473,
+                                "y": -727.2576001786335
+                        },
+                        "data": {
+                                "name": "General Motors",
+                                "type": "company",
+                                "country": "United States",
+                                "contexts": 168,
+                                "original_id": "general_motors",
+                                "color": "#000080"
+                        }
+                },
+                {
+                        "id": "entity_lear",
+                        "type": "company",
+                        "position": {
+                                "x": 179.68801976073468,
+                                "y": -918.7101316086796
+                        },
+                        "data": {
+                                "name": "Lear Corporation",
+                                "type": "company",
+                                "country": "United States",
+                                "contexts": 204,
+                                "original_id": "lear",
+                                "color": "#000080"
+                        }
+                },
+                {
+                        "id": "entity_paccar",
+                        "type": "company",
+                        "position": {
+                                "x": 268.6604474627151,
+                                "y": -1088.2329291899746
+                        },
+                        "data": {
+                                "name": "PACCAR Inc",
+                                "type": "company",
+                                "country": "United States",
+                                "contexts": 252,
+                                "original_id": "paccar",
+                                "color": "#000080"
+                        }
+                },
+                {
+                        "id": "entity_tesla",
+                        "type": "company",
+                        "position": {
+                                "x": 426.22279191414117,
+                                "y": -1196.9903629678224
+                        },
+                        "data": {
+                                "name": "Tesla, Inc.",
+                                "type": "company",
+                                "country": "United States",
+                                "contexts": 29,
+                                "original_id": "tesla",
+                                "color": "#000080"
+                        }
+                },
+                {
+                        "id": "entity_borgwarner",
+                        "type": "company",
+                        "position": {
+                                "x": 616.2794188332848,
+                                "y": -1220.0674155328782
+                        },
+                        "data": {
+                                "name": "BorgWarner Inc",
+                                "type": "company",
+                                "country": "United States",
+                                "contexts": 197,
+                                "original_id": "borgwarner",
+                                "color": "#000080"
+                        }
+                },
+                {
+                        "id": "entity_traton",
+                        "type": "company",
+                        "position": {
+                                "x": 795.2906454236178,
+                                "y": -1152.1774122511192
+                        },
+                        "data": {
+                                "name": "TRATON Group",
+                                "type": "company",
+                                "country": "United States",
+                                "contexts": 646,
+                                "original_id": "traton",
+                                "color": "#000080"
+                        }
+                },
+                {
+                        "id": "entity_international_motors",
+                        "type": "company",
+                        "position": {
+                                "x": 922.2471569924396,
+                                "y": -1008.873134711164
+                        },
+                        "data": {
+                                "name": "International Motors",
+                                "type": "company",
+                                "country": "United States",
+                                "contexts": 86,
+                                "original_id": "international_motors",
+                                "color": "#000080"
+                        }
+                },
+                {
+                        "id": "hyperedge_country_Ireland",
+                        "type": "country_hyperedge",
+                        "position": {
+                                "x": -354.60488704253567,
+                                "y": 935.0162426854148
+                        },
+                        "data": {
+                                "name": "Ireland",
+                                "display_name": "\ud83c\uddee\ud83c\uddea Ireland",
+                                "flag": "\ud83c\uddee\ud83c\uddea",
+                                "type": "country_hyperedge",
+                                "company_count": 3,
+                                "continent": "Unknown",
+                                "color": "#9E9E9E",
+                                "is_hyperedge": true
+                        }
+                },
+                {
+                        "id": "entity_adient",
+                        "type": "company",
+                        "position": {
+                                "x": 45.395112957464335,
+                                "y": 935.0162426854148
+                        },
+                        "data": {
+                                "name": "Adient PLC",
+                                "type": "company",
+                                "country": "Ireland",
+                                "contexts": 112,
+                                "original_id": "adient",
+                                "color": "#9E9E9E"
+                        }
+                },
+                {
+                        "id": "entity_aptiv",
+                        "type": "company",
+                        "position": {
+                                "x": -554.6048870425357,
+                                "y": 1281.4264041991903
+                        },
+                        "data": {
+                                "name": "Aptiv PLC",
+                                "type": "company",
+                                "country": "Ireland",
+                                "contexts": 18,
+                                "original_id": "aptiv",
+                                "color": "#9E9E9E"
+                        }
+                },
+                {
+                        "id": "entity_veoneer",
+                        "type": "company",
+                        "position": {
+                                "x": -554.6048870425359,
+                                "y": 588.6060811716395
+                        },
+                        "data": {
+                                "name": "Veoneer Inc",
+                                "type": "company",
+                                "country": "Ireland",
+                                "contexts": 18,
+                                "original_id": "veoneer",
+                                "color": "#9E9E9E"
+                        }
+                },
+                {
+                        "id": "hyperedge_country_China",
+                        "type": "country_hyperedge",
+                        "position": {
+                                "x": 1000.0,
+                                "y": 0.0
+                        },
+                        "data": {
+                                "name": "China",
+                                "display_name": "\ud83c\udde8\ud83c\uddf3 China",
+                                "flag": "\ud83c\udde8\ud83c\uddf3",
+                                "type": "country_hyperedge",
+                                "company_count": 9,
+                                "continent": "Asia",
+                                "color": "#FF0000",
+                                "is_hyperedge": true
+                        }
+                },
+                {
+                        "id": "entity_contemporary_amperex_technology_co",
+                        "type": "company",
+                        "position": {
+                                "x": 1400.0,
+                                "y": 0.0
+                        },
+                        "data": {
+                                "name": "Contemporary Amperex Technology Co., Limited (CATL)",
+                                "type": "company",
+                                "country": "China",
+                                "contexts": 76,
+                                "original_id": "contemporary_amperex_technology_co",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_sinotruk",
+                        "type": "company",
+                        "position": {
+                                "x": 1306.4177772475912,
+                                "y": 257.1150438746157
+                        },
+                        "data": {
+                                "name": "SINOTRUK",
+                                "type": "company",
+                                "country": "China",
+                                "contexts": 359,
+                                "original_id": "sinotruk",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_byd",
+                        "type": "company",
+                        "position": {
+                                "x": 1069.459271066772,
+                                "y": 393.9231012048832
+                        },
+                        "data": {
+                                "name": "BYD Company",
+                                "type": "company",
+                                "country": "China",
+                                "contexts": 440,
+                                "original_id": "byd",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_cnhtc-sinotruk",
+                        "type": "company",
+                        "position": {
+                                "x": 800.0,
+                                "y": 346.4101615137755
+                        },
+                        "data": {
+                                "name": "CNHTC Sinotruk",
+                                "type": "company",
+                                "country": "China",
+                                "contexts": 218,
+                                "original_id": "cnhtc-sinotruk",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_dongfeng_motor",
+                        "type": "company",
+                        "position": {
+                                "x": 624.1229516856367,
+                                "y": 136.80805733026756
+                        },
+                        "data": {
+                                "name": "Dongfeng Motor",
+                                "type": "company",
+                                "country": "China",
+                                "contexts": 102,
+                                "original_id": "dongfeng_motor",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_geely_automobile",
+                        "type": "company",
+                        "position": {
+                                "x": 624.1229516856366,
+                                "y": -136.80805733026747
+                        },
+                        "data": {
+                                "name": "Geely Automobile",
+                                "type": "company",
+                                "country": "China",
+                                "contexts": 445,
+                                "original_id": "geely_automobile",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_faw",
+                        "type": "company",
+                        "position": {
+                                "x": 799.9999999999998,
+                                "y": -346.41016151377534
+                        },
+                        "data": {
+                                "name": "FAW Group",
+                                "type": "company",
+                                "country": "China",
+                                "contexts": 529,
+                                "original_id": "faw",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_faw_jiefang",
+                        "type": "company",
+                        "position": {
+                                "x": 1069.459271066772,
+                                "y": -393.92310120488327
+                        },
+                        "data": {
+                                "name": "FAW Jiefang",
+                                "type": "company",
+                                "country": "China",
+                                "contexts": 415,
+                                "original_id": "faw_jiefang",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "entity_cnhtc",
+                        "type": "company",
+                        "position": {
+                                "x": 1306.4177772475912,
+                                "y": -257.1150438746158
+                        },
+                        "data": {
+                                "name": "CNHTC (China National Heavy Duty Truck Group)",
+                                "type": "company",
+                                "country": "China",
+                                "contexts": 707,
+                                "original_id": "cnhtc",
+                                "color": "#FF0000"
+                        }
+                },
+                {
+                        "id": "hyperedge_country_South_Korea",
+                        "type": "country_hyperedge",
+                        "position": {
+                                "x": -748.510748171101,
+                                "y": -663.1226582407953
+                        },
+                        "data": {
+                                "name": "South Korea",
+                                "display_name": "\ud83c\uddf0\ud83c\uddf7 South Korea",
+                                "flag": "\ud83c\uddf0\ud83c\uddf7",
+                                "type": "country_hyperedge",
+                                "company_count": 7,
+                                "continent": "Asia",
+                                "color": "#0000FF",
+                                "is_hyperedge": true
+                        }
+                },
+                {
+                        "id": "entity_lg_energy_solution_co",
+                        "type": "company",
+                        "position": {
+                                "x": -348.510748171101,
+                                "y": -663.1226582407953
+                        },
+                        "data": {
+                                "name": "LG Energy Solution Co., Ltd.",
+                                "type": "company",
+                                "country": "South Korea",
+                                "contexts": 174,
+                                "original_id": "lg_energy_solution_co",
+                                "color": "#0000FF"
+                        }
+                },
+                {
+                        "id": "entity_samsung_sdi_co",
+                        "type": "company",
+                        "position": {
+                                "x": -499.11482742760757,
+                                "y": -350.3900652535834
+                        },
+                        "data": {
+                                "name": "Samsung SDI Co., Ltd.",
+                                "type": "company",
+                                "country": "South Korea",
+                                "contexts": 114,
+                                "original_id": "samsung_sdi_co",
+                                "color": "#0000FF"
+                        }
+                },
+                {
+                        "id": "entity_hyundai_motor",
+                        "type": "company",
+                        "position": {
+                                "x": -837.5191217536267,
+                                "y": -273.15149336806587
+                        },
+                        "data": {
+                                "name": "Hyundai Motor Company",
+                                "type": "company",
+                                "country": "South Korea",
+                                "contexts": 324,
+                                "original_id": "hyundai_motor",
+                                "color": "#0000FF"
+                        }
+                },
+                {
+                        "id": "entity_kia",
+                        "type": "company",
+                        "position": {
+                                "x": -1108.8982953320688,
+                                "y": -489.56916259377203
+                        },
+                        "data": {
+                                "name": "Kia Corporation",
+                                "type": "company",
+                                "country": "South Korea",
+                                "contexts": 272,
+                                "original_id": "kia",
+                                "color": "#0000FF"
+                        }
+                },
+                {
+                        "id": "entity_hyundai_mobis",
+                        "type": "company",
+                        "position": {
+                                "x": -1108.8982953320688,
+                                "y": -836.6761538878185
+                        },
+                        "data": {
+                                "name": "Hyundai Mobis",
+                                "type": "company",
+                                "country": "South Korea",
+                                "contexts": 123,
+                                "original_id": "hyundai_mobis",
+                                "color": "#0000FF"
+                        }
+                },
+                {
+                        "id": "entity_lg_electronics_vehicle_solutions",
+                        "type": "company",
+                        "position": {
+                                "x": -837.5191217536268,
+                                "y": -1053.0938231135246
+                        },
+                        "data": {
+                                "name": "LG Electronics Vehicle Solutions",
+                                "type": "company",
+                                "country": "South Korea",
+                                "contexts": 334,
+                                "original_id": "lg_electronics_vehicle_solutions",
+                                "color": "#0000FF"
+                        }
+                },
+                {
+                        "id": "entity_lg-electronics-vs",
+                        "type": "company",
+                        "position": {
+                                "x": -499.1148274276077,
+                                "y": -975.8552512280073
+                        },
+                        "data": {
+                                "name": "LG Electronics VS",
+                                "type": "company",
+                                "country": "South Korea",
+                                "contexts": 167,
+                                "original_id": "lg-electronics-vs",
+                                "color": "#0000FF"
+                        }
+                },
+                {
+                        "id": "hyperedge_country_Netherlands",
+                        "type": "country_hyperedge",
+                        "position": {
+                                "x": -970.9418174260521,
+                                "y": -239.31566428755744
+                        },
+                        "data": {
+                                "name": "Netherlands",
+                                "display_name": "\ud83c\uddf3\ud83c\uddf1 Netherlands",
+                                "flag": "\ud83c\uddf3\ud83c\uddf1",
+                                "type": "country_hyperedge",
+                                "company_count": 1,
+                                "continent": "Europe",
+                                "color": "#9E9E9E",
+                                "is_hyperedge": true
+                        }
+                },
+                {
+                        "id": "entity_daf_trucks",
+                        "type": "company",
+                        "position": {
+                                "x": -570.9418174260521,
+                                "y": -239.31566428755744
+                        },
+                        "data": {
+                                "name": "DAF Trucks",
+                                "type": "company",
+                                "country": "Netherlands",
+                                "contexts": 128,
+                                "original_id": "daf_trucks",
+                                "color": "#9E9E9E"
+                        }
+                },
+                {
+                        "id": "hyperedge_country_Japan",
+                        "type": "country_hyperedge",
+                        "position": {
+                                "x": -970.941817426052,
+                                "y": 239.3156642875577
+                        },
+                        "data": {
+                                "name": "Japan",
+                                "display_name": "\ud83c\uddef\ud83c\uddf5 Japan",
+                                "flag": "\ud83c\uddef\ud83c\uddf5",
+                                "type": "country_hyperedge",
+                                "company_count": 7,
+                                "continent": "Asia",
+                                "color": "#FF1493",
+                                "is_hyperedge": true
+                        }
+                },
+                {
+                        "id": "entity_hino_motors",
+                        "type": "company",
+                        "position": {
+                                "x": -570.941817426052,
+                                "y": 239.3156642875577
+                        },
+                        "data": {
+                                "name": "Hino Motors Ltd.",
+                                "type": "company",
+                                "country": "Japan",
+                                "contexts": 110,
+                                "original_id": "hino_motors",
+                                "color": "#FF1493"
+                        }
+                },
+                {
+                        "id": "entity_isuzu_motors",
+                        "type": "company",
+                        "position": {
+                                "x": -721.5458966825586,
+                                "y": 552.0482572747696
+                        },
+                        "data": {
+                                "name": "Isuzu Motors Ltd.",
+                                "type": "company",
+                                "country": "Japan",
+                                "contexts": 164,
+                                "original_id": "isuzu_motors",
+                                "color": "#FF1493"
+                        }
+                },
+                {
+                        "id": "entity_honda_motor",
+                        "type": "company",
+                        "position": {
+                                "x": -1059.9501910085778,
+                                "y": 629.2868291602872
+                        },
+                        "data": {
+                                "name": "Honda Motor Co",
+                                "type": "company",
+                                "country": "Japan",
+                                "contexts": 386,
+                                "original_id": "honda_motor",
+                                "color": "#FF1493"
+                        }
+                },
+                {
+                        "id": "entity_nissan_motor",
+                        "type": "company",
+                        "position": {
+                                "x": -1331.3293645870197,
+                                "y": 412.869159934581
+                        },
+                        "data": {
+                                "name": "Nissan Motor Co",
+                                "type": "company",
+                                "country": "Japan",
+                                "contexts": 521,
+                                "original_id": "nissan_motor",
+                                "color": "#FF1493"
+                        }
+                },
+                {
+                        "id": "entity_toyota_motor",
+                        "type": "company",
+                        "position": {
+                                "x": -1331.3293645870197,
+                                "y": 65.7621686405345
+                        },
+                        "data": {
+                                "name": "Toyota Motor Corporation",
+                                "type": "company",
+                                "country": "Japan",
+                                "contexts": 312,
+                                "original_id": "toyota_motor",
+                                "color": "#FF1493"
+                        }
+                },
+                {
+                        "id": "entity_koito_manufacturing",
+                        "type": "company",
+                        "position": {
+                                "x": -1059.9501910085778,
+                                "y": -150.65550058517175
+                        },
+                        "data": {
+                                "name": "Koito Manufacturing",
+                                "type": "company",
+                                "country": "Japan",
+                                "contexts": 88,
+                                "original_id": "koito_manufacturing",
+                                "color": "#FF1493"
+                        }
+                },
+                {
+                        "id": "entity_nidec",
+                        "type": "company",
+                        "position": {
+                                "x": -721.5458966825587,
+                                "y": -73.41692869965425
+                        },
+                        "data": {
+                                "name": "Nidec Corporation",
+                                "type": "company",
+                                "country": "Japan",
+                                "contexts": 48,
+                                "original_id": "nidec",
+                                "color": "#FF1493"
+                        }
+                },
+                {
+                        "id": "hyperedge_country_India",
+                        "type": "country_hyperedge",
+                        "position": {
+                                "x": 120.536680255323,
+                                "y": 992.708874098054
+                        },
+                        "data": {
+                                "name": "India",
+                                "display_name": "\ud83c\uddee\ud83c\uddf3 India",
+                                "flag": "\ud83c\uddee\ud83c\uddf3",
+                                "type": "country_hyperedge",
+                                "company_count": 2,
+                                "continent": "Asia",
+                                "color": "#9E9E9E",
+                                "is_hyperedge": true
+                        }
+                },
+                {
+                        "id": "entity_tata_motors",
+                        "type": "company",
+                        "position": {
+                                "x": 520.5366802553231,
+                                "y": 992.708874098054
+                        },
+                        "data": {
+                                "name": "Tata Motors Limited",
+                                "type": "company",
+                                "country": "India",
+                                "contexts": 500,
+                                "original_id": "tata_motors",
+                                "color": "#9E9E9E"
+                        }
+                },
+                {
+                        "id": "entity_mahindra_mahindra",
+                        "type": "company",
+                        "position": {
+                                "x": -279.463319744677,
+                                "y": 992.708874098054
+                        },
+                        "data": {
+                                "name": "Mahindra Mahindra",
+                                "type": "company",
+                                "country": "India",
+                                "contexts": 250,
+                                "original_id": "mahindra_mahindra",
+                                "color": "#9E9E9E"
+                        }
+                },
+                {
+                        "id": "hyperedge_country_Unknown",
+                        "type": "country_hyperedge",
+                        "position": {
+                                "x": 885.4560256532101,
+                                "y": -464.7231720437684
+                        },
+                        "data": {
+                                "name": "Unknown",
+                                "display_name": "\u2753 Unknown",
+                                "flag": "\u2753",
+                                "type": "country_hyperedge",
+                                "company_count": 7,
+                                "continent": "Unknown",
+                                "color": "#C0C0C0",
+                                "is_hyperedge": true
+                        }
+                },
+                {
+                        "id": "entity_magna_international",
+                        "type": "company",
+                        "position": {
+                                "x": 1285.45602565321,
+                                "y": -464.7231720437684
+                        },
+                        "data": {
+                                "name": "Magna International",
+                                "type": "company",
+                                "country": "Unknown",
+                                "contexts": 98,
+                                "original_id": "magna_international",
+                                "color": "#C0C0C0"
+                        }
+                },
+                {
+                        "id": "entity_wabco",
+                        "type": "company",
+                        "position": {
+                                "x": 1134.8519463967036,
+                                "y": -151.99057905655644
+                        },
+                        "data": {
+                                "name": "WABCO Holdings",
+                                "type": "company",
+                                "country": "Unknown",
+                                "contexts": 303,
+                                "original_id": "wabco",
+                                "color": "#C0C0C0"
+                        }
+                },
+                {
+                        "id": "entity_yanfeng_automotive",
+                        "type": "company",
+                        "position": {
+                                "x": 796.4476520706844,
+                                "y": -74.75200717103894
+                        },
+                        "data": {
+                                "name": "Yanfeng Automotive",
+                                "type": "company",
+                                "country": "Unknown",
+                                "contexts": 142,
+                                "original_id": "yanfeng_automotive",
+                                "color": "#C0C0C0"
+                        }
+                },
+                {
+                        "id": "entity_grupo_antolin",
+                        "type": "company",
+                        "position": {
+                                "x": 525.0684784922424,
+                                "y": -291.1696763967451
+                        },
+                        "data": {
+                                "name": "Grupo Antolin",
+                                "type": "company",
+                                "country": "Unknown",
+                                "contexts": 388,
+                                "original_id": "grupo_antolin",
+                                "color": "#C0C0C0"
+                        }
+                },
+                {
+                        "id": "entity_marelli",
+                        "type": "company",
+                        "position": {
+                                "x": 525.0684784922424,
+                                "y": -638.2766676907916
+                        },
+                        "data": {
+                                "name": "Marelli Holdings",
+                                "type": "company",
+                                "country": "Unknown",
+                                "contexts": 210,
+                                "original_id": "marelli",
+                                "color": "#C0C0C0"
+                        }
+                },
+                {
+                        "id": "entity_aisin",
+                        "type": "company",
+                        "position": {
+                                "x": 796.4476520706843,
+                                "y": -854.6943369164978
+                        },
+                        "data": {
+                                "name": "Aisin Corporation",
+                                "type": "company",
+                                "country": "Unknown",
+                                "contexts": 98,
+                                "original_id": "aisin",
+                                "color": "#C0C0C0"
+                        }
+                },
+                {
+                        "id": "entity_vitesco_technologies",
+                        "type": "company",
+                        "position": {
+                                "x": 1134.8519463967034,
+                                "y": -777.4557650309803
+                        },
+                        "data": {
+                                "name": "Vitesco Technologies",
+                                "type": "company",
+                                "country": "Unknown",
+                                "contexts": 265,
+                                "original_id": "vitesco_technologies",
+                                "color": "#C0C0C0"
+                        }
+                }
+        ],
+        "connections": [
+                {
+                        "id": "conn_entity_bmw_hyperedge_country_Germany",
+                        "source": "entity_bmw",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "BMW Group HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_mercedes_benz_hyperedge_country_Germany",
+                        "source": "entity_mercedes_benz",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Mercedes-Benz Group HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_volkswagen_hyperedge_country_Germany",
+                        "source": "entity_volkswagen",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Volkswagen Group HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_audi_hyperedge_country_Germany",
+                        "source": "entity_audi",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Audi AG HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_porsche_hyperedge_country_Germany",
+                        "source": "entity_porsche",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Porsche AG HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_hella_gmbh_co_hyperedge_country_Germany",
+                        "source": "entity_hella_gmbh_co",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "HELLA GmbH & Co. KGaA HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_knorr_bremse_hyperedge_country_Germany",
+                        "source": "entity_knorr_bremse",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "KNORR-BREMSE HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_schaeffler_hyperedge_country_Germany",
+                        "source": "entity_schaeffler",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Schaeffler AG HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_continental_hyperedge_country_Germany",
+                        "source": "entity_continental",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Continental AG HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_robert_bosch_hyperedge_country_Germany",
+                        "source": "entity_robert_bosch",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Robert Bosch GmbH HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_saf_holland_hyperedge_country_Germany",
+                        "source": "entity_saf_holland",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "SAF-HOLLAND SE HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_daimler-truck_hyperedge_country_Germany",
+                        "source": "entity_daimler-truck",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Daimler Truck HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_scania_ab_hyperedge_country_Germany",
+                        "source": "entity_scania_ab",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Scania AB HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_man_truck_bus_hyperedge_country_Germany",
+                        "source": "entity_man_truck_bus",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "MAN Truck & Bus HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_zf_friedrichshafen_hyperedge_country_Germany",
+                        "source": "entity_zf_friedrichshafen",
+                        "target": "hyperedge_country_Germany",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "ZF Friedrichshafen AG HQ in Germany",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_stellantis_n_v_hyperedge_country_France",
+                        "source": "entity_stellantis_n_v",
+                        "target": "hyperedge_country_France",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Stellantis N.V. HQ in France",
+                                "color": "#0000FF",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_renault_hyperedge_country_France",
+                        "source": "entity_renault",
+                        "target": "hyperedge_country_France",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Renault Group HQ in France",
+                                "color": "#0000FF",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_forvia_hyperedge_country_France",
+                        "source": "entity_forvia",
+                        "target": "hyperedge_country_France",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "FORVIA SE HQ in France",
+                                "color": "#0000FF",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_valeo_hyperedge_country_France",
+                        "source": "entity_valeo",
+                        "target": "hyperedge_country_France",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Valeo SE HQ in France",
+                                "color": "#0000FF",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_ferrari_n_v_hyperedge_country_Italy",
+                        "source": "entity_ferrari_n_v",
+                        "target": "hyperedge_country_Italy",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Ferrari N.V. HQ in Italy",
+                                "color": "#00FF00",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_brembo_n_v_hyperedge_country_Italy",
+                        "source": "entity_brembo_n_v",
+                        "target": "hyperedge_country_Italy",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Brembo N.V. HQ in Italy",
+                                "color": "#00FF00",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_pirelli_c_s_p_a_hyperedge_country_Italy",
+                        "source": "entity_pirelli_c_s_p_a",
+                        "target": "hyperedge_country_Italy",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Pirelli & C. S.p.A HQ in Italy",
+                                "color": "#00FF00",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_pirelli_c_hyperedge_country_Italy",
+                        "source": "entity_pirelli_c",
+                        "target": "hyperedge_country_Italy",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Pirelli C SpA HQ in Italy",
+                                "color": "#00FF00",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_iveco_hyperedge_country_Italy",
+                        "source": "entity_iveco",
+                        "target": "hyperedge_country_Italy",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Iveco Group HQ in Italy",
+                                "color": "#00FF00",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_polestar_hyperedge_country_Sweden",
+                        "source": "entity_polestar",
+                        "target": "hyperedge_country_Sweden",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Polestar HQ in Sweden",
+                                "color": "#FFFF00",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_volvo_hyperedge_country_Sweden",
+                        "source": "entity_volvo",
+                        "target": "hyperedge_country_Sweden",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Volvo Group HQ in Sweden",
+                                "color": "#FFFF00",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_seb_hyperedge_country_Sweden",
+                        "source": "entity_seb",
+                        "target": "hyperedge_country_Sweden",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "SEB Group HQ in Sweden",
+                                "color": "#FFFF00",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_northvolt_ab_hyperedge_country_Sweden",
+                        "source": "entity_northvolt_ab",
+                        "target": "hyperedge_country_Sweden",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Northvolt AB HQ in Sweden",
+                                "color": "#FFFF00",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_volvo_car_ab_hyperedge_country_Sweden",
+                        "source": "entity_volvo_car_ab",
+                        "target": "hyperedge_country_Sweden",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Volvo Car AB HQ in Sweden",
+                                "color": "#FFFF00",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_otokar_otomotiv_ve_savunma_sanayi_a_hyperedge_country_Turkey",
+                        "source": "entity_otokar_otomotiv_ve_savunma_sanayi_a",
+                        "target": "hyperedge_country_Turkey",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Otokar Otomotiv ve Savunma Sanayi A.\u015e. HQ in Turkey",
+                                "color": "#9E9E9E",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_ford_otomotiv_sanayi_a_s_hyperedge_country_United_States",
+                        "source": "entity_ford_otomotiv_sanayi_a_s",
+                        "target": "hyperedge_country_United_States",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Ford Otomotiv Sanayi A.S. HQ in United States",
+                                "color": "#000080",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_autoliv_hyperedge_country_United_States",
+                        "source": "entity_autoliv",
+                        "target": "hyperedge_country_United_States",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Autoliv Inc. HQ in United States",
+                                "color": "#000080",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_howden_hyperedge_country_United_States",
+                        "source": "entity_howden",
+                        "target": "hyperedge_country_United_States",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Howden Group HQ in United States",
+                                "color": "#000080",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_arcelormittal_hyperedge_country_United_States",
+                        "source": "entity_arcelormittal",
+                        "target": "hyperedge_country_United_States",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "ArcelorMittal SA HQ in United States",
+                                "color": "#000080",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_autoneum_holding_hyperedge_country_United_States",
+                        "source": "entity_autoneum_holding",
+                        "target": "hyperedge_country_United_States",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Autoneum Holding AG HQ in United States",
+                                "color": "#000080",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_ford_motor_hyperedge_country_United_States",
+                        "source": "entity_ford_motor",
+                        "target": "hyperedge_country_United_States",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Ford Motor Company HQ in United States",
+                                "color": "#000080",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_general_motors_hyperedge_country_United_States",
+                        "source": "entity_general_motors",
+                        "target": "hyperedge_country_United_States",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "General Motors HQ in United States",
+                                "color": "#000080",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_lear_hyperedge_country_United_States",
+                        "source": "entity_lear",
+                        "target": "hyperedge_country_United_States",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Lear Corporation HQ in United States",
+                                "color": "#000080",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_paccar_hyperedge_country_United_States",
+                        "source": "entity_paccar",
+                        "target": "hyperedge_country_United_States",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "PACCAR Inc HQ in United States",
+                                "color": "#000080",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_tesla_hyperedge_country_United_States",
+                        "source": "entity_tesla",
+                        "target": "hyperedge_country_United_States",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Tesla, Inc. HQ in United States",
+                                "color": "#000080",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_borgwarner_hyperedge_country_United_States",
+                        "source": "entity_borgwarner",
+                        "target": "hyperedge_country_United_States",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "BorgWarner Inc HQ in United States",
+                                "color": "#000080",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_traton_hyperedge_country_United_States",
+                        "source": "entity_traton",
+                        "target": "hyperedge_country_United_States",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "TRATON Group HQ in United States",
+                                "color": "#000080",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_international_motors_hyperedge_country_United_States",
+                        "source": "entity_international_motors",
+                        "target": "hyperedge_country_United_States",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "International Motors HQ in United States",
+                                "color": "#000080",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_adient_hyperedge_country_Ireland",
+                        "source": "entity_adient",
+                        "target": "hyperedge_country_Ireland",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Adient PLC HQ in Ireland",
+                                "color": "#9E9E9E",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_aptiv_hyperedge_country_Ireland",
+                        "source": "entity_aptiv",
+                        "target": "hyperedge_country_Ireland",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Aptiv PLC HQ in Ireland",
+                                "color": "#9E9E9E",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_veoneer_hyperedge_country_Ireland",
+                        "source": "entity_veoneer",
+                        "target": "hyperedge_country_Ireland",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Veoneer Inc HQ in Ireland",
+                                "color": "#9E9E9E",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_contemporary_amperex_technology_co_hyperedge_country_China",
+                        "source": "entity_contemporary_amperex_technology_co",
+                        "target": "hyperedge_country_China",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Contemporary Amperex Technology Co., Limited (CATL) HQ in China",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_sinotruk_hyperedge_country_China",
+                        "source": "entity_sinotruk",
+                        "target": "hyperedge_country_China",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "SINOTRUK HQ in China",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_byd_hyperedge_country_China",
+                        "source": "entity_byd",
+                        "target": "hyperedge_country_China",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "BYD Company HQ in China",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_cnhtc-sinotruk_hyperedge_country_China",
+                        "source": "entity_cnhtc-sinotruk",
+                        "target": "hyperedge_country_China",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "CNHTC Sinotruk HQ in China",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_dongfeng_motor_hyperedge_country_China",
+                        "source": "entity_dongfeng_motor",
+                        "target": "hyperedge_country_China",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Dongfeng Motor HQ in China",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_geely_automobile_hyperedge_country_China",
+                        "source": "entity_geely_automobile",
+                        "target": "hyperedge_country_China",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Geely Automobile HQ in China",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_faw_hyperedge_country_China",
+                        "source": "entity_faw",
+                        "target": "hyperedge_country_China",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "FAW Group HQ in China",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_faw_jiefang_hyperedge_country_China",
+                        "source": "entity_faw_jiefang",
+                        "target": "hyperedge_country_China",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "FAW Jiefang HQ in China",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_cnhtc_hyperedge_country_China",
+                        "source": "entity_cnhtc",
+                        "target": "hyperedge_country_China",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "CNHTC (China National Heavy Duty Truck Group) HQ in China",
+                                "color": "#FF0000",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_lg_energy_solution_co_hyperedge_country_South_Korea",
+                        "source": "entity_lg_energy_solution_co",
+                        "target": "hyperedge_country_South_Korea",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "LG Energy Solution Co., Ltd. HQ in South Korea",
+                                "color": "#0000FF",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_samsung_sdi_co_hyperedge_country_South_Korea",
+                        "source": "entity_samsung_sdi_co",
+                        "target": "hyperedge_country_South_Korea",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Samsung SDI Co., Ltd. HQ in South Korea",
+                                "color": "#0000FF",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_hyundai_motor_hyperedge_country_South_Korea",
+                        "source": "entity_hyundai_motor",
+                        "target": "hyperedge_country_South_Korea",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Hyundai Motor Company HQ in South Korea",
+                                "color": "#0000FF",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_kia_hyperedge_country_South_Korea",
+                        "source": "entity_kia",
+                        "target": "hyperedge_country_South_Korea",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Kia Corporation HQ in South Korea",
+                                "color": "#0000FF",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_hyundai_mobis_hyperedge_country_South_Korea",
+                        "source": "entity_hyundai_mobis",
+                        "target": "hyperedge_country_South_Korea",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Hyundai Mobis HQ in South Korea",
+                                "color": "#0000FF",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_lg_electronics_vehicle_solutions_hyperedge_country_South_Korea",
+                        "source": "entity_lg_electronics_vehicle_solutions",
+                        "target": "hyperedge_country_South_Korea",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "LG Electronics Vehicle Solutions HQ in South Korea",
+                                "color": "#0000FF",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_lg-electronics-vs_hyperedge_country_South_Korea",
+                        "source": "entity_lg-electronics-vs",
+                        "target": "hyperedge_country_South_Korea",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "LG Electronics VS HQ in South Korea",
+                                "color": "#0000FF",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_daf_trucks_hyperedge_country_Netherlands",
+                        "source": "entity_daf_trucks",
+                        "target": "hyperedge_country_Netherlands",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "DAF Trucks HQ in Netherlands",
+                                "color": "#9E9E9E",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_hino_motors_hyperedge_country_Japan",
+                        "source": "entity_hino_motors",
+                        "target": "hyperedge_country_Japan",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Hino Motors Ltd. HQ in Japan",
+                                "color": "#FF1493",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_isuzu_motors_hyperedge_country_Japan",
+                        "source": "entity_isuzu_motors",
+                        "target": "hyperedge_country_Japan",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Isuzu Motors Ltd. HQ in Japan",
+                                "color": "#FF1493",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_honda_motor_hyperedge_country_Japan",
+                        "source": "entity_honda_motor",
+                        "target": "hyperedge_country_Japan",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Honda Motor Co HQ in Japan",
+                                "color": "#FF1493",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_nissan_motor_hyperedge_country_Japan",
+                        "source": "entity_nissan_motor",
+                        "target": "hyperedge_country_Japan",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Nissan Motor Co HQ in Japan",
+                                "color": "#FF1493",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_toyota_motor_hyperedge_country_Japan",
+                        "source": "entity_toyota_motor",
+                        "target": "hyperedge_country_Japan",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Toyota Motor Corporation HQ in Japan",
+                                "color": "#FF1493",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_koito_manufacturing_hyperedge_country_Japan",
+                        "source": "entity_koito_manufacturing",
+                        "target": "hyperedge_country_Japan",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Koito Manufacturing HQ in Japan",
+                                "color": "#FF1493",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_nidec_hyperedge_country_Japan",
+                        "source": "entity_nidec",
+                        "target": "hyperedge_country_Japan",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Nidec Corporation HQ in Japan",
+                                "color": "#FF1493",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_tata_motors_hyperedge_country_India",
+                        "source": "entity_tata_motors",
+                        "target": "hyperedge_country_India",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Tata Motors Limited HQ in India",
+                                "color": "#9E9E9E",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_mahindra_mahindra_hyperedge_country_India",
+                        "source": "entity_mahindra_mahindra",
+                        "target": "hyperedge_country_India",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Mahindra Mahindra HQ in India",
+                                "color": "#9E9E9E",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_magna_international_hyperedge_country_Unknown",
+                        "source": "entity_magna_international",
+                        "target": "hyperedge_country_Unknown",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Magna International HQ in Unknown",
+                                "color": "#C0C0C0",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_wabco_hyperedge_country_Unknown",
+                        "source": "entity_wabco",
+                        "target": "hyperedge_country_Unknown",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "WABCO Holdings HQ in Unknown",
+                                "color": "#C0C0C0",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_yanfeng_automotive_hyperedge_country_Unknown",
+                        "source": "entity_yanfeng_automotive",
+                        "target": "hyperedge_country_Unknown",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Yanfeng Automotive HQ in Unknown",
+                                "color": "#C0C0C0",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_grupo_antolin_hyperedge_country_Unknown",
+                        "source": "entity_grupo_antolin",
+                        "target": "hyperedge_country_Unknown",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Grupo Antolin HQ in Unknown",
+                                "color": "#C0C0C0",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_marelli_hyperedge_country_Unknown",
+                        "source": "entity_marelli",
+                        "target": "hyperedge_country_Unknown",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Marelli Holdings HQ in Unknown",
+                                "color": "#C0C0C0",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_aisin_hyperedge_country_Unknown",
+                        "source": "entity_aisin",
+                        "target": "hyperedge_country_Unknown",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Aisin Corporation HQ in Unknown",
+                                "color": "#C0C0C0",
+                                "width": 2
+                        }
+                },
+                {
+                        "id": "conn_entity_vitesco_technologies_hyperedge_country_Unknown",
+                        "source": "entity_vitesco_technologies",
+                        "target": "hyperedge_country_Unknown",
+                        "type": "company_to_country",
+                        "data": {
+                                "description": "Vitesco Technologies HQ in Unknown",
+                                "color": "#C0C0C0",
+                                "width": 2
+                        }
+                }
+        ],
+        "metadata": {
+                "total_companies": 79,
+                "total_countries": 13,
+                "total_continents": 4,
+                "generated_at": "2026-01-19T19:27:17.678841"
+        }
+};
+        
+        // Convert to vis-network format
+        const nodes = new vis.DataSet(
+            vyuhData.nodes.map(node => {
+                const isHyperedge = node.data.is_hyperedge || false;
+                const nodeName = node.data.name || node.id;
+                
+                // For country hyperedges, show flag emoji + country name and count
+                let displayLabel = nodeName;
+                let shape = 'dot';
+                let size = 20;
+                
+                if (isHyperedge && node.data.company_count) {
+                    const flag = node.data.flag || '🌍';
+                    displayLabel = `${flag} ${nodeName}\n(${node.data.company_count} companies)`;
+                    // Use star shape for country hyperedges to make them stand out
+                    shape = 'star';
+                    size = 50;
+                }
+                
+                return {
+                    id: node.id,
+                    label: displayLabel,
+                    shape: shape,
+                    size: size,
+                    color: {
+                        background: node.data.color || '#757575',
+                        border: node.data.color || '#757575',
+                        highlight: {
+                            background: node.data.color || '#757575',
+                            border: '#000000'
+                        }
+                    },
+                    font: {
+                        size: isHyperedge ? 20 : 12,
+                        bold: isHyperedge,
+                        color: '#000000',
+                        face: 'Arial',
+                        strokeWidth: 3,
+                        strokeColor: '#FFFFFF'
+                    },
+                    title: `${node.data.name || node.id}\nType: ${node.data.type}\nCountry: ${node.data.country || 'N/A'}\nContexts: ${node.data.contexts || 0}\n${JSON.stringify(node.data, null, 2)}`,
+                    x: node.position.x,
+                    y: node.position.y,
+                    fixed: false
+                };
+            })
+        );
+        
+        const edges = new vis.DataSet(
+            vyuhData.connections.map(conn => {
+                return {
+                    id: conn.id,
+                    from: conn.source,
+                    to: conn.target,
+                    color: {
+                        color: conn.data.color || '#BDBDBD',
+                        highlight: conn.data.color || '#BDBDBD'
+                    },
+                    width: conn.data.width || 2,
+                    dashes: conn.data.dashed || false,
+                    title: conn.data.description || '',
+                    smooth: {
+                        type: 'continuous',
+                        roundness: 0.5
+                    }
+                };
+            })
+        );
+        
+        const container = document.getElementById('graph-container');
+        const data = { nodes: nodes, edges: edges };
+        const options = {
+            nodes: {
+                borderWidth: 3,
+                shadow: {
+                    enabled: true,
+                    size: 10,
+                    x: 2,
+                    y: 2
+                },
+                font: {
+                    size: 12,
+                    face: 'Arial',
+                    color: '#000000',
+                    strokeWidth: 3,
+                    strokeColor: '#FFFFFF',
+                    align: 'center'
+                },
+                labelHighlightBold: true,
+                chosen: {
+                    node: function(values, id, selected, hovering) {
+                        values.size = values.size + 5;
+                        values.font.size = values.font.size + 2;
+                    }
+                }
+            },
+            edges: {
+                arrows: {
+                    to: {
+                        enabled: false
+                    }
+                },
+                smooth: {
+                    type: 'continuous'
+                }
+            },
+            physics: {
+                enabled: true,
+                stabilization: {
+                    iterations: 200
+                },
+                barnesHut: {
+                    gravitationalConstant: -2000,
+                    centralGravity: 0.1,
+                    springLength: 200,
+                    springConstant: 0.04,
+                    damping: 0.09
+                }
+            },
+            interaction: {
+                hover: true,
+                tooltipDelay: 100,
+                zoomView: true,
+                dragView: true
+            }
+        };
+        
+        const network = new vis.Network(container, data, options);
+        
+        // Add click handler
+        network.on('click', function(params) {
+            if (params.nodes.length > 0) {
+                const nodeId = params.nodes[0];
+                const node = nodes.get(nodeId);
+                console.log('Clicked node:', node);
+            }
+        });
+    </script>
+</body>
+</html>
