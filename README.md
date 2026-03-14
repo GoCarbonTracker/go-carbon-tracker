@@ -318,39 +318,35 @@ The primary user-facing application covering emissions tracking, graph visualiza
 
 ## Visualizations
 
-Click any link below to explore the interactive visualizations live in your browser (hosted via GitHub Pages).
+Click any link below to explore live in your browser — all interactive, zoomable, and filterable.
 
-### Vyuh Network Diagrams
+### Vyuh Network Diagrams — Automotive Supply Chain Mapping
 
-| Visualization | Description |
-|--------------|-------------|
-| [Automotive Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/automotive_supply_chain.html) | Full supply chain topology across all tiers |
-| [Tier & Country Network](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_country_all_companies.html) | 216 companies mapped by supply chain tier and country |
-| [Tier Separate View](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_separate_all_companies.html) | Separate tier breakdown of all companies |
-| [Company Relationships](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_with_relationships.html) | Relationship mapping between companies |
-| [Scope Emissions](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_scope_emissions.html) | Scope 1/2/3 emissions visualization |
-| [Country HQ Network](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_country_hq_kb_companies.html) | Companies by country of headquarters |
-| [Energy Initiatives (Animated)](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/energy_initiatives_animated.html) | Animated renewable energy initiatives network |
-| [Energy Initiatives Network](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/energy_initiatives_vyuh_network.html) | Energy initiatives graph |
-| [Complete Format](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_complete.html) | Complete format visualization |
+| Visualization | What You'll See |
+|--------------|-----------------|
+| [Tier & Country Network](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_country_all_companies.html) | 216 companies mapped by supply chain tier and country of headquarters |
+| [Complete Knowledge Graph](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_complete.html) | Full KB structure — all companies, tiers, and relationships |
+| [Company Relationships](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_with_relationships.html) | Inter-company relationship network across the supply chain |
+| [Tier Breakdown](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_separate_all_companies.html) | Companies organized by supply chain tier (OEM → T1 → T2 → ... → T8) |
+| [Country HQ Distribution](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_country_hq_kb_companies.html) | Geographic distribution of KB companies by headquarters |
 
-### Knowledge Graph Visualizations
+### Hypergraph & Energy Visualizations
 
-| Visualization | Description |
-|--------------|-------------|
-| [Energy Initiatives Hypergraph](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/hypergraph/energy_initiatives_hypergraph.html) | Full hypergraph of energy-related claims and evidence (4.6 MB) |
-| [Automotive Industry Treemap](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/hypergraph/automotive-industry-treemap.html) | Industry breakdown by tier and segment |
-| [Automotive Tiers](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/hypergraph/automotive-tiers-visualization.html) | Supply chain tier structure |
+| Visualization | What You'll See |
+|--------------|-----------------|
+| [Energy Initiatives Hypergraph](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/hypergraph/energy_initiatives_hypergraph.html) | Full hypergraph of energy-related claims, evidence, and connections (4.6 MB) |
+| [Energy Initiatives (Animated)](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/energy_initiatives_animated.html) | Animated network of renewable energy initiatives across OEMs |
+| [Energy Network Graph](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/energy_initiatives_vyuh_network.html) | Energy initiatives mapped as an interactive network |
 
-### Supply Chain Graphs
+### OEM Supply Chain Deep Dives
 
-| Visualization | Description |
-|--------------|-------------|
-| [BMW Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/bmw-supply-chain-visualization.html) | BMW Group supply chain tier structure |
-| [Mercedes-Benz Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/mercedes-supply-chain-visualization.html) | Mercedes supply chain visualization |
-| [Ferrari Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/ferrari-supply-chain-visualization.html) | Ferrari supply chain visualization |
+| Visualization | What You'll See |
+|--------------|-----------------|
+| [BMW Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/bmw-supply-chain-visualization.html) | BMW Group's multi-tier supplier network |
+| [Mercedes-Benz Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/mercedes-supply-chain-visualization.html) | Mercedes-Benz supplier tier structure |
+| [Ferrari Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/ferrari-supply-chain-visualization.html) | Ferrari's supplier network |
 
-> **Note:** All visualizations are interactive — zoom, pan, click nodes, and filter. Generated from our knowledge base showing structure and relationships.
+> All visualizations are generated from our HyperGraph knowledge base. Zoom, pan, click nodes, and explore.
 
 ---
 
