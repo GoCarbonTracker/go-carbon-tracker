@@ -2,131 +2,375 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>HyperGraph RAG - Tier + Country Visualization (All 241 Companies)</title>
+    <title>GoCarbonTracker — Automotive Supply Chain Knowledge Graph</title>
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f5f5f5;
-        }
-        .header {
-            background: white;
-            padding: 20px;
-            margin-bottom: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        .title {
-            margin: 0 0 15px 0;
-            font-size: 28px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: #fafafa;
             color: #1a1a1a;
-        }
-        .stats {
             display: flex;
-            gap: 20px;
-            margin-bottom: 15px;
-            flex-wrap: wrap;
+            height: 100vh;
+            overflow: hidden;
         }
-        .stat {
-            background: #f0f0f0;
-            padding: 10px 15px;
-            border-radius: 6px;
+
+        /* Sidebar */
+        .sidebar {
+            width: 260px;
+            min-width: 260px;
+            height: 100vh;
+            background: #fff;
+            border-right: 1px solid #e5e5e5;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
         }
-        .stat-label {
+        .sidebar-header {
+            padding: 20px 16px 16px;
+            border-bottom: 1px solid #e5e5e5;
+        }
+        .sidebar-header h1 {
+            font-size: 15px;
+            font-weight: 700;
+            color: #111;
+            line-height: 1.3;
+        }
+        .sidebar-header p {
             font-size: 12px;
-            color: #666;
-            margin-bottom: 5px;
+            color: #888;
+            margin-top: 4px;
         }
-        .stat-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #1976D2;
+
+        /* Search */
+        .search-box {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e5e5e5;
         }
-        .legend {
+        .search-box input {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+            outline: none;
+            background: #fafafa;
+        }
+        .search-box input:focus {
+            border-color: #999;
+            background: #fff;
+        }
+        .search-box input::placeholder {
+            color: #bbb;
+        }
+
+        /* Stats */
+        .stats-section {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e5e5e5;
+        }
+        .stats-section h3 {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #999;
+            margin-bottom: 8px;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        .stat-item {
+            padding: 6px 8px;
+            background: #f5f5f5;
+            border-radius: 4px;
+        }
+        .stat-item .value {
+            font-size: 18px;
+            font-weight: 700;
+            color: #111;
+        }
+        .stat-item .label {
+            font-size: 10px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Tier Filters */
+        .filter-section {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e5e5e5;
+            flex: 1;
+        }
+        .filter-section h3 {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #999;
+            margin-bottom: 8px;
+        }
+        .tier-filter {
             display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid #e0e0e0;
+            align-items: center;
+            gap: 8px;
+            padding: 5px 0;
+            cursor: pointer;
+            font-size: 13px;
+            user-select: none;
         }
-        .legend-item {
+        .tier-filter:hover {
+            opacity: 0.8;
+        }
+        .tier-filter input[type="checkbox"] {
+            display: none;
+        }
+        .tier-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .tier-label {
+            flex: 1;
+            color: #333;
+        }
+        .tier-count {
+            font-size: 11px;
+            color: #999;
+            font-variant-numeric: tabular-nums;
+        }
+        .tier-filter.disabled .tier-dot {
+            opacity: 0.2;
+        }
+        .tier-filter.disabled .tier-label {
+            color: #ccc;
+            text-decoration: line-through;
+        }
+        .tier-filter.disabled .tier-count {
+            color: #ddd;
+        }
+
+        /* Controls */
+        .controls-section {
+            padding: 12px 16px;
+            border-top: 1px solid #e5e5e5;
+        }
+        .controls-section button {
+            width: 100%;
+            padding: 7px 10px;
+            margin-bottom: 6px;
+            background: #f5f5f5;
+            color: #333;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .controls-section button:hover {
+            background: #eee;
+            border-color: #ccc;
+        }
+        .controls-section button:last-child {
+            margin-bottom: 0;
+        }
+
+        /* Graph */
+        .graph-area {
+            flex: 1;
+            position: relative;
+        }
+        #graph-container {
+            width: 100%;
+            height: 100%;
+            background: #fafafa;
+        }
+
+        /* Detail Panel */
+        .detail-panel {
+            position: absolute;
+            bottom: 16px;
+            right: 16px;
+            width: 280px;
+            background: #fff;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            padding: 16px;
+            display: none;
+            z-index: 10;
+        }
+        .detail-panel.visible {
+            display: block;
+        }
+        .detail-panel .close-btn {
+            position: absolute;
+            top: 8px;
+            right: 10px;
+            background: none;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            color: #999;
+            padding: 4px;
+            width: auto;
+            margin: 0;
+        }
+        .detail-panel .close-btn:hover {
+            color: #333;
+        }
+        .detail-name {
+            font-size: 16px;
+            font-weight: 700;
+            color: #111;
+            margin-bottom: 4px;
+            padding-right: 24px;
+        }
+        .detail-meta {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .detail-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .detail-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .detail-stat {
+            padding: 8px;
+            background: #f5f5f5;
+            border-radius: 4px;
+        }
+        .detail-stat .value {
+            font-size: 16px;
+            font-weight: 700;
+            color: #111;
+        }
+        .detail-stat .label {
+            font-size: 10px;
+            color: #888;
+            text-transform: uppercase;
+        }
+
+        /* Search results */
+        .search-results {
+            max-height: 200px;
+            overflow-y: auto;
+            border-top: 1px solid #eee;
+            margin-top: 8px;
+            display: none;
+        }
+        .search-results.visible {
+            display: block;
+        }
+        .search-result-item {
+            padding: 6px 4px;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 3px;
+        }
+        .search-result-item:hover {
+            background: #f0f0f0;
+        }
+        .search-result-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        /* Branding */
+        .branding {
+            padding: 10px 16px;
+            border-top: 1px solid #e5e5e5;
             display: flex;
             align-items: center;
             gap: 8px;
         }
-        .legend-color {
+        .branding img {
             width: 20px;
             height: 20px;
-            border-radius: 4px;
         }
-        #graph-container {
-            width: 100%;
-            height: calc(100vh - 300px);
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        .branding span {
+            font-size: 11px;
+            color: #999;
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1 class="title">🎯 HyperGraph RAG - Tier + Country Visualization</h1>
-        
-        <div class="stats">
-            <div class="stat">
-                <div class="stat-label">Total Companies</div>
-                <div class="stat-value">241</div>
-            </div>
-            <div class="stat">
-                <div class="stat-label">Total Nodes</div>
-                <div class="stat-value">263</div>
-            </div>
-            <div class="stat">
-                <div class="stat-label">Connections</div>
-                <div class="stat-value">492</div>
-            </div>
-            <div class="stat">
-                <div class="stat-label">Tiers</div>
-                <div class="stat-value">12</div>
-            </div>
-            <div class="stat">
-                <div class="stat-label">Countries</div>
-                <div class="stat-value">10</div>
-            </div>
-            <div class="stat">
-                <div class="stat-label">Continents</div>
-                <div class="stat-value">4</div>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1>Automotive Supply Chain<br>Knowledge Graph</h1>
+            <p>GoCarbonTracker — Proof of Concept</p>
+        </div>
+
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Search companies..." />
+            <div class="search-results" id="searchResults"></div>
+        </div>
+
+        <div class="stats-section">
+            <h3>Overview</h3>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="value" id="companyCount">0</div>
+                    <div class="label">Companies</div>
+                </div>
+                <div class="stat-item">
+                    <div class="value" id="connectionCount">0</div>
+                    <div class="label">Connections</div>
+                </div>
+                <div class="stat-item">
+                    <div class="value" id="countryCount">0</div>
+                    <div class="label">Countries</div>
+                </div>
+                <div class="stat-item">
+                    <div class="value" id="tierCount">0</div>
+                    <div class="label">Tiers</div>
+                </div>
             </div>
         </div>
-        
-        <div class="legend">
-            <div class="legend-item">
-                <div class="legend-color" style="background: #EF5350;"></div>
-                <span><strong>Tier 0</strong> - OEMs</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background: #FF9800;"></div>
-                <span><strong>Tier 1</strong> - Mega Suppliers</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background: #4CAF50;"></div>
-                <span><strong>Tier 2</strong> - Battery Ecosystem</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background: #2196F3;"></div>
-                <span><strong>Tier 3</strong> - Materials</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background: #26A69A; width: 2px; height: 2px;"></div>
-                <span><strong>Country Relationships</strong> - Same continent (dashed)</span>
-            </div>
+
+        <div class="filter-section">
+            <h3>Filter by Tier</h3>
+            <div id="tierFilters"></div>
+        </div>
+
+        <div class="controls-section">
+            <button onclick="fitGraph()">Fit to View</button>
+            <button onclick="togglePhysics()">Toggle Physics</button>
+            <button onclick="resetFilters()">Reset Filters</button>
+        </div>
+
+        <div class="branding">
+            <span>GoCarbonTracker</span>
         </div>
     </div>
-    
-    <div id="graph-container"></div>
-    
+
+    <div class="graph-area">
+        <div id="graph-container"></div>
+        <div class="detail-panel" id="detailPanel">
+            <button class="close-btn" onclick="closeDetail()">&times;</button>
+            <div class="detail-name" id="detailName"></div>
+            <div class="detail-meta" id="detailMeta"></div>
+            <div class="detail-stats" id="detailStats"></div>
+        </div>
+    </div>
+
     <script type="text/javascript">
         const vyuhData = {
         "nodes": [
@@ -10494,105 +10738,332 @@
                 "generated_at": "2026-01-19T19:12:28.462599"
         }
 };
-        
-        // Convert to vis-network format
-        const nodes = new vis.DataSet(
-            vyuhData.nodes.map(node => {
-                const isHyperedge = node.data.is_hyperedge || false;
-                return {
-                    id: node.id,
-                    label: node.data.name || node.id,
-                    shape: isHyperedge ? 'diamond' : 'dot',
-                    size: isHyperedge ? 30 : 15,
-                    color: {
-                        background: node.data.color || '#757575',
-                        border: node.data.color || '#757575',
-                        highlight: {
-                            background: node.data.color || '#757575',
-                            border: '#000000'
+
+        // Tier config
+        const tierConfig = {
+            0: { name: 'Tier 0 — OEMs', color: '#EF5350' },
+            1: { name: 'Tier 1 — Mega Suppliers', color: '#FF9800' },
+            2: { name: 'Tier 2 — Battery Ecosystem', color: '#4CAF50' },
+            3: { name: 'Tier 3 — Materials', color: '#2196F3' },
+            4: { name: 'Tier 4 — Subsystems', color: '#9C27B0' },
+            5: { name: 'Tier 5 — Processed Materials', color: '#00BCD4' },
+            6: { name: 'Tier 6 — Chemicals', color: '#795548' },
+            7: { name: 'Tier 7 — Raw Materials', color: '#607D8B' },
+            8: { name: 'Tier 8 — Mining & Extraction', color: '#E91E63' }
+        };
+
+        // Track state
+        let activeTiers = new Set(Object.keys(tierConfig).map(Number));
+        let network = null;
+        let allNodes = [];
+        let allEdges = [];
+        let physicsEnabled = true;
+
+        // Parse data
+        const companyNodes = vyuhData.nodes.filter(n => n.type === 'company');
+        const hyperedgeNodes = vyuhData.nodes.filter(n => n.data.is_hyperedge);
+
+        // Count stats dynamically
+        const companies = companyNodes;
+        const uniqueCountries = new Set(companies.map(c => c.data.country).filter(c => c && c !== 'Unknown'));
+        const uniqueTiers = new Set(companies.map(c => c.data.tier));
+        const tierCounts = {};
+        companies.forEach(c => {
+            const t = c.data.tier;
+            if (t !== undefined) tierCounts[t] = (tierCounts[t] || 0) + 1;
+        });
+
+        // Update stats
+        document.getElementById('companyCount').textContent = companies.length;
+        document.getElementById('connectionCount').textContent = vyuhData.connections.length;
+        document.getElementById('countryCount').textContent = uniqueCountries.size;
+        document.getElementById('tierCount').textContent = uniqueTiers.size;
+
+        // Build tier filters
+        const filterContainer = document.getElementById('tierFilters');
+        Object.keys(tierConfig).sort((a,b) => a - b).forEach(tier => {
+            const t = parseInt(tier);
+            const count = tierCounts[t] || 0;
+            if (count === 0) return;
+            const div = document.createElement('div');
+            div.className = 'tier-filter';
+            div.dataset.tier = t;
+            div.innerHTML = `
+                <input type="checkbox" checked>
+                <span class="tier-dot" style="background: ${tierConfig[t].color}"></span>
+                <span class="tier-label">${tierConfig[t].name}</span>
+                <span class="tier-count">${count}</span>
+            `;
+            div.addEventListener('click', () => toggleTier(t, div));
+            filterContainer.appendChild(div);
+        });
+
+        // Build vis-network
+        function buildGraph() {
+            allNodes = vyuhData.nodes
+                .filter(node => {
+                    if (node.data.is_hyperedge) {
+                        if (node.data.type === 'tier_hyperedge') {
+                            return activeTiers.has(node.data.tier);
                         }
-                    },
-                    font: {
-                        size: isHyperedge ? 14 : 12,
-                        bold: isHyperedge
-                    },
-                    title: `${node.data.name || node.id}\nType: ${node.data.type}\n${JSON.stringify(node.data, null, 2)}`,
-                    x: node.position.x,
-                    y: node.position.y,
-                    fixed: false
-                };
-            })
-        );
-        
-        const edges = new vis.DataSet(
-            vyuhData.connections.map(conn => {
-                return {
+                        return true;
+                    }
+                    return node.data.tier === undefined || activeTiers.has(node.data.tier);
+                })
+                .map(node => {
+                    const isHyperedge = node.data.is_hyperedge || false;
+                    const isCompany = node.type === 'company';
+                    const tier = node.data.tier;
+                    const color = isCompany && tier !== undefined && tierConfig[tier]
+                        ? tierConfig[tier].color
+                        : (node.data.color || '#bbb');
+
+                    return {
+                        id: node.id,
+                        label: node.data.name || node.id,
+                        shape: isHyperedge ? 'diamond' : 'dot',
+                        size: isHyperedge ? 24 : (isCompany ? Math.max(8, Math.min(20, (node.data.contexts || 1) / 30)) : 12),
+                        color: {
+                            background: color,
+                            border: color,
+                            highlight: { background: color, border: '#111' },
+                            hover: { background: color, border: '#666' }
+                        },
+                        font: {
+                            size: isHyperedge ? 13 : 11,
+                            color: '#444',
+                            face: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                            strokeWidth: 2,
+                            strokeColor: '#fff'
+                        },
+                        borderWidth: isHyperedge ? 2 : 1,
+                        x: node.position.x,
+                        y: node.position.y,
+                        fixed: false,
+                        _data: node.data
+                    };
+                });
+
+            const activeNodeIds = new Set(allNodes.map(n => n.id));
+
+            allEdges = vyuhData.connections
+                .filter(conn => activeNodeIds.has(conn.source) && activeNodeIds.has(conn.target))
+                .map(conn => ({
                     id: conn.id,
                     from: conn.source,
                     to: conn.target,
                     color: {
-                        color: conn.data.color || '#BDBDBD',
-                        highlight: conn.data.color || '#BDBDBD'
+                        color: conn.data.color ? conn.data.color + '55' : '#ddd',
+                        highlight: conn.data.color || '#999',
+                        hover: conn.data.color || '#999'
                     },
-                    width: conn.data.width || 2,
+                    width: conn.data.width || 1,
                     dashes: conn.data.dashed || false,
-                    title: conn.data.description || '',
-                    smooth: {
-                        type: 'continuous',
-                        roundness: 0.5
-                    }
-                };
-            })
-        );
-        
-        const container = document.getElementById('graph-container');
-        const data = { nodes: nodes, edges: edges };
-        const options = {
-            nodes: {
-                borderWidth: 2,
-                shadow: true
-            },
-            edges: {
-                arrows: {
-                    to: {
-                        enabled: false
+                    smooth: { type: 'continuous', roundness: 0.3 }
+                }));
+
+            const container = document.getElementById('graph-container');
+            const data = {
+                nodes: new vis.DataSet(allNodes),
+                edges: new vis.DataSet(allEdges)
+            };
+
+            const options = {
+                nodes: {
+                    borderWidth: 1,
+                    shadow: false
+                },
+                edges: {
+                    arrows: { to: { enabled: false } },
+                    smooth: { type: 'continuous' }
+                },
+                physics: {
+                    enabled: true,
+                    stabilization: { iterations: 250, fit: true },
+                    barnesHut: {
+                        gravitationalConstant: -3000,
+                        centralGravity: 0.15,
+                        springLength: 180,
+                        springConstant: 0.03,
+                        damping: 0.12,
+                        avoidOverlap: 0.3
                     }
                 },
-                smooth: {
-                    type: 'continuous'
+                interaction: {
+                    hover: true,
+                    tooltipDelay: 200,
+                    zoomView: true,
+                    dragView: true,
+                    hideEdgesOnDrag: true,
+                    hideEdgesOnZoom: true
                 }
-            },
-            physics: {
-                enabled: true,
-                stabilization: {
-                    iterations: 200
-                },
-                barnesHut: {
-                    gravitationalConstant: -2000,
-                    centralGravity: 0.1,
-                    springLength: 200,
-                    springConstant: 0.04,
-                    damping: 0.09
+            };
+
+            network = new vis.Network(container, data, options);
+
+            // Freeze physics after stabilization
+            network.on('stabilized', () => {
+                network.setOptions({ physics: { enabled: false } });
+                physicsEnabled = false;
+            });
+
+            // Click handler
+            network.on('click', function(params) {
+                if (params.nodes.length > 0) {
+                    const nodeId = params.nodes[0];
+                    const node = allNodes.find(n => n.id === nodeId);
+                    if (node && node._data) {
+                        showDetail(node);
+                        highlightConnected(nodeId, data);
+                    }
+                } else {
+                    closeDetail();
+                    resetHighlight(data);
                 }
-            },
-            interaction: {
-                hover: true,
-                tooltipDelay: 100,
-                zoomView: true,
-                dragView: true
+            });
+        }
+
+        // Show detail panel
+        function showDetail(node) {
+            const d = node._data;
+            const panel = document.getElementById('detailPanel');
+            document.getElementById('detailName').textContent = d.name || node.id;
+
+            const meta = document.getElementById('detailMeta');
+            const tier = d.tier !== undefined ? d.tier : '—';
+            const tierColor = tierConfig[d.tier] ? tierConfig[d.tier].color : '#999';
+            const country = d.country && d.country !== 'Unknown' ? d.country : '—';
+            const type = d.is_hyperedge ? 'Hyperedge' : (d.type || 'Company');
+
+            meta.innerHTML = `
+                <span class="detail-badge" style="background: ${tierColor}22; color: ${tierColor}; border: 1px solid ${tierColor}44;">Tier ${tier}</span>
+                <span class="detail-badge" style="background: #f0f0f0; color: #555;">${country}</span>
+                <span class="detail-badge" style="background: #f0f0f0; color: #555;">${type}</span>
+            `;
+
+            const stats = document.getElementById('detailStats');
+            if (d.is_hyperedge) {
+                stats.innerHTML = `
+                    <div class="detail-stat"><div class="value">${d.company_count || '—'}</div><div class="label">Companies</div></div>
+                    <div class="detail-stat"><div class="value">Tier ${tier}</div><div class="label">Level</div></div>
+                `;
+            } else {
+                stats.innerHTML = `
+                    <div class="detail-stat"><div class="value">${d.contexts || '—'}</div><div class="label">Contexts</div></div>
+                    <div class="detail-stat"><div class="value">${d.original_id || '—'}</div><div class="label">ID</div></div>
+                `;
             }
-        };
-        
-        const network = new vis.Network(container, data, options);
-        
-        // Add click handler
-        network.on('click', function(params) {
-            if (params.nodes.length > 0) {
-                const nodeId = params.nodes[0];
-                const node = nodes.get(nodeId);
-                console.log('Clicked node:', node);
+
+            panel.classList.add('visible');
+        }
+
+        function closeDetail() {
+            document.getElementById('detailPanel').classList.remove('visible');
+        }
+
+        // Highlight connected nodes
+        function highlightConnected(nodeId, data) {
+            const connectedNodes = network.getConnectedNodes(nodeId);
+            const connectedSet = new Set([nodeId, ...connectedNodes]);
+
+            data.nodes.forEach(node => {
+                if (connectedSet.has(node.id)) {
+                    data.nodes.update({ id: node.id, opacity: 1.0 });
+                } else {
+                    data.nodes.update({ id: node.id, opacity: 0.15 });
+                }
+            });
+        }
+
+        function resetHighlight(data) {
+            data.nodes.forEach(node => {
+                data.nodes.update({ id: node.id, opacity: 1.0 });
+            });
+        }
+
+        // Tier filter
+        function toggleTier(tier, element) {
+            if (activeTiers.has(tier)) {
+                activeTiers.delete(tier);
+                element.classList.add('disabled');
+            } else {
+                activeTiers.add(tier);
+                element.classList.remove('disabled');
+            }
+            buildGraph();
+        }
+
+        function resetFilters() {
+            activeTiers = new Set(Object.keys(tierConfig).map(Number));
+            document.querySelectorAll('.tier-filter').forEach(el => el.classList.remove('disabled'));
+            buildGraph();
+        }
+
+        // Controls
+        function fitGraph() {
+            if (network) network.fit({ animation: { duration: 500 } });
+        }
+
+        function togglePhysics() {
+            physicsEnabled = !physicsEnabled;
+            if (network) network.setOptions({ physics: { enabled: physicsEnabled } });
+        }
+
+        // Search
+        const searchInput = document.getElementById('searchInput');
+        const searchResults = document.getElementById('searchResults');
+
+        searchInput.addEventListener('input', function() {
+            const query = this.value.toLowerCase().trim();
+            if (query.length < 2) {
+                searchResults.classList.remove('visible');
+                searchResults.innerHTML = '';
+                return;
+            }
+
+            const matches = companyNodes
+                .filter(n => n.data.name && n.data.name.toLowerCase().includes(query))
+                .slice(0, 10);
+
+            if (matches.length === 0) {
+                searchResults.classList.remove('visible');
+                return;
+            }
+
+            searchResults.innerHTML = matches.map(n => {
+                const color = tierConfig[n.data.tier] ? tierConfig[n.data.tier].color : '#999';
+                return `<div class="search-result-item" data-id="${n.id}">
+                    <span class="search-result-dot" style="background: ${color}"></span>
+                    ${n.data.name}
+                </div>`;
+            }).join('');
+
+            searchResults.querySelectorAll('.search-result-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const nodeId = item.dataset.id;
+                    if (network) {
+                        network.focus(nodeId, { scale: 1.5, animation: { duration: 500 } });
+                        network.selectNodes([nodeId]);
+                        const node = allNodes.find(n => n.id === nodeId);
+                        if (node) showDetail(node);
+                    }
+                    searchResults.classList.remove('visible');
+                    searchInput.value = '';
+                });
+            });
+
+            searchResults.classList.add('visible');
+        });
+
+        // Close search on outside click
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.search-box')) {
+                searchResults.classList.remove('visible');
             }
         });
+
+        // Init
+        buildGraph();
     </script>
 </body>
 </html>
