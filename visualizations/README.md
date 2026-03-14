@@ -6,6 +6,7 @@ Interactive HTML visualizations generated from the GoCarbonTracker HyperGraph kn
 
 | File | Description |
 |------|-------------|
+| `automotive-tiers-relationships.html` | Complete tier mapping with emission flows and data quality indicators |
 | `vyuh_tier_country_all_companies.html` | 216 companies mapped by supply chain tier and country |
 | `vyuh_format_complete.html` | Complete KB structure — all companies, tiers, relationships |
 | `vyuh_format_with_relationships.html` | Inter-company relationship network |

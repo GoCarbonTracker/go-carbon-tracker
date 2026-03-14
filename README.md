@@ -324,6 +324,7 @@ Click any link below to explore live in your browser — all interactive, zoomab
 
 | Visualization | What You'll See |
 |--------------|-----------------|
+| [Supply Chain Tier Relationships](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/automotive-tiers-relationships.html) | Complete tier mapping — OEM to Tier 8, emission flows, data quality indicators |
 | [Tier & Country Network](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_country_all_companies.html) | 216 companies mapped by supply chain tier and country of headquarters |
 | [Complete Knowledge Graph](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_complete.html) | Full KB structure — all companies, tiers, and relationships |
 | [Company Relationships](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_with_relationships.html) | Inter-company relationship network across the supply chain |
