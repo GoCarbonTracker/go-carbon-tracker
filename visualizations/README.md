@@ -6,6 +6,7 @@ Interactive HTML visualizations generated from the GoCarbonTracker knowledge bas
 
 | File | Description |
 |------|-------------|
+| `automotive_supply_chain.html` | Full automotive supply chain topology |
 | `vyuh_tier_country_all_companies.html` | 216 companies mapped by supply chain tier and country |
 | `vyuh_tier_separate_all_companies.html` | Separate tier view of all companies |
 | `vyuh_format_complete.html` | Complete format visualization |

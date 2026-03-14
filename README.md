@@ -324,19 +324,28 @@ Interactive visualizations are available in the [`visualizations/`](./visualizat
 
 Network visualizations mapping the automotive supply chain ecosystem:
 
+- **Automotive Supply Chain** — Full supply chain topology across all tiers
 - **Tier & Country Network** — 216 companies mapped by supply chain tier and country of headquarters
-- **OEM Decarbonization** — Decarbonization initiatives across OEMs
-- **Scope 3 Categories** — Visualization of Scope 3 emissions categories
-- **Energy Initiatives** — Renewable energy targets and initiatives network
-- **Supply Chain Topology** — Full automotive supply chain graph
+- **Tier Separate View** — Separate tier breakdown of all companies
+- **Company Relationships** — Relationship mapping between companies
+- **Scope Emissions** — Scope 1/2/3 emissions visualization
+- **Country HQ Network** — Companies by country of headquarters
+- **Energy Initiatives (Animated)** — Animated renewable energy initiatives network
+- **Energy Initiatives Network** — Energy initiatives graph
 
 ### Knowledge Graph Visualizations
 
-- **Energy Initiatives Hypergraph** — Full hypergraph visualization of energy-related claims and evidence
-- **Supply Chain Graphs** — Company-specific supply chain tier structures
-- **Industry Treemap** — Automotive industry breakdown by tier and segment
+- **Energy Initiatives Hypergraph** — Full hypergraph visualization of energy-related claims and evidence (4.6 MB interactive)
+- **Automotive Industry Treemap** — Industry breakdown by tier and segment
+- **Automotive Tiers** — Supply chain tier structure
 
-> **Note:** These visualizations are generated from our knowledge base and show the structure and relationships — not raw data.
+### Supply Chain Graphs
+
+- **BMW** — BMW Group supply chain tier structure
+- **Mercedes-Benz** — Mercedes supply chain visualization
+- **Ferrari** — Ferrari supply chain visualization
+
+> **Note:** These visualizations are generated from our knowledge base. They show structure and relationships — open any `.html` file in a browser to explore interactively.
 
 ---
 
