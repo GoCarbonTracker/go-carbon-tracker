@@ -318,34 +318,39 @@ The primary user-facing application covering emissions tracking, graph visualiza
 
 ## Visualizations
 
-Interactive visualizations are available in the [`visualizations/`](./visualizations/) directory. These are self-contained HTML files that can be opened in any browser.
+Click any link below to explore the interactive visualizations live in your browser (hosted via GitHub Pages).
 
 ### Vyuh Network Diagrams
 
-Network visualizations mapping the automotive supply chain ecosystem:
-
-- **Automotive Supply Chain** — Full supply chain topology across all tiers
-- **Tier & Country Network** — 216 companies mapped by supply chain tier and country of headquarters
-- **Tier Separate View** — Separate tier breakdown of all companies
-- **Company Relationships** — Relationship mapping between companies
-- **Scope Emissions** — Scope 1/2/3 emissions visualization
-- **Country HQ Network** — Companies by country of headquarters
-- **Energy Initiatives (Animated)** — Animated renewable energy initiatives network
-- **Energy Initiatives Network** — Energy initiatives graph
+| Visualization | Description |
+|--------------|-------------|
+| [Automotive Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/automotive_supply_chain.html) | Full supply chain topology across all tiers |
+| [Tier & Country Network](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_country_all_companies.html) | 216 companies mapped by supply chain tier and country |
+| [Tier Separate View](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_separate_all_companies.html) | Separate tier breakdown of all companies |
+| [Company Relationships](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_with_relationships.html) | Relationship mapping between companies |
+| [Scope Emissions](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_scope_emissions.html) | Scope 1/2/3 emissions visualization |
+| [Country HQ Network](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_country_hq_kb_companies.html) | Companies by country of headquarters |
+| [Energy Initiatives (Animated)](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/energy_initiatives_animated.html) | Animated renewable energy initiatives network |
+| [Energy Initiatives Network](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/energy_initiatives_vyuh_network.html) | Energy initiatives graph |
+| [Complete Format](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_complete.html) | Complete format visualization |
 
 ### Knowledge Graph Visualizations
 
-- **Energy Initiatives Hypergraph** — Full hypergraph visualization of energy-related claims and evidence (4.6 MB interactive)
-- **Automotive Industry Treemap** — Industry breakdown by tier and segment
-- **Automotive Tiers** — Supply chain tier structure
+| Visualization | Description |
+|--------------|-------------|
+| [Energy Initiatives Hypergraph](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/hypergraph/energy_initiatives_hypergraph.html) | Full hypergraph of energy-related claims and evidence (4.6 MB) |
+| [Automotive Industry Treemap](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/hypergraph/automotive-industry-treemap.html) | Industry breakdown by tier and segment |
+| [Automotive Tiers](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/hypergraph/automotive-tiers-visualization.html) | Supply chain tier structure |
 
 ### Supply Chain Graphs
 
-- **BMW** — BMW Group supply chain tier structure
-- **Mercedes-Benz** — Mercedes supply chain visualization
-- **Ferrari** — Ferrari supply chain visualization
+| Visualization | Description |
+|--------------|-------------|
+| [BMW Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/bmw-supply-chain-visualization.html) | BMW Group supply chain tier structure |
+| [Mercedes-Benz Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/mercedes-supply-chain-visualization.html) | Mercedes supply chain visualization |
+| [Ferrari Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/ferrari-supply-chain-visualization.html) | Ferrari supply chain visualization |
 
-> **Note:** These visualizations are generated from our knowledge base. They show structure and relationships — open any `.html` file in a browser to explore interactively.
+> **Note:** All visualizations are interactive — zoom, pan, click nodes, and filter. Generated from our knowledge base showing structure and relationships.
 
 ---
 
