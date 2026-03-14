@@ -1,136 +1,271 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>HyperGraph RAG - Tier + Relationships Visualization</title>
+    <meta charset="utf-8">
+    <title>GoCarbonTracker — Company Relationships Network</title>
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            margin: 0;
-            padding: 20px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f5f5f5;
-        }
-        .header {
-            background: white;
-            padding: 20px;
-            margin-bottom: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        .title {
-            margin: 0 0 15px 0;
-            font-size: 28px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: #fafafa;
             color: #1a1a1a;
-        }
-        .stats {
             display: flex;
-            gap: 20px;
-            margin-bottom: 15px;
-            flex-wrap: wrap;
+            height: 100vh;
+            overflow: hidden;
         }
-        .stat {
-            background: #f0f0f0;
-            padding: 10px 15px;
-            border-radius: 6px;
+        .sidebar {
+            width: 260px;
+            min-width: 260px;
+            height: 100vh;
+            background: #fff;
+            border-right: 1px solid #e5e5e5;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
         }
-        .stat-label {
+        .sidebar-header {
+            padding: 20px 16px 16px;
+            border-bottom: 1px solid #e5e5e5;
+        }
+        .sidebar-header h1 {
+            font-size: 15px;
+            font-weight: 700;
+            color: #111;
+            line-height: 1.3;
+        }
+        .sidebar-header p {
             font-size: 12px;
-            color: #666;
-            margin-bottom: 5px;
+            color: #888;
+            margin-top: 4px;
         }
-        .stat-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #1976D2;
+        .search-box {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e5e5e5;
         }
-        .legend {
+        .search-box input {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+            outline: none;
+            background: #fafafa;
+        }
+        .search-box input:focus { border-color: #999; background: #fff; }
+        .search-box input::placeholder { color: #bbb; }
+        .search-results {
+            max-height: 200px;
+            overflow-y: auto;
+            border-top: 1px solid #eee;
+            margin-top: 8px;
+            display: none;
+        }
+        .search-results.visible { display: block; }
+        .search-result-item {
+            padding: 6px 4px;
+            font-size: 12px;
+            cursor: pointer;
             display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid #e0e0e0;
+            align-items: center;
+            gap: 6px;
+            border-radius: 3px;
         }
-        .legend-item {
+        .search-result-item:hover { background: #f0f0f0; }
+        .search-result-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .stats-section {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e5e5e5;
+        }
+        .stats-section h3 {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #999;
+            margin-bottom: 8px;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        .stat-item {
+            padding: 6px 8px;
+            background: #f5f5f5;
+            border-radius: 4px;
+        }
+        .stat-item .value {
+            font-size: 18px;
+            font-weight: 700;
+            color: #111;
+        }
+        .stat-item .label {
+            font-size: 10px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .filter-section {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e5e5e5;
+        }
+        .filter-section h3 {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #999;
+            margin-bottom: 8px;
+        }
+        .rel-filter {
             display: flex;
             align-items: center;
             gap: 8px;
+            padding: 5px 0;
+            cursor: pointer;
+            font-size: 13px;
+            user-select: none;
         }
-        .legend-color {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
+        .rel-filter:hover { opacity: 0.8; }
+        .rel-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
         }
-        #graph-container {
+        .rel-label { flex: 1; color: #333; }
+        .rel-count { font-size: 11px; color: #999; font-variant-numeric: tabular-nums; }
+        .rel-filter.disabled .rel-dot { opacity: 0.2; }
+        .rel-filter.disabled .rel-label { color: #ccc; text-decoration: line-through; }
+        .rel-filter.disabled .rel-count { color: #ddd; }
+        .controls-section {
+            padding: 12px 16px;
+            border-top: 1px solid #e5e5e5;
+        }
+        .controls-section button {
             width: 100%;
-            height: calc(100vh - 300px);
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 7px 10px;
+            margin-bottom: 6px;
+            background: #f5f5f5;
+            color: #333;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
         }
+        .controls-section button:hover { background: #eee; border-color: #ccc; }
+        .controls-section button:last-child { margin-bottom: 0; }
+        .branding {
+            padding: 10px 16px;
+            border-top: 1px solid #e5e5e5;
+        }
+        .branding span { font-size: 11px; color: #999; }
+        .graph-area { flex: 1; position: relative; }
+        #graph-container { width: 100%; height: 100%; background: #fafafa; }
+        .detail-panel {
+            position: absolute;
+            bottom: 16px;
+            right: 16px;
+            width: 280px;
+            background: #fff;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            padding: 16px;
+            display: none;
+            z-index: 10;
+        }
+        .detail-panel.visible { display: block; }
+        .detail-panel .close-btn {
+            position: absolute; top: 8px; right: 10px;
+            background: none; border: none; font-size: 16px;
+            cursor: pointer; color: #999; padding: 4px; width: auto; margin: 0;
+        }
+        .detail-panel .close-btn:hover { color: #333; }
+        .detail-name { font-size: 16px; font-weight: 700; color: #111; margin-bottom: 4px; padding-right: 24px; }
+        .detail-meta { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+        .detail-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-size: 11px; font-weight: 600;
+        }
+        .detail-connections { margin-top: 8px; }
+        .detail-connections h4 { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 6px; }
+        .detail-conn-item { font-size: 12px; padding: 3px 0; color: #444; }
+        .detail-conn-type { font-size: 10px; color: #999; margin-left: 4px; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1 class="title">🎯 HyperGraph RAG - Tier Organization + Discovered Relationships</h1>
-        
-        <div class="stats">
-            <div class="stat">
-                <div class="stat-label">Total Nodes</div>
-                <div class="stat-value">87</div>
-            </div>
-            <div class="stat">
-                <div class="stat-label">Connections</div>
-                <div class="stat-value">129</div>
-            </div>
-            <div class="stat">
-                <div class="stat-label">Supplier Links</div>
-                <div class="stat-value">10</div>
-            </div>
-            <div class="stat">
-                <div class="stat-label">Tech Partners</div>
-                <div class="stat-value">8</div>
-            </div>
-            <div class="stat">
-                <div class="stat-label">Shared Commitments</div>
-                <div class="stat-value">4</div>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1>Company Relationships<br>Network</h1>
+            <p>GoCarbonTracker — Supply chain partnerships and commitments</p>
+        </div>
+
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Search companies..." />
+            <div class="search-results" id="searchResults"></div>
+        </div>
+
+        <div class="stats-section">
+            <h3>Overview</h3>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="value" id="companyCount">0</div>
+                    <div class="label">Companies</div>
+                </div>
+                <div class="stat-item">
+                    <div class="value" id="connectionCount">0</div>
+                    <div class="label">Connections</div>
+                </div>
+                <div class="stat-item">
+                    <div class="value" id="supplierCount">0</div>
+                    <div class="label">Supplier Links</div>
+                </div>
+                <div class="stat-item">
+                    <div class="value" id="partnerCount">0</div>
+                    <div class="label">Partnerships</div>
+                </div>
             </div>
         </div>
-        
-        <div class="legend">
-            <div class="legend-item">
-                <div class="legend-color" style="background: #EF5350;"></div>
-                <span><strong>OEM</strong> - Original Equipment Manufacturers</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background: #FF9800;"></div>
-                <span><strong>Tier 1</strong> - Direct Suppliers</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background: #4CAF50;"></div>
-                <span><strong>Tier 2</strong> - Battery Suppliers</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background: #2196F3;"></div>
-                <span><strong>Tier 3</strong> - Material Suppliers</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background: #EF5350; width: 2px;"></div>
-                <span><strong>Supplier Links</strong> - Direct supplier relationships</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background: #7C4DFF; width: 2px;"></div>
-                <span><strong>Tech Partners</strong> - Technology partnerships</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background: #26A69A;"></div>
-                <span><strong>Commitments</strong> - Shared ESG commitments</span>
-            </div>
+
+        <div class="filter-section">
+            <h3>Relationship Types</h3>
+            <div id="relFilters"></div>
+        </div>
+
+        <div class="filter-section">
+            <h3>Tiers</h3>
+            <div id="tierFilters"></div>
+        </div>
+
+        <div class="controls-section">
+            <button onclick="fitGraph()">Fit to View</button>
+            <button onclick="togglePhysics()" id="physicsBtn">Physics: On</button>
+            <button onclick="resetFilters()">Reset All</button>
+        </div>
+
+        <div class="branding">
+            <span>GoCarbonTracker</span>
         </div>
     </div>
-    
-    <div id="graph-container"></div>
-    
+
+    <div class="graph-area">
+        <div id="graph-container"></div>
+        <div class="detail-panel" id="detailPanel">
+            <button class="close-btn" onclick="closeDetail()">&times;</button>
+            <div class="detail-name" id="detailName"></div>
+            <div class="detail-meta" id="detailMeta"></div>
+            <div class="detail-connections" id="detailConnections"></div>
+        </div>
+    </div>
+
     <script type="text/javascript">
         const vyuhData = {
         "nodes": [
@@ -2723,126 +2858,311 @@
                 "layout": "tier_based_with_relationships"
         }
 };
-        
-        // Create nodes
-        const nodes = new vis.DataSet(
-            vyuhData.nodes.map(node => {
-                const isHub = node.type === 'tier_hub' || node.type === 'commitment_hub';
-                const nodeColor = node.data.color || '#1976D2';
-                
-                return {
-                    id: node.id,
-                    label: node.data.name || node.id,
-                    x: node.position.x,
-                    y: node.position.y,
-                    color: {
-                        background: nodeColor,
-                        border: nodeColor === '#EF5350' ? '#C62828' : 
-                                nodeColor === '#FF9800' ? '#E65100' :
-                                nodeColor === '#4CAF50' ? '#2E7D32' :
-                                nodeColor === '#2196F3' ? '#1565C0' :
-                                nodeColor === '#9C27B0' ? '#6A1B9A' :
-                                nodeColor === '#26A69A' ? '#00695C' : '#0D47A1',
-                        highlight: {
-                            background: nodeColor,
-                            border: '#000'
-                        }
-                    },
-                    shape: isHub ? 'diamond' : 'dot',
-                    size: isHub ? 25 : 18,
-                    borderWidth: 2,
-                    font: {
-                        size: 13,
-                        color: '#333'
-                    },
-                    title: `
-                        <strong>${node.data.name}</strong><br>
-                        Type: ${node.type}<br>
-                        ${node.data.tier ? `Tier: ${node.data.tier}<br>` : ''}
-                        ${node.data.company_count ? `Companies: ${node.data.company_count}<br>` : ''}
-                        ${node.data.confidence ? `Confidence: ${(node.data.confidence * 100).toFixed(1)}%<br>` : ''}
-                    `
-                };
-            })
-        );
-        
-        // Create edges with different styles
-        const edges = new vis.DataSet(
-            vyuhData.connections.map(conn => {
-                const connType = conn.type;
-                const connColor = conn.data?.color || '#BDBDBD';
-                
-                let edgeStyle = {
-                    color: connColor,
-                    width: 2,
-                    smooth: { type: 'continuous', roundness: 0.5 }
-                };
-                
-                // Different styles for different relationship types
-                if (connType === 'supplier_link') {
-                    edgeStyle.width = 3;
-                    edgeStyle.dashes = false;
-                    edgeStyle.arrows = 'to';
-                } else if (connType === 'technology_partner_link') {
-                    edgeStyle.width = 2;
-                    edgeStyle.dashes = [5, 5];
-                    edgeStyle.arrows = 'to';
-                } else if (connType === 'shared_commitment') {
-                    edgeStyle.width = 2;
-                    edgeStyle.dashes = [10, 5];
-                    edgeStyle.arrows = 'to';
-                } else {
-                    edgeStyle.width = 1;
-                    edgeStyle.dashes = false;
-                }
-                
-                return {
-                    id: conn.id,
-                    from: conn.source,
-                    to: conn.target,
-                    ...edgeStyle,
-                    title: conn.data?.description || connType
-                };
-            })
-        );
-        
-        // Create network
-        const container = document.getElementById('graph-container');
-        const data = { nodes: nodes, edges: edges };
-        
-        const options = {
-            nodes: {
-                font: { size: 13, color: '#333' },
-                shadow: { enabled: true }
-            },
-            edges: {
-                shadow: { enabled: true }
-            },
-            physics: {
-                enabled: true,
-                stabilization: { iterations: 200 },
-                barnesHut: {
-                    gravitationalConstant: -2000,
-                    centralGravity: 0.1,
-                    springLength: 200,
-                    springConstant: 0.05,
-                    damping: 0.09
-                }
-            },
-            interaction: {
-                hover: true,
-                tooltipDelay: 100,
-                zoomView: true,
-                dragView: true
-            }
+
+        // Config
+        const tierConfig = {
+            'OEM': { name: 'OEM', color: '#EF5350' },
+            'Tier 1': { name: 'Tier 1 — Direct Suppliers', color: '#FF9800' },
+            'Tier 2': { name: 'Tier 2 — Battery Ecosystem', color: '#4CAF50' },
+            'Tier 3': { name: 'Tier 3 — Materials', color: '#2196F3' }
         };
-        
-        const network = new vis.Network(container, data, options);
-        
-        // Fit to view
-        network.once('stabilizationEnd', () => {
-            network.fit({ animation: { duration: 1000 } });
+
+        const relConfig = {
+            'supplier_link': { name: 'Supplier Links', color: '#EF5350' },
+            'technology_partner_link': { name: 'Tech Partnerships', color: '#7C4DFF' },
+            'shared_commitment': { name: 'Shared Commitments', color: '#26A69A' },
+            'tier_membership': { name: 'Tier Membership', color: '#BDBDBD' }
+        };
+
+        let activeTiers = new Set(Object.keys(tierConfig));
+        let activeRels = new Set(Object.keys(relConfig));
+        let network = null;
+        let allNodes = [];
+        let physicsEnabled = true;
+
+        // Parse data
+        const companyNodes = vyuhData.nodes.filter(n => n.type === 'company');
+        const hubNodes = vyuhData.nodes.filter(n => n.type === 'tier_hub' || n.type === 'commitment_hub');
+
+        // Count stats
+        const supplierLinks = vyuhData.connections.filter(c => c.type === 'supplier_link').length;
+        const techPartners = vyuhData.connections.filter(c => c.type === 'technology_partner_link').length;
+        const commitments = vyuhData.connections.filter(c => c.type === 'shared_commitment').length;
+
+        document.getElementById('companyCount').textContent = companyNodes.length;
+        document.getElementById('connectionCount').textContent = vyuhData.connections.length;
+        document.getElementById('supplierCount').textContent = supplierLinks;
+        document.getElementById('partnerCount').textContent = techPartners + commitments;
+
+        // Build relationship filters
+        const relFilterContainer = document.getElementById('relFilters');
+        Object.entries(relConfig).forEach(([type, cfg]) => {
+            const count = vyuhData.connections.filter(c => c.type === type).length;
+            if (count === 0) return;
+            const div = document.createElement('div');
+            div.className = 'rel-filter';
+            div.dataset.type = type;
+            div.innerHTML = `
+                <span class="rel-dot" style="background: ${cfg.color}"></span>
+                <span class="rel-label">${cfg.name}</span>
+                <span class="rel-count">${count}</span>
+            `;
+            div.addEventListener('click', () => {
+                if (activeRels.has(type)) { activeRels.delete(type); div.classList.add('disabled'); }
+                else { activeRels.add(type); div.classList.remove('disabled'); }
+                buildGraph();
+            });
+            relFilterContainer.appendChild(div);
         });
+
+        // Build tier filters
+        const tierFilterContainer = document.getElementById('tierFilters');
+        Object.entries(tierConfig).forEach(([tier, cfg]) => {
+            const count = companyNodes.filter(n => n.data.tier === tier).length;
+            if (count === 0) return;
+            const div = document.createElement('div');
+            div.className = 'rel-filter';
+            div.dataset.tier = tier;
+            div.innerHTML = `
+                <span class="rel-dot" style="background: ${cfg.color}"></span>
+                <span class="rel-label">${cfg.name}</span>
+                <span class="rel-count">${count}</span>
+            `;
+            div.addEventListener('click', () => {
+                if (activeTiers.has(tier)) { activeTiers.delete(tier); div.classList.add('disabled'); }
+                else { activeTiers.add(tier); div.classList.remove('disabled'); }
+                buildGraph();
+            });
+            tierFilterContainer.appendChild(div);
+        });
+
+        function buildGraph() {
+            const filteredNodes = vyuhData.nodes
+                .filter(node => {
+                    if (node.type === 'company') return activeTiers.has(node.data.tier);
+                    if (node.type === 'tier_hub') return activeTiers.has(node.data.tier);
+                    if (node.type === 'commitment_hub') return activeRels.has('shared_commitment');
+                    return true;
+                })
+                .map(node => {
+                    const isHub = node.type === 'tier_hub' || node.type === 'commitment_hub';
+                    const color = node.data.color || '#999';
+                    return {
+                        id: node.id,
+                        label: node.data.name || node.id,
+                        shape: isHub ? 'diamond' : 'dot',
+                        size: isHub ? 22 : 14,
+                        color: {
+                            background: color,
+                            border: color,
+                            highlight: { background: color, border: '#111' },
+                            hover: { background: color, border: '#666' }
+                        },
+                        font: {
+                            size: isHub ? 13 : 11,
+                            color: '#444',
+                            strokeWidth: 2,
+                            strokeColor: '#fff'
+                        },
+                        borderWidth: isHub ? 2 : 1,
+                        x: node.position.x,
+                        y: node.position.y,
+                        fixed: false,
+                        _data: node.data,
+                        _type: node.type
+                    };
+                });
+
+            allNodes = filteredNodes;
+            const activeNodeIds = new Set(filteredNodes.map(n => n.id));
+
+            const filteredEdges = vyuhData.connections
+                .filter(conn => {
+                    if (!activeRels.has(conn.type)) return false;
+                    return activeNodeIds.has(conn.source) && activeNodeIds.has(conn.target);
+                })
+                .map(conn => {
+                    const cfg = relConfig[conn.type] || {};
+                    const isRelationship = conn.type !== 'tier_membership';
+                    return {
+                        id: conn.id,
+                        from: conn.source,
+                        to: conn.target,
+                        color: {
+                            color: isRelationship ? (cfg.color || '#999') : '#ddd',
+                            highlight: cfg.color || '#999',
+                            hover: cfg.color || '#999'
+                        },
+                        width: isRelationship ? 2 : 1,
+                        dashes: conn.type === 'shared_commitment',
+                        smooth: { type: 'continuous', roundness: 0.3 },
+                        title: conn.data ? conn.data.description || '' : ''
+                    };
+                });
+
+            const container = document.getElementById('graph-container');
+            const data = {
+                nodes: new vis.DataSet(filteredNodes),
+                edges: new vis.DataSet(filteredEdges)
+            };
+
+            const options = {
+                nodes: { borderWidth: 1, shadow: false },
+                edges: { arrows: { to: { enabled: false } }, smooth: { type: 'continuous' } },
+                physics: {
+                    enabled: true,
+                    stabilization: { iterations: 200, fit: true },
+                    barnesHut: {
+                        gravitationalConstant: -2500,
+                        centralGravity: 0.2,
+                        springLength: 150,
+                        springConstant: 0.04,
+                        damping: 0.12,
+                        avoidOverlap: 0.3
+                    }
+                },
+                interaction: {
+                    hover: true,
+                    tooltipDelay: 200,
+                    zoomView: true,
+                    dragView: true,
+                    hideEdgesOnDrag: true
+                }
+            };
+
+            network = new vis.Network(container, data, options);
+
+            network.on('stabilized', () => {
+                network.setOptions({ physics: { enabled: false } });
+                physicsEnabled = false;
+                document.getElementById('physicsBtn').textContent = 'Physics: Off';
+            });
+
+            network.on('click', function(params) {
+                if (params.nodes.length > 0) {
+                    const nodeId = params.nodes[0];
+                    const node = filteredNodes.find(n => n.id === nodeId);
+                    if (node) {
+                        showDetail(node, data);
+                        highlightConnected(nodeId, data);
+                    }
+                } else {
+                    closeDetail();
+                    resetHighlight(data);
+                }
+            });
+        }
+
+        function showDetail(node, data) {
+            const d = node._data;
+            const panel = document.getElementById('detailPanel');
+            document.getElementById('detailName').textContent = d.name || node.id;
+
+            const tierColor = tierConfig[d.tier] ? tierConfig[d.tier].color : '#999';
+            const type = node._type === 'tier_hub' ? 'Tier Hub' : (node._type === 'commitment_hub' ? 'Commitment Hub' : 'Company');
+
+            document.getElementById('detailMeta').innerHTML = `
+                <span class="detail-badge" style="background: ${tierColor}22; color: ${tierColor}; border: 1px solid ${tierColor}44;">${d.tier || '—'}</span>
+                <span class="detail-badge" style="background: #f0f0f0; color: #555;">${type}</span>
+            `;
+
+            // Show connected relationships
+            const connectedEdges = network.getConnectedEdges(node.id);
+            const connectedNodes = network.getConnectedNodes(node.id);
+            const connHtml = connectedNodes.map(cId => {
+                const cNode = allNodes.find(n => n.id === cId);
+                if (!cNode) return '';
+                const edge = data.edges.get(connectedEdges.find(eId => {
+                    const e = data.edges.get(eId);
+                    return e && (e.from === cId || e.to === cId);
+                }));
+                const relType = edge ? (relConfig[edge._type] || {}).name || '' : '';
+                return `<div class="detail-conn-item">${cNode.label} <span class="detail-conn-type">${relType}</span></div>`;
+            }).filter(Boolean).join('');
+
+            document.getElementById('detailConnections').innerHTML = connectedNodes.length > 0
+                ? `<h4>Connected (${connectedNodes.length})</h4>${connHtml}`
+                : '<h4>No direct relationships</h4>';
+
+            panel.classList.add('visible');
+        }
+
+        function closeDetail() {
+            document.getElementById('detailPanel').classList.remove('visible');
+        }
+
+        function highlightConnected(nodeId, data) {
+            const connectedNodes = network.getConnectedNodes(nodeId);
+            const connectedSet = new Set([nodeId, ...connectedNodes]);
+            data.nodes.forEach(node => {
+                data.nodes.update({ id: node.id, opacity: connectedSet.has(node.id) ? 1.0 : 0.15 });
+            });
+        }
+
+        function resetHighlight(data) {
+            data.nodes.forEach(node => {
+                data.nodes.update({ id: node.id, opacity: 1.0 });
+            });
+        }
+
+        function fitGraph() { if (network) network.fit({ animation: { duration: 500 } }); }
+
+        function togglePhysics() {
+            physicsEnabled = !physicsEnabled;
+            if (network) network.setOptions({ physics: { enabled: physicsEnabled } });
+            document.getElementById('physicsBtn').textContent = physicsEnabled ? 'Physics: On' : 'Physics: Off';
+        }
+
+        function resetFilters() {
+            activeTiers = new Set(Object.keys(tierConfig));
+            activeRels = new Set(Object.keys(relConfig));
+            document.querySelectorAll('.rel-filter').forEach(el => el.classList.remove('disabled'));
+            buildGraph();
+        }
+
+        // Search
+        const searchInput = document.getElementById('searchInput');
+        const searchResults = document.getElementById('searchResults');
+
+        searchInput.addEventListener('input', function() {
+            const query = this.value.toLowerCase().trim();
+            if (query.length < 2) { searchResults.classList.remove('visible'); searchResults.innerHTML = ''; return; }
+
+            const matches = companyNodes
+                .filter(n => n.data.name && n.data.name.toLowerCase().includes(query))
+                .slice(0, 10);
+
+            if (matches.length === 0) { searchResults.classList.remove('visible'); return; }
+
+            searchResults.innerHTML = matches.map(n => {
+                const color = tierConfig[n.data.tier] ? tierConfig[n.data.tier].color : '#999';
+                return `<div class="search-result-item" data-id="${n.id}">
+                    <span class="search-result-dot" style="background: ${color}"></span>
+                    ${n.data.name}
+                </div>`;
+            }).join('');
+
+            searchResults.querySelectorAll('.search-result-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const nodeId = item.dataset.id;
+                    if (network) {
+                        network.focus(nodeId, { scale: 1.5, animation: { duration: 500 } });
+                        network.selectNodes([nodeId]);
+                        const node = allNodes.find(n => n.id === nodeId);
+                        if (node) showDetail(node, { nodes: network.body.data.nodes, edges: network.body.data.edges });
+                    }
+                    searchResults.classList.remove('visible');
+                    searchInput.value = '';
+                });
+            });
+            searchResults.classList.add('visible');
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.search-box')) searchResults.classList.remove('visible');
+        });
+
+        buildGraph();
     </script>
 </body>
 </html>
