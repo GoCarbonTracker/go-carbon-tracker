@@ -197,14 +197,22 @@ Three-stage hybrid retrieval with quality gates:
 - 100% entity coverage validation for comparative analysis
 - Metadata filtering by tier, source, data density, entity level
 
-### Why Zero Cost?
+### Why Zero Cost Matters
 
-Most RAG systems depend on expensive embedding APIs (OpenAI, Cohere). GoCarbonTracker uses:
-- **TF-IDF embeddings** via scikit-learn (free, local)
-- **BM25** for keyword search (free, local)
-- **pdfplumber** for PDF extraction (free, local)
+Most RAG systems depend on paid APIs that charge per query, per embedding, and per extraction:
 
-The entire knowledge base — 37,877 contexts, 18,832 claims, 1.6M evidence items — was built at **$0.00 API cost**.
+| Component | Industry Standard | Cost at Our Scale | GoCarbonTracker |
+|-----------|------------------|-------------------|-----------------|
+| Embeddings | OpenAI text-embedding-3 | ~$15-30 for 37K contexts | **$0** — TF-IDF via scikit-learn |
+| Re-ranking | Cohere Rerank | ~$5-10 per 1K queries | **$0** — BM25 via rank-bm25 |
+| PDF Extraction | GPT-4 Vision / Azure DI | ~$500+ for 216 reports | **$0** — pdfplumber (local) |
+| Re-indexing | Re-embed on every update | Ongoing cost per change | **$0** — instant local rebuild |
+
+**These costs compound.** Every time you add a company, update a report, or re-index the knowledge base, paid APIs charge again. At scale — thousands of companies across multiple industries — this becomes a significant barrier.
+
+GoCarbonTracker's entire knowledge base — **37,877 contexts, 18,832 claims, 1.6M evidence items across 216 companies** — was built and is maintained at **$0.00 API cost**. The full KB can be re-indexed in under 30 seconds, locally, with no external dependencies.
+
+This isn't just a cost saving — it's an architectural decision that makes the platform **accessible to smaller organizations** who can't afford per-query pricing, and **scalable** without cost growing linearly with usage. When we expand beyond automotive to energy, finance, and agriculture, the marginal cost of each new industry is effectively zero.
 
 ---
 
