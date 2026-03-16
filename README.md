@@ -447,4 +447,6 @@ GoCarbonTracker is actively looking for collaborators, especially people with ex
 
 ---
 
+Built by [Varun](https://github.com/varunmoka7)
+
 **Copyright 2025-2026 GoCarbonTracker. All rights reserved.**
