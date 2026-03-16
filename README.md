@@ -128,8 +128,8 @@ GoCarbonTracker is built as three interconnected layers:
      │  ┌──────────────┐  ┌──────────────┐               │
      │  │ HyperGraph   │  │  Discourse   │               │
      │  │ RAG Engine   │  │    Graph     │               │
-     │  │ 37.8K points │  │ 18.8K claims │               │
-     │  │ 200+ co.     │  │ 1.6M evidence│               │
+     │  │ Contexts     │  │   Claims     │               │
+     │  │ 200+ co.     │  │  Evidence    │               │
      │  └──────┬───────┘  └──────┬───────┘               │
      │         │                 │                         │
      │         └────────┬────────┘                         │
@@ -164,7 +164,7 @@ Hypergraphs solve this. Originating in mathematics ([Berge, 1984](https://link.s
 
 HyperGraph RAG takes this further by combining hypergraph-structured knowledge representation with retrieval-augmented generation (RAG). Rather than retrieving flat text chunks like standard RAG systems, HyperGraph RAG retrieves through rich n-ary relationships — producing more accurate and contextually complete results. The foundational research behind this approach is detailed in [Luo et al., "HyperGraphRAG: Retrieval-Augmented Generation via Hypergraph-Structured Knowledge Representation" (NeurIPS 2025)](https://arxiv.org/abs/2503.21322).
 
-Our implementation transforms unstructured sustainability PDFs into a searchable hypergraph knowledge base covering 200+ companies and 37,877 data points at zero runtime cost. But structured, searchable intelligence is only half the picture — to *judge* what companies are actually claiming, you need argumentation. That's where the Discourse Graph comes in.
+Our implementation transforms unstructured sustainability PDFs into a searchable hypergraph knowledge base covering hundreds of companies and tens of thousands of data points at zero runtime cost. But structured, searchable intelligence is only half the picture — to *judge* what companies are actually claiming, you need argumentation. That's where the Discourse Graph comes in.
 
 ### What It Does
 
@@ -182,7 +182,7 @@ Corporate Sustainability Reports (PDFs)
          │
          ▼
 ┌─────────────────────────┐
-│  Knowledge Base         │  37,877 structured data points
+│  Knowledge Base         │  Structured data points from reports
 │                         │  Searchable by company, topic, tier
 │                         │  Hybrid search (semantic + keyword)
 └────────┬────────────────┘
@@ -221,7 +221,7 @@ The Docling pipeline is our deep extraction layer that goes beyond basic text:
 
 ### Impact
 
-Our Docling enrichment has already added **941 enriched contexts** across companies like Ford Motor (252 enriched contexts) and Porsche (131 enriched contexts), bringing deeper quantitative data and table-based evidence into the knowledge base that text-only extraction couldn't capture.
+Our Docling enrichment has added hundreds of enriched contexts across companies like Ford Motor and Porsche, bringing deeper quantitative data and table-based evidence into the knowledge base that text-only extraction couldn't capture.
 
 The pipeline is designed to run incrementally — we can enrich one company at a time without rebuilding the entire knowledge base.
 
@@ -343,7 +343,7 @@ Explore our interactive visualizations — click any link to open in your browse
 | Visualization | What You'll See |
 |--------------|-----------------|
 | [Full Supply Chain Network](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/automotive-tiers-relationships.html) | Complete tier mapping — OEM to Tier 8, emission flows, data quality indicators |
-| [Companies by Tier & Country](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_country_all_companies.html) | 200+ companies mapped by supply chain position and headquarters |
+| [Companies by Tier & Country](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_country_all_companies.html) | Companies mapped by supply chain position and headquarters |
 | [Company Relationships](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_with_relationships.html) | How companies connect across the supply chain |
 | [Tier Breakdown](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_separate_all_companies.html) | Companies organized by supply chain level |
 | [Global HQ Distribution](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_country_hq_kb_companies.html) | Where these companies are headquartered worldwide |
@@ -370,7 +370,7 @@ Explore our interactive visualizations — click any link to open in your browse
 
 Most platforms that analyze sustainability data rely on paid AI services — charging per query, per document, per embedding. These costs add up fast and create barriers for smaller organizations.
 
-**GoCarbonTracker's entire knowledge base — 37,877 data points, 18,832 claims, 1.6M evidence items across 200+ companies — was built and is maintained at $0.00 runtime cost.**
+**GoCarbonTracker's entire knowledge base — tens of thousands of data points, thousands of verified claims, over a million evidence items across 200+ companies — was built and is maintained at $0.00 runtime cost.**
 
 - No paid AI APIs for reading reports
 - No per-query fees for searching the knowledge base
@@ -387,8 +387,8 @@ This means **adding a new industry costs effectively nothing.** When we expand f
 
 - Automotive knowledge base at zero runtime cost
 - HyperGraph RAG engine with hybrid search and quality-gated retrieval
-- Discourse Graph with 18,832 claims, credibility scoring, and greenwashing detection
-- 1.6M+ evidence items linking data to claims
+- Discourse Graph with credibility scoring and greenwashing detection
+- Evidence linking connecting data points to claims
 - Docling enrichment pipeline for deep PDF extraction
 - 529+ industry-specific extraction patterns
 - Interactive graph visualization with 5 modes
@@ -418,8 +418,8 @@ This means **adding a new industry costs effectively nothing.** When we expand f
 ## Roadmap
 
 ```
-Phase 1 ✅  Automotive Knowledge Base (200+ companies, 37K+ data points)
-Phase 2 ✅  Discourse Graph & Credibility Scoring (18.8K claims)
+Phase 1 ✅  Automotive Knowledge Base (200+ companies)
+Phase 2 ✅  Discourse Graph & Credibility Scoring
 Phase 3 ✅  Interactive Dashboard (60+ pages, 5 visualization modes)
 Phase 4 🔄  Docling Enrichment & Advanced ESG Extraction
 Phase 5 📋  Multi-Industry Expansion
