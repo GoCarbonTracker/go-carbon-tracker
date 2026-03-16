@@ -1,16 +1,16 @@
 # GoCarbonTracker
 
-## AI-Powered Climate Intelligence Platform
+## Climate Intelligence Platform
 
 **GoCarbonTracker** is a climate intelligence platform that reads corporate sustainability reports, extracts the claims companies make about their emissions, checks those claims against real evidence, and tells you who's actually delivering — and who's greenwashing.
 
 Over **50,000 companies** worldwide now face mandatory emissions reporting under regulations like CSRD, TCFD, and SEC Climate Rules. Most lack any way to verify what their competitors, suppliers, or even their own subsidiaries are actually claiming. GoCarbonTracker is that verification layer.
 
-[![Companies](https://img.shields.io/badge/Companies%20Analyzed-216-blue)]()
+[![Companies](https://img.shields.io/badge/Companies%20Analyzed-200%2B-blue)]()
 [![Data Points](https://img.shields.io/badge/Data%20Points-37,877-green)]()
 [![Claims Verified](https://img.shields.io/badge/Claims%20Verified-18,832-orange)]()
 [![Evidence Items](https://img.shields.io/badge/Evidence%20Items-1,638,798-purple)]()
-[![API Cost](https://img.shields.io/badge/API%20Cost-$0.00-success)]()
+[![Runtime Cost](https://img.shields.io/badge/Runtime%20Cost-$0.00-success)]()
 [![License](https://img.shields.io/badge/License-Proprietary-lightgrey)]()
 
 ---
@@ -27,7 +27,7 @@ Over **50,000 companies** worldwide now face mandatory emissions reporting under
 - [Credibility & Greenwashing Scoring](#credibility--greenwashing-scoring)
 - [The Platform](#the-platform)
 - [See It In Action](#see-it-in-action)
-- [Zero API Cost](#zero-api-cost)
+- [Zero Runtime Cost](#zero-runtime-cost)
 - [Current Progress](#current-progress)
 - [Roadmap](#roadmap)
 - [Get Involved](#get-involved)
@@ -40,7 +40,7 @@ Corporate sustainability reports are full of bold claims — net-zero targets, e
 
 - Who verifies if BMW's supply chain emissions claims align with what their suppliers report?
 - Who catches it when a company says "carbon neutral" but their own data shows rising emissions?
-- Who compares 216 companies across a supply chain to find the weak links?
+- Who compares hundreds of companies across a supply chain to find the weak links?
 
 **Nobody — until now.**
 
@@ -56,7 +56,7 @@ GoCarbonTracker reads sustainability reports at scale and turns them into struct
 4. **Score** — Every claim gets a credibility score (9 factors) and a greenwashing risk score (5 factors)
 5. **Visualize** — Interactive dashboards let you explore supply chains, compare companies, and spot patterns
 
-The entire system runs at **$0 API cost** — no paid AI services, no per-query fees, no cost barriers to scaling.
+The entire system runs at **$0 runtime cost** — no paid AI services, no per-query fees, no cost barriers to scaling.
 
 ---
 
@@ -68,7 +68,7 @@ We started with the automotive industry because of its deep, complex supply chai
 
 | Metric | Value |
 |--------|-------|
-| Companies Analyzed | 216 (OEMs + suppliers across 9 tiers) |
+| Companies Analyzed | 200+ (OEMs + suppliers across 9 tiers) |
 | Data Points Extracted | 37,877 from sustainability reports |
 | Claims Verified | 18,832 structured claims |
 | Evidence Items | 1,638,798 linking data to claims |
@@ -129,7 +129,7 @@ GoCarbonTracker is built as three interconnected layers:
      │  │ HyperGraph   │  │  Discourse   │               │
      │  │ RAG Engine   │  │    Graph     │               │
      │  │ 37.8K points │  │ 18.8K claims │               │
-     │  │ 216 companies│  │ 1.6M evidence│               │
+     │  │ 200+ co.     │  │ 1.6M evidence│               │
      │  └──────┬───────┘  └──────┬───────┘               │
      │         │                 │                         │
      │         └────────┬────────┘                         │
@@ -152,7 +152,7 @@ GoCarbonTracker is built as three interconnected layers:
 
 ## HyperGraph RAG Engine
 
-The core of GoCarbonTracker. A zero-cost retrieval-augmented generation engine purpose-built for ESG intelligence.
+The core of GoCarbonTracker. A zero-runtime-cost retrieval-augmented generation engine purpose-built for ESG intelligence.
 
 ### What It Does
 
@@ -261,7 +261,7 @@ A claim with 76 pieces of supporting evidence and only 2 contradictions? That's 
 | Evidence Items | 1,638,798 |
 | Arguments Scored | 14,714 |
 | Contradictions Detected | 1,833 |
-| Companies with Claims | 216 |
+| Companies with Claims | 200+ |
 
 ### ESG Theme Coverage
 
@@ -327,10 +327,10 @@ Explore our interactive visualizations — click any link to open in your browse
 | Visualization | What You'll See |
 |--------------|-----------------|
 | [Full Supply Chain Network](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/automotive-tiers-relationships.html) | Complete tier mapping — OEM to Tier 8, emission flows, data quality indicators |
-| [Companies by Tier & Country](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_country_all_companies.html) | 216 companies mapped by supply chain position and headquarters |
+| [Companies by Tier & Country](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_country_all_companies.html) | 200+ companies mapped by supply chain position and headquarters |
 | [Company Relationships](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_with_relationships.html) | How companies connect across the supply chain |
 | [Tier Breakdown](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_separate_all_companies.html) | Companies organized by supply chain level |
-| [Global HQ Distribution](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_country_hq_kb_companies.html) | Where these 216 companies are headquartered worldwide |
+| [Global HQ Distribution](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_country_hq_kb_companies.html) | Where these companies are headquartered worldwide |
 
 ### Energy & Emissions
 
@@ -350,11 +350,11 @@ Explore our interactive visualizations — click any link to open in your browse
 
 ---
 
-## Zero API Cost
+## Zero Runtime Cost
 
 Most platforms that analyze sustainability data rely on paid AI services — charging per query, per document, per embedding. These costs add up fast and create barriers for smaller organizations.
 
-**GoCarbonTracker's entire knowledge base — 37,877 data points, 18,832 claims, 1.6M evidence items across 216 companies — was built and is maintained at $0.00 API cost.**
+**GoCarbonTracker's entire knowledge base — 37,877 data points, 18,832 claims, 1.6M evidence items across 200+ companies — was built and is maintained at $0.00 runtime cost.**
 
 - No paid AI APIs for reading reports
 - No per-query fees for searching the knowledge base
@@ -369,7 +369,7 @@ This means **adding a new industry costs effectively nothing.** When we expand f
 
 ### Built
 
-- 216-company automotive knowledge base at zero API cost
+- Automotive knowledge base at zero runtime cost
 - HyperGraph RAG engine with hybrid search and quality-gated retrieval
 - Discourse Graph with 18,832 claims, credibility scoring, and greenwashing detection
 - 1.6M+ evidence items linking data to claims
@@ -391,7 +391,7 @@ This means **adding a new industry costs effectively nothing.** When we expand f
 ### What's Next
 
 - Expand to new industries (energy, finance, agriculture)
-- AI-powered insights and recommendations
+- Automated insights and recommendations
 - Custom report builder for regulatory frameworks (TCFD, SEC, CSRD, CDP)
 - Public API for external integrations
 - Predictive emissions modeling
@@ -402,13 +402,13 @@ This means **adding a new industry costs effectively nothing.** When we expand f
 ## Roadmap
 
 ```
-Phase 1 ✅  Automotive Knowledge Base (216 companies, 37K+ data points)
+Phase 1 ✅  Automotive Knowledge Base (200+ companies, 37K+ data points)
 Phase 2 ✅  Discourse Graph & Credibility Scoring (18.8K claims)
 Phase 3 ✅  Interactive Dashboard (60+ pages, 5 visualization modes)
 Phase 4 🔄  Docling Enrichment & Advanced ESG Extraction
 Phase 5 📋  Multi-Industry Expansion
 Phase 6 📋  Public API & Integrations
-Phase 7 📋  Predictive Analytics & AI Insights
+Phase 7 📋  Predictive Analytics & Insights
 ```
 
 ---
