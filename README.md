@@ -447,14 +447,4 @@ GoCarbonTracker is actively looking for collaborators, especially people with ex
 
 ---
 
-## About
-
-GoCarbonTracker is built by [Varun Moka](https://github.com/varunmoka7) — a climate tech developer focused on making corporate sustainability data transparent, verifiable, and actionable.
-
-The platform exists because of a simple belief: **if 50,000+ companies must report their emissions, someone needs to verify what they're saying.**
-
-GoCarbonTracker is that verification layer.
-
----
-
 **Copyright 2025-2026 GoCarbonTracker. All rights reserved.**
