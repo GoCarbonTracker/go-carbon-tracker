@@ -154,6 +154,18 @@ GoCarbonTracker is built as three interconnected layers:
 
 The core of GoCarbonTracker. A zero-runtime-cost retrieval-augmented generation engine purpose-built for ESG intelligence.
 
+### Core Concepts
+
+Knowledge graphs changed how we reason about connected information — instead of searching documents, you search *relationships*. Google's Knowledge Graph proved this at web scale: connecting entities, not just pages, transforms what's possible to query. For ESG, the same principle applies — you need to connect companies, their claims, the evidence behind those claims, the regulatory frameworks they operate under, and the supply chain tiers they belong to.
+
+But traditional knowledge graphs have a fundamental limitation: every edge connects exactly two nodes. Company A → emits → X tons. That's a binary relationship. Real-world ESG knowledge is messier. A single sustainability claim simultaneously involves a company, a target year, a baseline, a regulatory framework, supporting evidence, and a supply chain context. Representing this in a standard graph requires splitting one relationship into five or six separate edges — losing the inherent structure of the knowledge.
+
+Hypergraphs solve this. Originating in mathematics ([Berge, 1984](https://link.springer.com/book/10.1007/978-1-4612-0621-7)) and widely applied in physics to model complex systems where pairwise relationships are insufficient, a hypergraph allows a single edge — called a *hyperedge* — to connect any number of nodes simultaneously. One hyperedge can capture an entire ESG relationship that would fragment across multiple edges in a traditional graph.
+
+HyperGraph RAG takes this further by combining hypergraph-structured knowledge representation with retrieval-augmented generation (RAG). Rather than retrieving flat text chunks like standard RAG systems, HyperGraph RAG retrieves through rich n-ary relationships — producing more accurate and contextually complete results. The foundational research behind this approach is detailed in [Luo et al., "HyperGraphRAG: Retrieval-Augmented Generation via Hypergraph-Structured Knowledge Representation" (NeurIPS 2025)](https://arxiv.org/abs/2503.21322).
+
+Our implementation transforms unstructured sustainability PDFs into a searchable hypergraph knowledge base covering 200+ companies and 37,877 data points at zero runtime cost. But structured, searchable intelligence is only half the picture — to *judge* what companies are actually claiming, you need argumentation. That's where the Discourse Graph comes in.
+
 ### What It Does
 
 The HyperGraph RAG engine reads corporate sustainability reports and transforms them into a searchable, queryable knowledge base — without relying on any paid AI APIs.
@@ -192,10 +204,6 @@ Corporate Sustainability Reports (PDFs)
 - **Quality-Gated Fallback** — If primary results aren't strong enough, the engine automatically tries alternative search strategies
 - **529+ ESG Patterns** — Industry-specific extraction patterns for Scope 1, 2, and 3 emissions data
 
-### Why "HyperGraph"?
-
-Traditional knowledge graphs connect pairs of things: Company A → emits → X tons. A hypergraph connects *groups* of things simultaneously: a single relationship can link a company, its emissions target, the evidence supporting it, the regulatory framework it aligns with, and the supply chain tier it belongs to — all at once. This makes cross-cutting queries (like "show me all Tier 1 suppliers whose Scope 3 claims contradict their OEM's reports") possible in a single lookup.
-
 ---
 
 ## Docling Enrichment Pipeline
@@ -222,6 +230,14 @@ The pipeline is designed to run incrementally — we can enrich one company at a
 ## Discourse Graph
 
 The Discourse Graph is where raw data becomes intelligence. It transforms extracted report text into structured arguments with credibility scoring and greenwashing detection.
+
+### Core Concepts
+
+[Discourse graphs](https://discoursegraphs.com/) are an information model for collaborative knowledge synthesis, developed by Joel Chan and Matt Akamatsu. The core insight is deceptively simple: break knowledge into atomic, modular elements — separate *claims* (what someone asserts) from *evidence* (what supports or contradicts it). Like building blocks, these elements can be independently examined, connected, and updated. Originally designed as a coordination layer for decentralized scientific research — essentially "GitHub for scientific communication" — discourse graphs provide a rigorous framework for structuring argumentation ([Chan et al., arXiv:2407.20666](https://arxiv.org/abs/2407.20666v2)).
+
+We apply this framework to corporate sustainability. Every claim a company makes in a sustainability report — every net-zero target, every emissions reduction assertion, every SBTi commitment — gets extracted as an atomic element in the discourse graph. Each claim is then linked to its supporting and contradicting evidence from across the knowledge base. The ratio between supporting and contradicting evidence, combined with credibility scoring across 9 factors, produces an argument strength assessment and a greenwashing risk score.
+
+This is where HyperGraph RAG and the Discourse Graph become more than the sum of their parts. The hypergraph gives you structured, searchable intelligence — you can find any company's sustainability data across any dimension. The discourse graph gives you *judgement* — it tells you whether what a company claims is backed by evidence or contradicted by it. One finds the data, the other evaluates the claims. Together, they form a verification layer that can process hundreds of companies and surface exactly where corporate sustainability narratives break down.
 
 ### How It Works
 
