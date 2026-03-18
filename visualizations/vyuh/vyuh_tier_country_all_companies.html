@@ -327,6 +327,29 @@
             border-radius: 50%;
             flex-shrink: 0;
         }
+
+        /* ── Mode Toggle ── */
+        .mode-toggle {
+            display: flex;
+            border: 1px solid rgba(255,255,255,0.18);
+            border-radius: 7px;
+            overflow: hidden;
+        }
+        .mode-btn {
+            padding: 6px 14px;
+            background: transparent;
+            border: none;
+            color: rgba(255,255,255,0.5);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: inherit;
+            transition: background 0.15s, color 0.15s;
+            white-space: nowrap;
+        }
+        .mode-btn:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.85); }
+        .mode-btn.active { background: rgba(255,255,255,0.16); color: #fff; }
+        .mode-btn + .mode-btn { border-left: 1px solid rgba(255,255,255,0.18); }
     </style>
 </head>
 <body>
@@ -354,6 +377,10 @@
             </div>
         </div>
         <div class="hdr-controls">
+            <div class="mode-toggle">
+                <button class="mode-btn active" id="tierModeBtn" onclick="switchMode('tier')">By Tier</button>
+                <button class="mode-btn" id="countryModeBtn" onclick="switchMode('country')">By Country</button>
+            </div>
             <button class="hdr-btn" onclick="fitGraph()">Fit to View</button>
             <button class="hdr-btn" onclick="resetFilters()">Reset Filters</button>
             <button class="hdr-btn physics-btn-on" onclick="togglePhysics()" id="physicsBtn">⚡ Physics: On</button>
@@ -10774,6 +10801,7 @@
         let allNodes = [];
         let allEdges = [];
         let physicsEnabled = true;
+        let currentMode = 'tier'; // 'tier' | 'country'
 
         // Parse data
         const companyNodes = vyuhData.nodes.filter(n => n.type === 'company');
@@ -10815,26 +10843,56 @@
 
         // Build vis-network
         function buildGraph() {
+            const isTierMode = currentMode === 'tier';
+
             allNodes = vyuhData.nodes
                 .filter(node => {
-                    if (node.data.type === 'continent_hyperedge' || node.data.type === 'country_hyperedge') return false;
-                    if (node.id && (node.id.startsWith('hyperedge_country_') || node.id.startsWith('hyperedge_continent_'))) return false;
-                    if (node.data.is_hyperedge) {
-                        if (node.data.type === 'tier_hyperedge') return activeTiers.has(node.data.tier);
+                    // Always hide continent hyperedges
+                    if (node.data.type === 'continent_hyperedge') return false;
+                    if (node.id && node.id.startsWith('hyperedge_continent_')) return false;
+
+                    if (isTierMode) {
+                        // Tier mode: hide country hyperedges
+                        if (node.data.type === 'country_hyperedge') return false;
+                        if (node.id && node.id.startsWith('hyperedge_country_')) return false;
+                        if (node.data.is_hyperedge && node.data.type === 'tier_hyperedge') {
+                            return activeTiers.has(node.data.tier);
+                        }
+                        return node.data.tier === undefined || activeTiers.has(node.data.tier);
+                    } else {
+                        // Country mode: hide tier hyperedges, show country hyperedges
+                        if (node.data.type === 'tier_hyperedge') return false;
+                        if (node.id && node.id.startsWith('hyperedge_tier_')) return false;
+                        if (node.data.type === 'country_hyperedge') return true;
+                        // Company nodes: still respect active tier filters
+                        if (node.type === 'company') {
+                            return node.data.tier === undefined || activeTiers.has(node.data.tier);
+                        }
                         return true;
                     }
-                    return node.data.tier === undefined || activeTiers.has(node.data.tier);
                 })
                 .map(node => {
                     const isHyperedge = node.data.is_hyperedge || false;
+                    const isTierHub = isHyperedge && node.data.type === 'tier_hyperedge';
+                    const isCountryHub = isHyperedge && node.data.type === 'country_hyperedge';
                     const isCompany = node.type === 'company';
                     const tier = node.data.tier;
-                    const color = isCompany && tier !== undefined && tierConfig[tier]
-                        ? tierConfig[tier].color
-                        : (node.data.color || '#bbb');
+
+                    // Color: tier hubs use tierConfig, country hubs use embedded country color,
+                    // companies always colored by tier
+                    let color;
+                    if (isTierHub) {
+                        color = tierConfig[tier] ? tierConfig[tier].color : (node.data.color || '#bbb');
+                    } else if (isCountryHub) {
+                        color = node.data.color || '#9E9E9E';
+                    } else {
+                        color = isCompany && tier !== undefined && tierConfig[tier]
+                            ? tierConfig[tier].color
+                            : (node.data.color || '#bbb');
+                    }
 
                     const label = isHyperedge
-                        ? (node.data.name + (node.data.company_count ? '\n' + node.data.company_count + ' companies' : ''))
+                        ? (node.data.name + (node.data.company_count ? '\n' + node.data.company_count + ' cos.' : ''))
                         : (node.data.name || node.id);
 
                     return {
@@ -10867,9 +10925,21 @@
 
             allEdges = vyuhData.connections
                 .filter(conn => {
+                    // Always hide continent connections and country-country semantic links
                     if (conn.type === 'country_semantic_relationship') return false;
-                    if (conn.type === 'company_to_country') return false;
                     if (conn.type === 'company_to_continent') return false;
+
+                    if (isTierMode) {
+                        // Tier mode: hide country edges
+                        if (conn.type === 'company_to_country') return false;
+                    } else {
+                        // Country mode: hide tier hub connections
+                        if (conn.source && conn.source.startsWith('hyperedge_tier_')) return false;
+                        if (conn.target && conn.target.startsWith('hyperedge_tier_')) return false;
+                        // Only include company-to-country edges (not company-to-tier)
+                        if (conn.type !== 'company_to_country') return false;
+                    }
+
                     return activeNodeIds.has(conn.source) && activeNodeIds.has(conn.target);
                 })
                 .map(conn => ({
@@ -11000,6 +11070,23 @@
 
         function fitGraph() {
             if (network) network.fit({ animation: { duration: 500 } });
+        }
+
+        function switchMode(mode) {
+            if (mode === currentMode) return;
+            currentMode = mode;
+
+            // Update segmented toggle button states
+            document.getElementById('tierModeBtn').classList.toggle('active', mode === 'tier');
+            document.getElementById('countryModeBtn').classList.toggle('active', mode === 'country');
+
+            // Re-enable physics so companies animate to new hub positions
+            physicsEnabled = true;
+            const btn = document.getElementById('physicsBtn');
+            btn.textContent = '⚡ Physics: On';
+            btn.className = 'hdr-btn physics-btn-on';
+
+            buildGraph();
         }
 
         function togglePhysics() {
