@@ -10,15 +10,16 @@
         :root {
             --sidebar: 240px;
             --header: 54px;
-            --border: #e8e8e8;
-            --bg: #f7f8fa;
-            --white: #fff;
-            --text: #1a1a1a;
+            --canvas-bg: #07090f;
+            --sidebar-bg: #0b0e18;
+            --border: rgba(255,255,255,0.06);
+            --text: #c8d4e8;
+            --muted: rgba(180,196,224,0.38);
         }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-            background: var(--bg);
+            background: var(--canvas-bg);
             color: var(--text);
             display: flex;
             flex-direction: column;
@@ -29,30 +30,30 @@
         /* ── Top Header ── */
         .top-header {
             height: var(--header);
-            background: #111827;
+            background: #0b0e18;
             display: flex;
             align-items: center;
             padding: 0 18px;
             gap: 14px;
             flex-shrink: 0;
-            border-bottom: 1px solid rgba(255,255,255,0.07);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
         }
         .hdr-logo {
             font-size: 14px;
             font-weight: 700;
-            color: #fff;
+            color: #e8eef8;
             letter-spacing: -0.3px;
             white-space: nowrap;
         }
         .hdr-divider {
             width: 1px;
             height: 22px;
-            background: rgba(255,255,255,0.15);
+            background: rgba(255,255,255,0.1);
             flex-shrink: 0;
         }
         .hdr-subtitle {
             font-size: 12px;
-            color: rgba(255,255,255,0.45);
+            color: rgba(180,196,224,0.45);
             white-space: nowrap;
         }
         .hdr-stats {
@@ -69,12 +70,12 @@
         .hdr-stat-val {
             font-size: 16px;
             font-weight: 700;
-            color: #fff;
+            color: #e8eef8;
             line-height: 1;
         }
         .hdr-stat-lbl {
             font-size: 9px;
-            color: rgba(255,255,255,0.4);
+            color: rgba(180,196,224,0.38);
             text-transform: uppercase;
             letter-spacing: 0.6px;
         }
@@ -87,9 +88,9 @@
         .hdr-btn {
             padding: 6px 14px;
             border-radius: 6px;
-            border: 1px solid rgba(255,255,255,0.18);
-            background: rgba(255,255,255,0.07);
-            color: rgba(255,255,255,0.85);
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.04);
+            color: rgba(200,212,232,0.8);
             font-size: 12px;
             font-weight: 500;
             cursor: pointer;
@@ -98,21 +99,21 @@
             font-family: inherit;
         }
         .hdr-btn:hover {
-            background: rgba(255,255,255,0.13);
-            border-color: rgba(255,255,255,0.3);
+            background: rgba(255,255,255,0.09);
+            border-color: rgba(255,255,255,0.22);
         }
         .physics-btn-on {
-            background: rgba(16,185,129,0.15);
-            border-color: rgba(16,185,129,0.45);
+            background: rgba(16,185,129,0.12);
+            border-color: rgba(16,185,129,0.38);
             color: #6ee7b7;
         }
-        .physics-btn-on:hover { background: rgba(16,185,129,0.25); }
+        .physics-btn-on:hover { background: rgba(16,185,129,0.22); }
         .physics-btn-off {
-            background: rgba(239,68,68,0.12);
-            border-color: rgba(239,68,68,0.38);
+            background: rgba(239,68,68,0.1);
+            border-color: rgba(239,68,68,0.3);
             color: #fca5a5;
         }
-        .physics-btn-off:hover { background: rgba(239,68,68,0.2); }
+        .physics-btn-off:hover { background: rgba(239,68,68,0.18); }
 
         /* ── Main Layout ── */
         .main-layout {
@@ -126,7 +127,7 @@
             width: var(--sidebar);
             min-width: var(--sidebar);
             height: 100%;
-            background: var(--white);
+            background: var(--sidebar-bg);
             border-right: 1px solid var(--border);
             display: flex;
             flex-direction: column;
@@ -142,32 +143,35 @@
         .search-box input {
             width: 100%;
             padding: 8px 10px;
-            border: 1px solid #ddd;
+            border: 1px solid rgba(255,255,255,0.08);
             border-radius: 6px;
             font-size: 13px;
             outline: none;
-            background: var(--bg);
+            background: rgba(255,255,255,0.04);
+            color: var(--text);
             font-family: inherit;
             transition: border-color 0.15s, background 0.15s;
         }
         .search-box input:focus {
-            border-color: #aaa;
-            background: var(--white);
+            border-color: rgba(100,160,255,0.4);
+            background: rgba(255,255,255,0.06);
         }
-        .search-box input::placeholder { color: #c0c0c0; }
+        .search-box input::placeholder { color: rgba(180,196,224,0.25); }
 
         /* Tier Filters */
         .filter-section {
             padding: 12px;
             flex: 1;
             overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.08) transparent;
         }
         .section-label {
             font-size: 9px;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 1px;
-            color: #bbb;
+            color: rgba(180,196,224,0.35);
             margin-bottom: 10px;
         }
         .tier-filter {
@@ -180,38 +184,39 @@
             user-select: none;
             transition: background 0.1s;
         }
-        .tier-filter:hover { background: #f5f5f5; }
+        .tier-filter:hover { background: rgba(255,255,255,0.04); }
         .tier-filter input[type="checkbox"] { display: none; }
         .tier-dot {
             width: 9px;
             height: 9px;
             border-radius: 50%;
             flex-shrink: 0;
+            box-shadow: 0 0 5px currentColor;
         }
         .tier-label {
             flex: 1;
             font-size: 12px;
-            color: #444;
+            color: rgba(200,212,232,0.75);
             line-height: 1.3;
         }
         .tier-count {
             font-size: 11px;
-            color: #bbb;
+            color: rgba(180,196,224,0.35);
             font-variant-numeric: tabular-nums;
             font-weight: 600;
             min-width: 22px;
             text-align: right;
         }
-        .tier-filter.disabled .tier-dot { opacity: 0.2; }
-        .tier-filter.disabled .tier-label { color: #ccc; text-decoration: line-through; }
-        .tier-filter.disabled .tier-count { color: #ddd; }
+        .tier-filter.disabled .tier-dot { opacity: 0.15; box-shadow: none; }
+        .tier-filter.disabled .tier-label { color: rgba(180,196,224,0.2); text-decoration: line-through; }
+        .tier-filter.disabled .tier-count { color: rgba(180,196,224,0.15); }
 
         /* Sidebar footer */
         .sidebar-footer {
             padding: 10px 12px;
             border-top: 1px solid var(--border);
             font-size: 10px;
-            color: #ccc;
+            color: rgba(180,196,224,0.22);
             text-align: center;
             letter-spacing: 0.3px;
             flex-shrink: 0;
@@ -221,24 +226,26 @@
         .graph-area {
             flex: 1;
             position: relative;
-            background: var(--bg);
+            background: var(--canvas-bg);
         }
         #graph-container {
             width: 100%;
             height: 100%;
-            background: #fafafa;
+            background: var(--canvas-bg);
         }
 
-        /* ── Detail Panel ── */
+        /* ── Detail Panel (glassmorphism dark) ── */
         .detail-panel {
             position: absolute;
             bottom: 20px;
             right: 20px;
             width: 270px;
-            background: var(--white);
-            border: 1px solid #e0e0e0;
-            border-radius: 10px;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+            background: rgba(11,14,24,0.88);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
             padding: 16px;
             display: none;
             z-index: 10;
@@ -252,17 +259,17 @@
             border: none;
             font-size: 18px;
             cursor: pointer;
-            color: #bbb;
+            color: rgba(180,196,224,0.35);
             padding: 2px 4px;
             line-height: 1;
             width: auto;
             margin: 0;
         }
-        .detail-panel .close-btn:hover { color: #333; }
+        .detail-panel .close-btn:hover { color: rgba(200,212,232,0.85); }
         .detail-name {
             font-size: 15px;
             font-weight: 700;
-            color: #111;
+            color: #e8eef8;
             margin-bottom: 8px;
             padding-right: 24px;
             line-height: 1.3;
@@ -287,17 +294,18 @@
         }
         .detail-stat {
             padding: 8px;
-            background: var(--bg);
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.06);
             border-radius: 6px;
         }
         .detail-stat .value {
             font-size: 15px;
             font-weight: 700;
-            color: #111;
+            color: #e8eef8;
         }
         .detail-stat .label {
             font-size: 10px;
-            color: #aaa;
+            color: rgba(180,196,224,0.4);
             text-transform: uppercase;
             letter-spacing: 0.3px;
         }
@@ -306,7 +314,7 @@
         .search-results {
             max-height: 180px;
             overflow-y: auto;
-            border-top: 1px solid #f0f0f0;
+            border-top: 1px solid rgba(255,255,255,0.06);
             margin-top: 6px;
             display: none;
         }
@@ -314,13 +322,14 @@
         .search-result-item {
             padding: 6px 4px;
             font-size: 12px;
+            color: rgba(200,212,232,0.75);
             cursor: pointer;
             display: flex;
             align-items: center;
             gap: 6px;
             border-radius: 4px;
         }
-        .search-result-item:hover { background: #f5f5f5; }
+        .search-result-item:hover { background: rgba(255,255,255,0.05); }
         .search-result-dot {
             width: 7px;
             height: 7px;
@@ -331,7 +340,7 @@
         /* ── Mode Toggle ── */
         .mode-toggle {
             display: flex;
-            border: 1px solid rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.12);
             border-radius: 7px;
             overflow: hidden;
         }
@@ -339,7 +348,7 @@
             padding: 6px 14px;
             background: transparent;
             border: none;
-            color: rgba(255,255,255,0.5);
+            color: rgba(180,196,224,0.45);
             font-size: 12px;
             font-weight: 500;
             cursor: pointer;
@@ -347,9 +356,9 @@
             transition: background 0.15s, color 0.15s;
             white-space: nowrap;
         }
-        .mode-btn:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.85); }
-        .mode-btn.active { background: rgba(255,255,255,0.16); color: #fff; }
-        .mode-btn + .mode-btn { border-left: 1px solid rgba(255,255,255,0.18); }
+        .mode-btn:hover { background: rgba(255,255,255,0.07); color: rgba(200,212,232,0.85); }
+        .mode-btn.active { background: rgba(255,255,255,0.12); color: #e8eef8; }
+        .mode-btn + .mode-btn { border-left: 1px solid rgba(255,255,255,0.12); }
     </style>
 </head>
 <body>
@@ -10956,14 +10965,20 @@
                         },
                         font: {
                             size: isTierHub ? 12 : isCountryHub ? 13 : 10,
-                            color: '#111',
+                            color: isHyperedge ? '#f0f4ff' : '#d0d8e8',
                             face: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                            strokeWidth: isHyperedge ? 4 : 2,
-                            strokeColor: '#fff',
+                            strokeWidth: isHyperedge ? 3 : 2,
+                            strokeColor: 'rgba(0,0,0,0.85)',
                             multi: false,
                         },
-                        borderWidth: isHyperedge ? 3 : 1,
-                        borderWidthSelected: isHyperedge ? 4 : 2,
+                        shadow: {
+                            enabled: true,
+                            color: isHyperedge ? color : 'rgba(0,0,0,0)',
+                            size: isHyperedge ? (isCountryHub ? 22 : 16) : 0,
+                            x: 0, y: 0
+                        },
+                        borderWidth: isHyperedge ? 2 : 1,
+                        borderWidthSelected: isHyperedge ? 3 : 2,
                         x: node.position.x,
                         y: node.position.y,
                         fixed: false,
@@ -10996,9 +11011,10 @@
                     from: conn.source,
                     to: conn.target,
                     color: {
-                        color: conn.data.color ? conn.data.color + '44' : '#ddd',
-                        highlight: conn.data.color || '#999',
-                        hover: conn.data.color || '#999'
+                        color: conn.data.color ? conn.data.color + '55' : 'rgba(140,160,200,0.22)',
+                        highlight: conn.data.color ? conn.data.color + 'cc' : 'rgba(140,160,200,0.8)',
+                        hover: conn.data.color ? conn.data.color + 'aa' : 'rgba(140,160,200,0.65)',
+                        opacity: 1
                     },
                     width: conn.data.width || 1,
                     dashes: conn.data.dashed || false,
@@ -11011,10 +11027,11 @@
             const data = { nodes: networkNodes, edges: networkEdges };
 
             const options = {
-                nodes: { borderWidth: 1, shadow: false },
+                nodes: { borderWidth: 1 },
                 edges: {
                     arrows: { to: { enabled: false } },
-                    smooth: { type: 'continuous' }
+                    smooth: { type: 'continuous' },
+                    selectionWidth: 2
                 },
                 physics: {
                     enabled: true,
@@ -11197,10 +11214,18 @@
                         color: { background: color, border: isHyperedge ? '#fff' : color,
                                  highlight: { background: color, border: '#fff' },
                                  hover: { background: color, border: '#fff' } },
-                        font: { size: isTierHub ? 12 : isCountryHub ? 13 : 10, color: '#111',
+                        font: { size: isTierHub ? 12 : isCountryHub ? 13 : 10,
+                                color: isHyperedge ? '#f0f4ff' : '#d0d8e8',
                                 face: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                                strokeWidth: isHyperedge ? 4 : 2, strokeColor: '#fff', multi: false },
-                        borderWidth: isHyperedge ? 3 : 1,
+                                strokeWidth: isHyperedge ? 3 : 2,
+                                strokeColor: 'rgba(0,0,0,0.85)', multi: false },
+                        shadow: {
+                            enabled: true,
+                            color: isHyperedge ? color : 'rgba(0,0,0,0)',
+                            size: isHyperedge ? (isCountryHub ? 22 : 16) : 0,
+                            x: 0, y: 0
+                        },
+                        borderWidth: isHyperedge ? 2 : 1,
                         x: pos.x, y: pos.y, fixed: false
                     };
                 });
@@ -11223,8 +11248,10 @@
                 })
                 .map(conn => ({
                     id: conn.id, from: conn.source, to: conn.target,
-                    color: { color: conn.data.color ? conn.data.color + '44' : '#ddd',
-                             highlight: conn.data.color || '#999', hover: conn.data.color || '#999' },
+                    color: { color: conn.data.color ? conn.data.color + '55' : 'rgba(140,160,200,0.22)',
+                             highlight: conn.data.color ? conn.data.color + 'cc' : 'rgba(140,160,200,0.8)',
+                             hover: conn.data.color ? conn.data.color + 'aa' : 'rgba(140,160,200,0.65)',
+                             opacity: 1 },
                     width: conn.data.width || 1, dashes: conn.data.dashed || false,
                     smooth: { type: 'continuous', roundness: 0.3 }
                 }));
