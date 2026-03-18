@@ -10816,6 +10816,8 @@
         // Track state — include special string-keyed tiers
         let activeTiers = new Set(Object.keys(tierConfig).map(k => isNaN(k) ? k : Number(k)));
         let network = null;
+        let networkNodes = null;   // live DataSet — updated in-place for animation
+        let networkEdges = null;   // live DataSet — updated in-place for animation
         let allNodes = [];
         let allEdges = [];
         let physicsEnabled = true;
@@ -10984,10 +10986,9 @@
                 }));
 
             const container = document.getElementById('graph-container');
-            const data = {
-                nodes: new vis.DataSet(allNodes),
-                edges: new vis.DataSet(allEdges)
-            };
+            networkNodes = new vis.DataSet(allNodes);
+            networkEdges = new vis.DataSet(allEdges);
+            const data = { nodes: networkNodes, edges: networkEdges };
 
             const options = {
                 nodes: { borderWidth: 1, shadow: false },
@@ -11103,17 +11104,120 @@
             if (mode === currentMode) return;
             currentMode = mode;
 
-            // Update segmented toggle button states
             document.getElementById('tierModeBtn').classList.toggle('active', mode === 'tier');
             document.getElementById('countryModeBtn').classList.toggle('active', mode === 'country');
 
-            // Re-enable physics so companies animate to new hub positions
+            // If network not yet built, fall back to full build
+            if (!network || !networkNodes || !networkEdges) { buildGraph(); return; }
+
+            const isTierMode = mode === 'tier';
+
+            // 1. Capture live positions of all company nodes from the current network
+            const livePos = network.getPositions();
+
+            // 2. Build new node list — companies keep their live positions, new hubs use preset positions
+            allNodes = vyuhData.nodes
+                .filter(node => {
+                    if (node.data.type === 'continent_hyperedge') return false;
+                    if (node.id && node.id.startsWith('hyperedge_continent_')) return false;
+                    if (isTierMode) {
+                        if (node.data.type === 'country_hyperedge') return false;
+                        if (node.id && node.id.startsWith('hyperedge_country_')) return false;
+                        if (node.data.is_hyperedge && node.data.type === 'tier_hyperedge') {
+                            return activeTiers.has(node.data.tier);
+                        }
+                        return node.data.tier === undefined || activeTiers.has(node.data.tier);
+                    } else {
+                        if (node.data.type === 'tier_hyperedge') return false;
+                        if (node.id && node.id.startsWith('hyperedge_tier_')) return false;
+                        if (node.data.type === 'country_hyperedge') {
+                            return node.id !== 'hyperedge_country_Unknown';
+                        }
+                        return true;
+                    }
+                })
+                .map(node => {
+                    const isHyperedge = node.data.is_hyperedge || false;
+                    const isTierHub = isHyperedge && node.data.type === 'tier_hyperedge';
+                    const isCountryHub = isHyperedge && node.data.type === 'country_hyperedge';
+                    const isCompany = node.type === 'company';
+                    const tier = node.data.tier;
+
+                    let color;
+                    if (isTierHub) {
+                        color = tierConfig[tier] ? tierConfig[tier].color : (node.data.color || '#bbb');
+                    } else if (isCountryHub) {
+                        color = node.data.color || '#9E9E9E';
+                    } else {
+                        color = isCompany && tier !== undefined && tierConfig[tier]
+                            ? tierConfig[tier].color : (node.data.color || '#bbb');
+                    }
+
+                    let label;
+                    if (isTierHub) {
+                        const tierKey = isNaN(tier) ? tier : Number(tier);
+                        const cfgName = tierConfig[tierKey] ? tierConfig[tierKey].name : ('Tier ' + tier);
+                        label = cfgName + (node.data.company_count ? '\n' + node.data.company_count + ' companies' : '');
+                    } else if (isCountryHub) {
+                        label = node.data.name + (node.data.company_count ? '\n' + node.data.company_count + ' companies' : '');
+                    } else {
+                        label = node.data.name || node.id;
+                    }
+
+                    // Companies keep their live canvas position; new hubs use preset layout
+                    const pos = (isCompany && livePos[node.id]) ? livePos[node.id] : node.position;
+
+                    return {
+                        id: node.id, label, _data: node.data,
+                        shape: isHyperedge ? 'diamond' : 'dot',
+                        size: isTierHub ? 30 : isCountryHub ? 42 : Math.max(8, Math.min(22, (node.data.contexts || 1) / 25)),
+                        color: { background: color, border: color,
+                                 highlight: { background: color, border: '#111' },
+                                 hover: { background: color, border: '#555' } },
+                        font: { size: isTierHub ? 12 : isCountryHub ? 13 : 10, color: '#111',
+                                face: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                                strokeWidth: isHyperedge ? 4 : 2, strokeColor: '#fff', multi: false },
+                        borderWidth: isHyperedge ? 2 : 1,
+                        x: pos.x, y: pos.y, fixed: false
+                    };
+                });
+
+            const activeNodeIds = new Set(allNodes.map(n => n.id));
+
+            // 3. Build new edge list for the new mode
+            allEdges = vyuhData.connections
+                .filter(conn => {
+                    if (conn.type === 'country_semantic_relationship') return false;
+                    if (conn.type === 'company_to_continent') return false;
+                    if (isTierMode) {
+                        if (conn.type === 'company_to_country') return false;
+                    } else {
+                        if (conn.type !== 'company_to_country') return false;
+                        if (conn.target === 'hyperedge_country_Unknown') return false;
+                        if (conn.source === 'hyperedge_country_Unknown') return false;
+                    }
+                    return activeNodeIds.has(conn.source) && activeNodeIds.has(conn.target);
+                })
+                .map(conn => ({
+                    id: conn.id, from: conn.source, to: conn.target,
+                    color: { color: conn.data.color ? conn.data.color + '44' : '#ddd',
+                             highlight: conn.data.color || '#999', hover: conn.data.color || '#999' },
+                    width: conn.data.width || 1, dashes: conn.data.dashed || false,
+                    smooth: { type: 'continuous', roundness: 0.3 }
+                }));
+
+            // 4. Swap DataSets in-place — old hubs vanish, new hubs appear, companies stay put
+            networkNodes.clear();
+            networkNodes.add(allNodes);
+            networkEdges.clear();
+            networkEdges.add(allEdges);
+
+            // 5. Re-enable physics — companies now flow toward their new hubs
             physicsEnabled = true;
+            network.setOptions({ physics: { enabled: true } });
             const btn = document.getElementById('physicsBtn');
             btn.textContent = '⚡ Physics: On';
             btn.className = 'hdr-btn physics-btn-on';
-
-            buildGraph();
         }
 
         function togglePhysics() {
