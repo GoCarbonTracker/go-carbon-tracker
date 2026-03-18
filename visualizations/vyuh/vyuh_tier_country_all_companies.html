@@ -10838,6 +10838,123 @@
             .sort((a, b) => a.data.name.localeCompare(b.data.name))
             .forEach((hub, i) => { countryColorMap[hub.id] = COUNTRY_PALETTE[i % COUNTRY_PALETTE.length]; });
 
+        // ── Market Cap Lookup (USD billions, ~2024-2025 estimates) ──────────────
+        // Private companies use revenue as proxy. Log scale applied at render time.
+        const MARKET_CAP_B = {
+            // OEMs — Tier 0
+            tesla:250, rivian:12, lucid:5, nio:10, xpeng:8, li_auto:25,
+            toyota:250,'toyota-motor-corporation':250,'toyota-financial-services':250,
+            byd:80,'byd-company':80, byd_batteries:80,
+            mercedes_benz:65,'mercedes-benz-group-ag':65, daimler_truck:25,'daimler-truck':25,
+            bmw:65, volkswagen:60,'vw-financial-services':60,
+            general_motors:52,'gm-financial':52, ford:48,'ford-motor-company':48,
+            honda:45, nissan:12, mazda:10, subaru:15, isuzu:5, hino:3,
+            hyundai:40,'hyundai-motor-company':40,
+            kia:20,'kia-corporation':20,
+            stellantis:40,'stellantis-nv':40,
+            ferrari:70,'ferrari-nv':70,
+            volvo_car:20, polestar:4,'polestar-automotive-holding-uk-plc':4,
+            geely:15, changan_automobile:10, faw:8,'faw-group':8, faw_jiefang:8,
+            dongfeng:6, baic:5, cnhtc:5,'cnhtc-sinotruk':5,
+            volvo_group:45, scania:25, paccar:40,
+            man_truck:15, otokar:1,'otokar-otomotiv-ve-savunma-sanayi-as':1,
+            iveco_group:3, tata_motors:20, mahindra:20,
+            // Tier 1 — systems
+            catl:100,
+            robert_bosch:80,'bosch-mobility':80, bosch:80, bosch_mobility:80,
+            denso:50,'denso-corporation':50,
+            lg_energy:60,'lg-energy':60, lg_energy_solution:60,
+            samsung_sdi:25,'samsung-sdi':25,
+            panasonic:25,
+            continental:12,'continental-powertrain':12,
+            aptiv:20,'aptiv-plc':20,
+            magna_international:12,'magna-international':12,
+            magna_seating:10,'magna-seating':10,
+            lear:8,'lear-corporation':8,
+            autoliv:8,'autoliv-inc':8,
+            borgwarner:8,'borgwarner-inc':8,
+            valeo:5, valeo_lighting:5,'valeo-lighting':5,
+            forvia_se:4, faurecia:4,'faurecia-interiors':4,
+            schaeffler:6, zf_friedrichshafen:25,'zf-chassis-systems':20,
+            aisin:10,'aisin-seiki':10, aisin_seiki:10,
+            hyundai_mobis:15,'hyundai-mobis':15,
+            mando:3,'mando-corporation':3,
+            jtekt:5,'jtekt-corporation':5,
+            koito:8,
+            nidec:20,'nidec-corporation':20,
+            lg_electronics:15,'lg-electronics-vs':15,
+            harman_international:10,'harman-international':10,
+            adient:2, dana_incorporated:2,
+            // Tier 2 — components
+            brembo_n_v:6,'brembo-nv':6, brembo:6,
+            hella_gmbh_co:6,'hella-gmbh-co-kgaa':6, hella_lighting:5,'hella-lighting':5,
+            plastic_omnium:3, pirelli_c_s_p_a:5, goodyear:3,
+            michelin:25, bridgestone:25, trelleborg_ab:8,
+            gentex:8, stanley_electric:3, koito_manufacturing:5,
+            timken:4,'timken-company':4, federal_mogul:2,
+            elringklinger:1,'elringklinger-ag':1,
+            vitesco_technologies:3, webasto:3,
+            wabco:3, saf_holland:1,
+            // Battery materials & mining
+            albemarle:6,'albemarle-corporation':6,
+            sqm_sociedad_quimica:8, tianqi_lithium:5, calb:5,
+            pilbara_minerals:3, vale_nickel:15,
+            glencore_cobalt:50, glencore_battery_recycling:50,
+            // Chemicals & materials
+            basf:40, covestro:5, dow_chemical:45, air_liquide:80,
+            linde:220, saint_gobain:20, norsk_hydro:12,
+            umicore:5, alcoa:7,'alcoa-corporation':7, novelis:5,
+            arcelormittal:20, nippon_steel:15, posco:10, ssab:5,
+            agc:8, nsg:3,
+            // Semiconductors & tech
+            tsmc:600, qualcomm:180, nxp_semiconductors:50,
+            infineon_technologies:30, renesas_electronics:25,'renesas-electronics':25,
+            mobileye:16, innoviz_technologies:0.5,
+            // Wiring & cables
+            yazaki:15, sumitomo_electric:12, leoni:1, coficab:1,
+            kromberg_schubert:1,
+            // Mobility & software
+            uber_technologies:150, lyft:6, grab:15, didi_chuxing:20,
+            waymo:45, cruise_automation:5, zoox:3, luminar_technologies:1,
+            velodyne_lidar:1, geotab:2, blackberry_qnx:4, wind_river:3,
+            verizon_connect:5,
+            // EV charging & energy
+            evgo:2, chargepoint:1,'chargepoint-holdings':1, ionity:2,
+            shell_hydrogen:200, abb_e_mobility:5, siemens_emobility:20,
+            proterra:0.5, tritium_dcfc:0.5,'tritium-dcfc':0.5,
+            // Battery recycling
+            li_cycle:0.5,'li-cycle':0.5, redwood_materials:5, ascend_elements:1,
+            envision_aesc:3,
+            // Dealer groups
+            autonation:6,'autonation-inc':6,
+            penske_automotive:8,'penske-automotive':8,
+            lithia_motors:6,'lithia-motors':6,
+            // Finance & insurance
+            allianz:100, axa:75, zurich_insurance:65,
+            // Engineering & services
+            avl_list:2, fev:1, edag_engineering_group:1,'edag-engineering-group-ag':1,
+            ricardo:1, dnv_assurance:3, ey_climate_change:5,
+            kpmg:5,'kpmg-esg':5, pwc:5,'pwc-esg':5,
+            // Industrials
+            freudenberg:5,'freudenberg-group':5, bossard:2, sfs:3,
+            wuerth:20, db_schenker_automotive:15, gefco:3,
+            // Supply chain tech
+            marelli:3,'magneti-marelli':3, magneti_marelli:3,
+            grupo_antolin:2, autoneum_holding:2,'autoneum-holding-ag':2,
+        };
+
+        // Log-scale size: $1B→12  $10B→22  $100B→32  $600B→45
+        function companySize(originalId, contexts) {
+            const mcap = MARKET_CAP_B[originalId]
+                      || MARKET_CAP_B[originalId && originalId.replace(/-/g,'_')]
+                      || MARKET_CAP_B[originalId && originalId.replace(/_/g,'-')];
+            if (mcap !== undefined && mcap > 0) {
+                return Math.round(Math.max(9, Math.min(45, 9 + Math.log10(mcap + 1) * 13)));
+            }
+            // fallback: context-count proxy
+            return Math.max(8, Math.min(22, (contexts || 1) / 25));
+        }
+
         // Track state — include special string-keyed tiers
         let activeTiers = new Set(Object.keys(tierConfig).map(k => isNaN(k) ? k : Number(k)));
         let network = null;
@@ -10955,7 +11072,7 @@
                         id: node.id,
                         label: label,
                         shape: isHyperedge ? 'diamond' : 'dot',
-                        size: isTierHub ? 32 : isCountryHub ? 44 : Math.max(8, Math.min(22, (node.data.contexts || 1) / 25)),
+                        size: isTierHub ? 32 : isCountryHub ? 44 : companySize(node.data.original_id, node.data.contexts),
                         mass: isTierHub ? 8 : isCountryHub ? 10 : 1,
                         color: {
                             background: color,
@@ -11098,12 +11215,19 @@
                 <span class="detail-badge" style="background:#f0f0f0;color:#555;">${type}</span>
             `;
 
+            const mcap = d.original_id && (MARKET_CAP_B[d.original_id]
+                       || MARKET_CAP_B[d.original_id.replace(/-/g,'_')]
+                       || MARKET_CAP_B[d.original_id.replace(/_/g,'-')]);
+            const mcapStr = mcap !== undefined
+                ? (mcap >= 100 ? '$' + mcap + 'B' : mcap >= 1 ? '$' + mcap + 'B' : '<$1B')
+                : '—';
+
             const stats = document.getElementById('detailStats');
             stats.innerHTML = d.is_hyperedge
                 ? `<div class="detail-stat"><div class="value">${d.company_count || '—'}</div><div class="label">Companies</div></div>
                    <div class="detail-stat"><div class="value">Tier ${tier}</div><div class="label">Level</div></div>`
-                : `<div class="detail-stat"><div class="value">${d.contexts || '—'}</div><div class="label">Contexts</div></div>
-                   <div class="detail-stat"><div class="value">${d.original_id || '—'}</div><div class="label">ID</div></div>`;
+                : `<div class="detail-stat"><div class="value">${mcapStr}</div><div class="label">Market Cap</div></div>
+                   <div class="detail-stat"><div class="value">${d.contexts || '—'}</div><div class="label">KB Contexts</div></div>`;
 
             document.getElementById('detailPanel').classList.add('visible');
         }
@@ -11209,7 +11333,7 @@
                     return {
                         id: node.id, label, _data: node.data,
                         shape: isHyperedge ? 'diamond' : 'dot',
-                        size: isTierHub ? 32 : isCountryHub ? 44 : Math.max(8, Math.min(22, (node.data.contexts || 1) / 25)),
+                        size: isTierHub ? 32 : isCountryHub ? 44 : companySize(node.data.original_id, node.data.contexts),
                         mass: isTierHub ? 8 : isCountryHub ? 10 : 1,
                         color: { background: color, border: isHyperedge ? '#fff' : color,
                                  highlight: { background: color, border: '#fff' },
