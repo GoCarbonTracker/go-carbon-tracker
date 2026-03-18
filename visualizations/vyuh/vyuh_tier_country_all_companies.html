@@ -10860,14 +10860,14 @@
                         }
                         return node.data.tier === undefined || activeTiers.has(node.data.tier);
                     } else {
-                        // Country mode: hide tier hyperedges, show country hyperedges
+                        // Country mode: hide tier hyperedges, show named country hyperedges
                         if (node.data.type === 'tier_hyperedge') return false;
                         if (node.id && node.id.startsWith('hyperedge_tier_')) return false;
-                        if (node.data.type === 'country_hyperedge') return true;
-                        // Company nodes: still respect active tier filters
-                        if (node.type === 'company') {
-                            return node.data.tier === undefined || activeTiers.has(node.data.tier);
+                        // Show named country hubs but NOT the "Unknown" blob
+                        if (node.data.type === 'country_hyperedge') {
+                            return node.id !== 'hyperedge_country_Unknown';
                         }
+                        // All company nodes visible — those without known HQ float freely
                         return true;
                     }
                 })
@@ -10899,7 +10899,7 @@
                         id: node.id,
                         label: label,
                         shape: isHyperedge ? 'diamond' : 'dot',
-                        size: isHyperedge ? 26 : Math.max(8, Math.min(22, (node.data.contexts || 1) / 25)),
+                        size: isTierHub ? 26 : isCountryHub ? 38 : Math.max(8, Math.min(22, (node.data.contexts || 1) / 25)),
                         color: {
                             background: color,
                             border: color,
@@ -10933,11 +10933,10 @@
                         // Tier mode: hide country edges
                         if (conn.type === 'company_to_country') return false;
                     } else {
-                        // Country mode: hide tier hub connections
-                        if (conn.source && conn.source.startsWith('hyperedge_tier_')) return false;
-                        if (conn.target && conn.target.startsWith('hyperedge_tier_')) return false;
-                        // Only include company-to-country edges (not company-to-tier)
+                        // Country mode: only company-to-country edges, no tier edges, no Unknown blob
                         if (conn.type !== 'company_to_country') return false;
+                        if (conn.target === 'hyperedge_country_Unknown') return false;
+                        if (conn.source === 'hyperedge_country_Unknown') return false;
                     }
 
                     return activeNodeIds.has(conn.source) && activeNodeIds.has(conn.target);
