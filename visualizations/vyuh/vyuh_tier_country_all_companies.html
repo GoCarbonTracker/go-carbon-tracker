@@ -10833,9 +10833,13 @@
                         ? tierConfig[tier].color
                         : (node.data.color || '#bbb');
 
+                    const label = isHyperedge
+                        ? (node.data.name + (node.data.company_count ? '\n' + node.data.company_count + ' companies' : ''))
+                        : (node.data.name || node.id);
+
                     return {
                         id: node.id,
-                        label: node.data.name || node.id,
+                        label: label,
                         shape: isHyperedge ? 'diamond' : 'dot',
                         size: isHyperedge ? 26 : Math.max(8, Math.min(22, (node.data.contexts || 1) / 25)),
                         color: {
@@ -10845,10 +10849,10 @@
                             hover: { background: color, border: '#555' }
                         },
                         font: {
-                            size: isHyperedge ? 14 : 11,
-                            color: '#333',
+                            size: isHyperedge ? 13 : 11,
+                            color: isHyperedge ? '#111' : '#333',
                             face: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                            strokeWidth: 3,
+                            strokeWidth: isHyperedge ? 4 : 3,
                             strokeColor: '#fff'
                         },
                         borderWidth: isHyperedge ? 2 : 1,
