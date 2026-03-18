@@ -10797,21 +10797,24 @@
         }
 };
 
-        // Tier config — corrected names & colors aligned with data generator
+        // Tier config — full descriptive names for all tiers
         const tierConfig = {
-            0: { name: 'Tier 0 — OEM Manufacturers', color: '#EF5350' },
-            1: { name: 'Tier 1 — Systems Suppliers', color: '#FF9800' },
-            2: { name: 'Tier 2 — Component Suppliers', color: '#4CAF50' },
-            3: { name: 'Tier 3 — Sub-Component Mfg', color: '#2196F3' },
-            4: { name: 'Tier 4 — Specialty Parts', color: '#9C27B0' },
-            5: { name: 'Tier 5 — Processed Materials', color: '#E91E63' },
-            6: { name: 'Tier 6 — Chemicals & Compounds', color: '#00BCD4' },
-            7: { name: 'Tier 7 — Raw Materials', color: '#FF5722' },
-            8: { name: 'Tier 8 — Mining & Extraction', color: '#795548' }
+            0:   { name: 'Tier 0 · OEM Manufacturers',       color: '#EF5350' },
+            1:   { name: 'Tier 1 · Systems Suppliers',        color: '#FF9800' },
+            2:   { name: 'Tier 2 · Component Suppliers',      color: '#4CAF50' },
+            2.5: { name: 'Tier 2.5 · Battery Cells',          color: '#8BC34A' },
+            3:   { name: 'Tier 3 · Sub-Component Mfg',        color: '#2196F3' },
+            4:   { name: 'Tier 4 · Specialty Parts',          color: '#9C27B0' },
+            5:   { name: 'Tier 5 · Processed Materials',      color: '#E91E63' },
+            6:   { name: 'Tier 6 · Chemicals & Compounds',    color: '#00BCD4' },
+            7:   { name: 'Tier 7 · Raw Materials',            color: '#FF5722' },
+            8:   { name: 'Tier 8 · Mining & Extraction',      color: '#795548' },
+            'insurance':  { name: 'Insurance Services',       color: '#546E7A' },
+            'financial':  { name: 'Financial Services',       color: '#455A64' },
         };
 
-        // Track state
-        let activeTiers = new Set(Object.keys(tierConfig).map(Number));
+        // Track state — include special string-keyed tiers
+        let activeTiers = new Set(Object.keys(tierConfig).map(k => isNaN(k) ? k : Number(k)));
         let network = null;
         let allNodes = [];
         let allEdges = [];
@@ -10837,24 +10840,26 @@
         document.getElementById('countryCount').textContent = uniqueCountries.size;
         document.getElementById('tierCount').textContent = uniqueTiers.size;
 
-        // Build tier filters
+        // Build tier filters — handle numeric, float, and string tier keys
         const filterContainer = document.getElementById('tierFilters');
-        Object.keys(tierConfig).sort((a,b) => a - b).forEach(tier => {
-            const t = parseInt(tier);
-            const count = tierCounts[t] || 0;
-            if (count === 0) return;
-            const div = document.createElement('div');
-            div.className = 'tier-filter';
-            div.dataset.tier = t;
-            div.innerHTML = `
-                <input type="checkbox" checked>
-                <span class="tier-dot" style="background: ${tierConfig[t].color}"></span>
-                <span class="tier-label">${tierConfig[t].name}</span>
-                <span class="tier-count">${count}</span>
-            `;
-            div.addEventListener('click', () => toggleTier(t, div));
-            filterContainer.appendChild(div);
-        });
+        Object.keys(tierConfig)
+            .sort((a, b) => { const na = parseFloat(a), nb = parseFloat(b); return isNaN(na) ? 1 : isNaN(nb) ? -1 : na - nb; })
+            .forEach(tierKey => {
+                const t = isNaN(tierKey) ? tierKey : Number(tierKey);
+                const count = tierCounts[t] || 0;
+                if (count === 0) return;
+                const div = document.createElement('div');
+                div.className = 'tier-filter';
+                div.dataset.tier = tierKey;
+                div.innerHTML = `
+                    <input type="checkbox" checked>
+                    <span class="tier-dot" style="background: ${tierConfig[tierKey].color}"></span>
+                    <span class="tier-label">${tierConfig[tierKey].name}</span>
+                    <span class="tier-count">${count}</span>
+                `;
+                div.addEventListener('click', () => toggleTier(t, div));
+                filterContainer.appendChild(div);
+            });
 
         // Build vis-network
         function buildGraph() {
@@ -10906,15 +10911,22 @@
                             : (node.data.color || '#bbb');
                     }
 
-                    const label = isHyperedge
-                        ? (node.data.name + (node.data.company_count ? '\n' + node.data.company_count + ' cos.' : ''))
-                        : (node.data.name || node.id);
+                    let label;
+                    if (isTierHub) {
+                        const tierKey = isNaN(tier) ? tier : Number(tier);
+                        const cfgName = tierConfig[tierKey] ? tierConfig[tierKey].name : ('Tier ' + tier);
+                        label = cfgName + (node.data.company_count ? '\n' + node.data.company_count + ' companies' : '');
+                    } else if (isCountryHub) {
+                        label = node.data.name + (node.data.company_count ? '\n' + node.data.company_count + ' companies' : '');
+                    } else {
+                        label = node.data.name || node.id;
+                    }
 
                     return {
                         id: node.id,
                         label: label,
                         shape: isHyperedge ? 'diamond' : 'dot',
-                        size: isTierHub ? 26 : isCountryHub ? 38 : Math.max(8, Math.min(22, (node.data.contexts || 1) / 25)),
+                        size: isTierHub ? 30 : isCountryHub ? 42 : Math.max(8, Math.min(22, (node.data.contexts || 1) / 25)),
                         color: {
                             background: color,
                             border: color,
@@ -10922,11 +10934,12 @@
                             hover: { background: color, border: '#555' }
                         },
                         font: {
-                            size: isHyperedge ? 13 : 11,
-                            color: isHyperedge ? '#111' : '#333',
+                            size: isTierHub ? 12 : isCountryHub ? 13 : 10,
+                            color: '#111',
                             face: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                            strokeWidth: isHyperedge ? 4 : 3,
-                            strokeColor: '#fff'
+                            strokeWidth: isHyperedge ? 4 : 2,
+                            strokeColor: '#fff',
+                            multi: false,
                         },
                         borderWidth: isHyperedge ? 2 : 1,
                         x: node.position.x,
