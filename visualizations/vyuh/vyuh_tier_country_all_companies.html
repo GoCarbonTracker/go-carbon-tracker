@@ -10797,21 +10797,37 @@
         }
 };
 
-        // Tier config — full descriptive names for all tiers
+        // Tier config — all distinct colors on the spectrum, no two look alike
         const tierConfig = {
-            0:   { name: 'Tier 0 · OEM Manufacturers',       color: '#EF5350' },
-            1:   { name: 'Tier 1 · Systems Suppliers',        color: '#FF9800' },
-            2:   { name: 'Tier 2 · Component Suppliers',      color: '#4CAF50' },
-            2.5: { name: 'Tier 2.5 · Battery Cells',          color: '#8BC34A' },
-            3:   { name: 'Tier 3 · Sub-Component Mfg',        color: '#2196F3' },
-            4:   { name: 'Tier 4 · Specialty Parts',          color: '#9C27B0' },
-            5:   { name: 'Tier 5 · Processed Materials',      color: '#E91E63' },
-            6:   { name: 'Tier 6 · Chemicals & Compounds',    color: '#00BCD4' },
-            7:   { name: 'Tier 7 · Raw Materials',            color: '#FF5722' },
-            8:   { name: 'Tier 8 · Mining & Extraction',      color: '#795548' },
-            'insurance':  { name: 'Insurance Services',       color: '#546E7A' },
-            'financial':  { name: 'Financial Services',       color: '#455A64' },
+            0:          { name: 'Tier 0 · OEM Manufacturers',       color: '#F44336' }, // vivid red
+            1:          { name: 'Tier 1 · Systems Suppliers',        color: '#FF5722' }, // deep orange
+            2:          { name: 'Tier 2 · Component Suppliers',      color: '#FFC107' }, // amber
+            2.5:        { name: 'Tier 2.5 · Battery Cells',          color: '#CDDC39' }, // lime
+            3:          { name: 'Tier 3 · Sub-Component Mfg',        color: '#4CAF50' }, // green
+            4:          { name: 'Tier 4 · Specialty Parts',          color: '#00BCD4' }, // cyan
+            5:          { name: 'Tier 5 · Processed Materials',      color: '#2196F3' }, // blue
+            6:          { name: 'Tier 6 · Chemicals & Compounds',    color: '#673AB7' }, // deep purple
+            7:          { name: 'Tier 7 · Raw Materials',            color: '#E91E63' }, // pink
+            8:          { name: 'Tier 8 · Mining & Extraction',      color: '#795548' }, // brown
+            'insurance':{ name: 'Insurance Services',                color: '#607D8B' }, // blue-grey
+            'financial':{ name: 'Financial Services',                color: '#37474F' }, // dark slate
         };
+
+        // 26-color palette for country hubs — evenly spread on the color wheel
+        const COUNTRY_PALETTE = [
+            '#E53935','#D81B60','#8E24AA','#5E35B1','#3949AB',
+            '#1E88E5','#039BE5','#00ACC1','#00897B','#43A047',
+            '#7CB342','#C0CA33','#FFB300','#FB8C00','#F4511E',
+            '#6D4C41','#546E7A','#EC407A','#AB47BC','#26C6DA',
+            '#66BB6A','#FFA726','#29B6F6','#7E57C2','#26A69A',
+            '#D4E157',
+        ];
+        // Assign palette colors to country hubs deterministically by sorted name
+        const countryColorMap = {};
+        vyuhData.nodes
+            .filter(n => n.data.type === 'country_hyperedge' && n.id !== 'hyperedge_country_Unknown')
+            .sort((a, b) => a.data.name.localeCompare(b.data.name))
+            .forEach((hub, i) => { countryColorMap[hub.id] = COUNTRY_PALETTE[i % COUNTRY_PALETTE.length]; });
 
         // Track state — include special string-keyed tiers
         let activeTiers = new Set(Object.keys(tierConfig).map(k => isNaN(k) ? k : Number(k)));
@@ -10900,16 +10916,18 @@
                     const isCompany = node.type === 'company';
                     const tier = node.data.tier;
 
-                    // Color: tier hubs use tierConfig, country hubs use embedded country color,
-                    // companies always colored by tier
+                    // Color: tier hubs use tierConfig, country hubs use deterministic palette,
+                    // companies colored by tier
                     let color;
                     if (isTierHub) {
-                        color = tierConfig[tier] ? tierConfig[tier].color : (node.data.color || '#bbb');
+                        const tk = isNaN(tier) ? tier : Number(tier);
+                        color = tierConfig[tk] ? tierConfig[tk].color : '#bbb';
                     } else if (isCountryHub) {
-                        color = node.data.color || '#9E9E9E';
+                        color = countryColorMap[node.id] || '#9E9E9E';
                     } else {
-                        color = isCompany && tier !== undefined && tierConfig[tier]
-                            ? tierConfig[tier].color
+                        const tk = isNaN(tier) ? tier : Number(tier);
+                        color = isCompany && tier !== undefined && tierConfig[tk]
+                            ? tierConfig[tk].color
                             : (node.data.color || '#bbb');
                     }
 
@@ -10928,12 +10946,13 @@
                         id: node.id,
                         label: label,
                         shape: isHyperedge ? 'diamond' : 'dot',
-                        size: isTierHub ? 30 : isCountryHub ? 42 : Math.max(8, Math.min(22, (node.data.contexts || 1) / 25)),
+                        size: isTierHub ? 32 : isCountryHub ? 44 : Math.max(8, Math.min(22, (node.data.contexts || 1) / 25)),
+                        mass: isTierHub ? 8 : isCountryHub ? 10 : 1,
                         color: {
                             background: color,
-                            border: color,
-                            highlight: { background: color, border: '#111' },
-                            hover: { background: color, border: '#555' }
+                            border: isHyperedge ? '#fff' : color,
+                            highlight: { background: color, border: '#fff' },
+                            hover: { background: color, border: '#fff' }
                         },
                         font: {
                             size: isTierHub ? 12 : isCountryHub ? 13 : 10,
@@ -10943,7 +10962,8 @@
                             strokeColor: '#fff',
                             multi: false,
                         },
-                        borderWidth: isHyperedge ? 2 : 1,
+                        borderWidth: isHyperedge ? 3 : 1,
+                        borderWidthSelected: isHyperedge ? 4 : 2,
                         x: node.position.x,
                         y: node.position.y,
                         fixed: false,
@@ -10998,14 +11018,14 @@
                 },
                 physics: {
                     enabled: true,
-                    stabilization: { iterations: 300, fit: true },
+                    stabilization: { iterations: 400, fit: true },
                     barnesHut: {
-                        gravitationalConstant: -3500,
-                        centralGravity: 0.15,
-                        springLength: 200,
-                        springConstant: 0.03,
-                        damping: 0.12,
-                        avoidOverlap: 0.3
+                        gravitationalConstant: -5000,
+                        centralGravity: 0.1,
+                        springLength: 260,
+                        springConstant: 0.04,
+                        damping: 0.14,
+                        avoidOverlap: 1.0
                     }
                 },
                 interaction: {
@@ -11145,12 +11165,14 @@
 
                     let color;
                     if (isTierHub) {
-                        color = tierConfig[tier] ? tierConfig[tier].color : (node.data.color || '#bbb');
+                        const tk = isNaN(tier) ? tier : Number(tier);
+                        color = tierConfig[tk] ? tierConfig[tk].color : '#bbb';
                     } else if (isCountryHub) {
-                        color = node.data.color || '#9E9E9E';
+                        color = countryColorMap[node.id] || '#9E9E9E';
                     } else {
-                        color = isCompany && tier !== undefined && tierConfig[tier]
-                            ? tierConfig[tier].color : (node.data.color || '#bbb');
+                        const tk = isNaN(tier) ? tier : Number(tier);
+                        color = isCompany && tier !== undefined && tierConfig[tk]
+                            ? tierConfig[tk].color : (node.data.color || '#bbb');
                     }
 
                     let label;
@@ -11170,14 +11192,15 @@
                     return {
                         id: node.id, label, _data: node.data,
                         shape: isHyperedge ? 'diamond' : 'dot',
-                        size: isTierHub ? 30 : isCountryHub ? 42 : Math.max(8, Math.min(22, (node.data.contexts || 1) / 25)),
-                        color: { background: color, border: color,
-                                 highlight: { background: color, border: '#111' },
-                                 hover: { background: color, border: '#555' } },
+                        size: isTierHub ? 32 : isCountryHub ? 44 : Math.max(8, Math.min(22, (node.data.contexts || 1) / 25)),
+                        mass: isTierHub ? 8 : isCountryHub ? 10 : 1,
+                        color: { background: color, border: isHyperedge ? '#fff' : color,
+                                 highlight: { background: color, border: '#fff' },
+                                 hover: { background: color, border: '#fff' } },
                         font: { size: isTierHub ? 12 : isCountryHub ? 13 : 10, color: '#111',
                                 face: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                                 strokeWidth: isHyperedge ? 4 : 2, strokeColor: '#fff', multi: false },
-                        borderWidth: isHyperedge ? 2 : 1,
+                        borderWidth: isHyperedge ? 3 : 1,
                         x: pos.x, y: pos.y, fixed: false
                     };
                 });
@@ -11214,7 +11237,19 @@
 
             // 5. Re-enable physics — companies now flow toward their new hubs
             physicsEnabled = true;
-            network.setOptions({ physics: { enabled: true } });
+            network.setOptions({
+                physics: {
+                    enabled: true,
+                    barnesHut: {
+                        gravitationalConstant: -5000,
+                        centralGravity: 0.1,
+                        springLength: 260,
+                        springConstant: 0.04,
+                        damping: 0.14,
+                        avoidOverlap: 1.0
+                    }
+                }
+            });
             const btn = document.getElementById('physicsBtn');
             btn.textContent = '⚡ Physics: On';
             btn.className = 'hdr-btn physics-btn-on';
