@@ -252,7 +252,7 @@ Tata Motors is our deepest case study — with the most extensive extraction and
 
 | Visualization | Coverage | What You'll See |
 |--------------|----------|-----------------|
-| Tata Motors Supply Chain | Deep | *Coming soon* — full supply chain with enriched table data |
+| [Tata Motors Hypergraph](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/tata-supply-chain-visualization.html) | Deep | Supply chain + hypergraph claims view with interactive hull regions |
 | [BMW Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/bmw-supply-chain-visualization.html) | Standard | BMW Group's multi-tier supplier network |
 | [Mercedes-Benz Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/mercedes-supply-chain-visualization.html) | Standard | Mercedes-Benz supplier structure |
 | [Ferrari Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/ferrari-supply-chain-visualization.html) | Standard | Ferrari's supplier network |

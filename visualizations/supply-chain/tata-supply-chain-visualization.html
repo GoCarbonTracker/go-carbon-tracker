@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tata Motors — Supply Chain & Hypergraph Claims</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/reactflow@11/dist/umd/index.js"></script>
+    <link href="https://unpkg.com/reactflow@11/dist/style.css" rel="stylesheet">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; }
+        #root { width: 100vw; height: 100vh; }
+        .header { position: absolute; top: 0; left: 0; right: 0; background: white; padding: 14px 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); z-index: 1000; display: flex; align-items: center; justify-content: space-between; }
+        .header-left .title { font-size: 22px; font-weight: bold; color: #1a1a2e; }
+        .header-left .subtitle { font-size: 12px; color: #666; margin-top: 2px; }
+        .mode-toggle { display: flex; gap: 4px; background: #f0f0f0; border-radius: 8px; padding: 3px; }
+        .mode-btn { padding: 6px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; background: transparent; color: #666; transition: all 0.2s; }
+        .mode-btn.active { background: #1a1a2e; color: white; }
+        .stats-panel { position: absolute; top: 70px; left: 16px; background: white; padding: 14px; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); z-index: 900; font-size: 12px; min-width: 200px; }
+        .stats-panel h3 { font-size: 13px; margin-bottom: 8px; color: #1a1a2e; }
+        .stat-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .stat-label { color: #666; }
+        .stat-value { font-weight: 600; }
+        .legend { position: absolute; bottom: 16px; right: 16px; background: white; padding: 14px; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); z-index: 900; font-size: 11px; }
+        .legend h4 { font-size: 12px; margin-bottom: 8px; }
+        .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+        .legend-swatch { width: 16px; height: 16px; border-radius: 3px; }
+        .detail-panel { position: absolute; top: 70px; right: 16px; background: white; padding: 16px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.12); z-index: 900; font-size: 12px; max-width: 320px; display: none; }
+        .detail-panel h3 { font-size: 14px; margin-bottom: 8px; color: #1a1a2e; }
+        .detail-panel .close-btn { position: absolute; top: 8px; right: 12px; cursor: pointer; font-size: 18px; color: #999; border: none; background: none; }
+        .risk-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .risk-high { background: #ffebee; color: #c62828; }
+        .risk-medium { background: #fff3e0; color: #e65100; }
+        .risk-low { background: #e8f5e9; color: #2e7d32; }
+        .filter-bar { display: flex; gap: 6px; margin-left: 16px; }
+        .filter-btn { padding: 4px 10px; border: 1.5px solid #ddd; border-radius: 14px; cursor: pointer; font-size: 11px; background: white; transition: all 0.2s; }
+        .filter-btn.active { border-color: currentColor; font-weight: 600; }
+        svg text { user-select: none; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-presets="react">
+        const { useState, useCallback, useMemo, useRef, useEffect } = React;
+        const RF = window.ReactFlow;
+        const ReactFlowComp = RF.default;
+        const { Controls, Background, MiniMap, Handle, Position, MarkerType, useNodesState, useEdgesState } = RF;
+
+        // ── DATA ──────────────────────────────────────────────
+
+        const suppliers = [
+            { id: 'magna', name: 'Magna', tier: 'Tier 1', category: 'Body Systems, Seats, Closures', mentions: 2, confidence: 0.95 },
+            { id: 'nvidia', name: 'NVIDIA', tier: 'Technology', category: 'ADAS, AI Compute', mentions: 3, confidence: 0.95 },
+            { id: 'intel', name: 'Intel', tier: 'Technology', category: 'Semiconductors', mentions: null, confidence: 0.95 },
+        ];
+
+        const COLORS = {
+            environmental: '#4CAF50', social: '#2196F3', governance: '#FF9800', high_risk: '#F44336',
+            company: '#1a1a2e', topic: '#1565C0', evidence: '#78909C', framework: '#E65100'
+        };
+
+        // Hypergraph claims data (from Nahida's extraction)
+        const hgNodes = [
+            // Company
+            { id: 'tata', type: 'company', label: 'Tata Motors', fx: 480, fy: 340 },
+            { id: 'jlr', type: 'company', label: 'Jaguar Land Rover', fx: 200, fy: 520 },
+            { id: 'tata_cv', type: 'company', label: 'Tata CV Business', fx: 760, fy: 520 },
+            // Topics
+            { id: 't_netzero', type: 'topic', label: 'Net Zero Targets' },
+            { id: 't_sbti', type: 'topic', label: 'SBTi Commitment' },
+            { id: 't_scope3', type: 'topic', label: 'Scope 3 Cat 11' },
+            { id: 't_re', type: 'topic', label: 'Renewable Energy' },
+            { id: 't_circular', type: 'topic', label: 'Circular Economy' },
+            { id: 't_diversity', type: 'topic', label: 'Employee Diversity' },
+            { id: 't_risk', type: 'topic', label: 'Risk Management' },
+            { id: 't_assurance', type: 'topic', label: 'Assurance & Verification' },
+            // Frameworks
+            { id: 'f_sbti', type: 'framework', label: 'SBTi' },
+            { id: 'f_gri', type: 'framework', label: 'GRI' },
+            { id: 'f_tcfd', type: 'framework', label: 'TCFD' },
+            { id: 'f_cdp', type: 'framework', label: 'CDP' },
+            { id: 'f_csrd', type: 'framework', label: 'CSRD' },
+            // Evidence
+            { id: 'e_ar2024', type: 'evidence', label: 'Annual Report 2023-24' },
+            { id: 'e_brsr', type: 'evidence', label: 'BRSR 2024-25' },
+        ];
+
+        const hgClaims = [
+            // Net-zero contradictions — THE KEY NARRATIVE
+            { id: 'c_nz2039', text: 'Net zero by 2039', category: 'environmental', riskScore: 47.3, credibility: 0.35,
+              members: ['tata', 't_netzero', 'f_sbti', 'e_ar2024'], detail: 'Tata Motors group target — 2039. Page 1331.' },
+            { id: 'c_nz2040', text: 'Net Zero by 2040', category: 'high_risk', riskScore: 53.4, credibility: 0.15,
+              members: ['tata', 'tata_cv', 't_netzero', 'e_brsr'], detail: 'CV Business + group claim — 2040. Pages 897, 2431. Contradicts 2039 and 2045.' },
+            { id: 'c_nz2045', text: 'Net Zero by 2045', category: 'environmental', riskScore: 45.0, credibility: 0.20,
+              members: ['tata_cv', 't_netzero', 'e_ar2024'], detail: 'CV Business target — 2045. Pages 1321, 3374. Six years later than parent claim.' },
+            // SBTi tension
+            { id: 'c_sbti', text: 'SBTi-approved targets', category: 'high_risk', riskScore: 58.6, credibility: 0.10,
+              members: ['tata', 't_sbti', 'f_sbti', 'e_ar2024', 'e_brsr'], detail: '11 SBTi claims, max credibility 0.35. 58.6% greenwashing risk. Claims SBTi approval but evidence is weak.' },
+            { id: 'c_sbti_nz', text: 'SBTi net-zero pathway', category: 'environmental', riskScore: 42.0, credibility: 0.30,
+              members: ['tata', 't_sbti', 't_netzero', 'f_sbti'], detail: 'Claims alignment with SBTi 1.5C pathway. Contradicted by 3 different target years.' },
+            // Scope 3 dominance
+            { id: 'c_s3_13m', text: 'Scope 3 Cat 11: 13.6M tCO2e', category: 'high_risk', riskScore: 50.4, credibility: 0.30,
+              members: ['tata', 't_scope3', 'e_ar2024'], detail: 'Use of sold products — largest emission source. 8 claims ranging 7M-13.6M tCO2e.' },
+            { id: 'c_s3_7m', text: 'Scope 3 Cat 11: 7M tCO2e', category: 'environmental', riskScore: 38.0, credibility: 0.25,
+              members: ['tata', 't_scope3', 'e_brsr'], detail: 'Lower bound of Scope 3 range. Nearly 2x variation suggests methodology changes.' },
+            // Renewable energy contradictions
+            { id: 'c_re46', text: '46% renewable electricity', category: 'environmental', riskScore: 35.0, credibility: 0.40,
+              members: ['tata', 't_re', 'e_ar2024'], detail: 'Renewable electricity share. Contradicts 8% figure elsewhere.' },
+            { id: 'c_re8', text: '8% renewable energy', category: 'high_risk', riskScore: 48.0, credibility: 0.15,
+              members: ['tata', 't_re', 'e_brsr'], detail: 'Only 8% renewable energy overall. 5.75x lower than 46% claim. May be total energy vs electricity.' },
+            // Governance & social
+            { id: 'c_erm', text: 'Enterprise Risk Management', category: 'governance', riskScore: 16.0, credibility: 0.45,
+              members: ['tata', 't_risk', 'e_ar2024', 'e_brsr'], detail: '12 risk management claims. Lowest greenwashing risk (16%). Strong evidence.' },
+            { id: 'c_iso', text: 'ISO 14001 & ISAE 3410 certified', category: 'governance', riskScore: 29.0, credibility: 0.50,
+              members: ['tata', 't_assurance', 'f_gri', 'e_ar2024'], detail: '8 assurance claims. External verification provides credibility.' },
+            { id: 'c_div48', text: '48% women employees', category: 'social', riskScore: 31.0, credibility: 0.25,
+              members: ['tata', 't_diversity', 'e_brsr'], detail: 'Diversity claim. Contradicts 14% and 3% figures in other reports.' },
+            { id: 'c_div3', text: '3% women employees', category: 'high_risk', riskScore: 45.0, credibility: 0.20,
+              members: ['tata', 't_diversity', 'e_ar2024'], detail: 'Manufacturing workforce. Wide range (3-48%) suggests different scope definitions.' },
+            // Circular + GRI
+            { id: 'c_circular', text: 'Closed-loop manufacturing', category: 'high_risk', riskScore: 61.1, credibility: 0.00,
+              members: ['tata', 't_circular', 'e_ar2024'], detail: 'Highest greenwashing risk (61.1%). Zero credibility. Claim lacks evidence.' },
+            { id: 'c_gri', text: 'GRI Standards 2021 reporting', category: 'governance', riskScore: 40.0, credibility: 0.75,
+              members: ['tata', 'f_gri', 'f_tcfd', 'e_ar2024', 'e_brsr'], detail: 'Highest credibility claim (0.75). Multi-framework alignment.' },
+            { id: 'c_cdp', text: 'CDP Carbon Disclosure', category: 'governance', riskScore: 35.0, credibility: 0.35,
+              members: ['tata', 'f_cdp', 'e_ar2024'], detail: 'CDP participation. Framework membership confirmed.' },
+        ];
+
+        // ── SUPPLY CHAIN VIEW ─────────────────────────────────
+
+        const SupplierNode = ({ data }) => {
+            const colors = { 'Tata': { bg: '#e8f5e9', border: '#4caf50' }, 'Tier 1': { bg: '#e3f2fd', border: '#2196f3' }, 'Technology': { bg: '#f3e5f5', border: '#9c27b0' } };
+            const c = colors[data.tier] || colors['Tier 1'];
+            const isTata = data.tier === 'Tata';
+            return React.createElement('div', { style: { padding: '12px', borderRadius: '8px', border: `${isTata ? 3 : 2}px solid ${c.border}`, background: c.bg, minWidth: isTata ? 220 : 160, fontSize: isTata ? 16 : 12, fontWeight: isTata ? 'bold' : 'normal', textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' } },
+                React.createElement(Handle, { type: 'target', position: Position.Bottom, id: 'in', style: { background: '#555', width: 8, height: 8 } }),
+                React.createElement('div', { style: { fontWeight: 'bold', marginBottom: 4 } }, data.label),
+                !isTata && React.createElement('div', { style: { fontSize: 10, color: '#888' } }, data.category),
+                data.mentions && React.createElement('div', { style: { fontSize: 10, color: '#4caf50', marginTop: 4, fontWeight: 600 } }, data.mentions + ' mentions'),
+                React.createElement(Handle, { type: 'source', position: Position.Top, id: 'out', style: { background: '#555', width: 8, height: 8 } })
+            );
+        };
+
+        const SupplyChainView = () => {
+            const cx = 450, cy = 350, r = 280;
+            const initialNodes = [
+                { id: 'tata', type: 'supplierNode', position: { x: cx - 110, y: cy - 30 }, data: { label: 'Tata Motors Limited', tier: 'Tata', category: 'OEM' } },
+                ...suppliers.map((s, i) => {
+                    const a = (2 * Math.PI * i) / suppliers.length - Math.PI / 2;
+                    return { id: s.id, type: 'supplierNode', position: { x: cx + r * Math.cos(a) - 80, y: cy + r * Math.sin(a) - 30 }, data: { label: s.name, tier: s.tier, category: s.category, mentions: s.mentions } };
+                })
+            ];
+            const initialEdges = suppliers.map(s => {
+                const stroke = s.tier === 'Technology' ? '#9c27b0' : '#2196f3';
+                return { id: `e-${s.id}`, source: 'tata', target: s.id, type: 'smoothstep', style: { stroke, strokeWidth: 2, ...(s.tier === 'Technology' ? { strokeDasharray: '5,5' } : {}) }, markerEnd: { type: MarkerType.ArrowClosed, color: stroke } };
+            });
+            const [nodes,,onNC] = useNodesState(initialNodes);
+            const [edges,,onEC] = useEdgesState(initialEdges);
+            return React.createElement('div', { style: { width: '100%', height: '100%' } },
+                React.createElement(ReactFlowComp, { nodes, edges, onNodesChange: onNC, onEdgesChange: onEC, nodeTypes: { supplierNode: SupplierNode }, fitView: true, fitViewOptions: { padding: 0.3 }, attributionPosition: 'bottom-left' },
+                    React.createElement(Background, { variant: 'dots', gap: 12, size: 1 }),
+                    React.createElement(Controls, null),
+                    React.createElement(MiniMap, { nodeColor: n => n.data?.tier === 'Tata' ? '#4caf50' : n.data?.tier === 'Technology' ? '#9c27b0' : '#2196f3', style: { height: 100 } })
+                )
+            );
+        };
+
+        // ── HYPERGRAPH VIEW ───────────────────────────────────
+
+        const HypergraphView = ({ onClaimClick }) => {
+            const svgRef = useRef(null);
+            const simRef = useRef(null);
+            const [filter, setFilter] = useState(null);
+
+            useEffect(() => {
+                const width = window.innerWidth, height = window.innerHeight - 60;
+                const svg = d3.select(svgRef.current).attr('width', width).attr('height', height);
+                svg.selectAll('*').remove();
+
+                const g = svg.append('g');
+                // Zoom
+                svg.call(d3.zoom().scaleExtent([0.3, 3]).on('zoom', e => g.attr('transform', e.transform)));
+
+                // Deep-copy nodes so D3 can mutate x/y
+                const nodes = hgNodes.map(d => ({ ...d }));
+                const claims = hgClaims.filter(c => !filter || c.category === filter);
+
+                // Force simulation
+                const sim = d3.forceSimulation(nodes)
+                    .force('charge', d3.forceManyBody().strength(d => d.type === 'company' ? -400 : -200))
+                    .force('center', d3.forceCenter(width / 2, height / 2 - 20))
+                    .force('collision', d3.forceCollide(35))
+                    .force('x', d3.forceX(width / 2).strength(0.04))
+                    .force('y', d3.forceY(height / 2 - 20).strength(0.04));
+                simRef.current = sim;
+
+                // Build link forces from claims (connect members)
+                const links = [];
+                claims.forEach(c => {
+                    for (let i = 0; i < c.members.length; i++) {
+                        for (let j = i + 1; j < c.members.length; j++) {
+                            const si = nodes.findIndex(n => n.id === c.members[i]);
+                            const ti = nodes.findIndex(n => n.id === c.members[j]);
+                            if (si >= 0 && ti >= 0) links.push({ source: si, target: ti });
+                        }
+                    }
+                });
+                sim.force('link', d3.forceLink(links).distance(120).strength(0.3));
+
+                // Hull layer (behind nodes)
+                const hullG = g.append('g').attr('class', 'hulls');
+                const nodeG = g.append('g').attr('class', 'nodes');
+                const labelG = g.append('g').attr('class', 'labels');
+
+                // Padded hull function
+                function hullPoints(memberIds, padding) {
+                    const pts = [];
+                    memberIds.forEach(id => {
+                        const n = nodes.find(d => d.id === id);
+                        if (!n || n.x == null) return;
+                        for (let a = 0; a < 2 * Math.PI; a += Math.PI / 4) {
+                            pts.push([n.x + Math.cos(a) * padding, n.y + Math.sin(a) * padding]);
+                        }
+                    });
+                    return pts.length >= 6 ? d3.polygonHull(pts) : null;
+                }
+
+                // Draw hulls
+                const hullPaths = hullG.selectAll('path').data(claims).enter().append('path')
+                    .attr('fill', d => COLORS[d.category]).attr('fill-opacity', 0.12)
+                    .attr('stroke', d => COLORS[d.category]).attr('stroke-width', 1.5).attr('stroke-opacity', 0.6)
+                    .style('cursor', 'pointer').style('transition', 'fill-opacity 0.2s');
+
+                // Hull interactions
+                hullPaths
+                    .on('mouseover', function(event, d) {
+                        hullPaths.attr('fill-opacity', h => h === d ? 0.35 : 0.04).attr('stroke-opacity', h => h === d ? 1 : 0.15);
+                        nodeCircles.attr('opacity', n => d.members.includes(n.id) ? 1 : 0.2);
+                        nodeLabels.attr('opacity', n => d.members.includes(n.id) ? 1 : 0.15);
+                    })
+                    .on('mouseout', function() {
+                        hullPaths.attr('fill-opacity', 0.12).attr('stroke-opacity', 0.6);
+                        nodeCircles.attr('opacity', 1);
+                        nodeLabels.attr('opacity', 1);
+                    })
+                    .on('click', (event, d) => onClaimClick(d));
+
+                // Draw nodes
+                const nodeCircles = nodeG.selectAll('g').data(nodes).enter().append('g').style('cursor', 'grab')
+                    .call(d3.drag().on('start', (e,d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+                        .on('drag', (e,d) => { d.fx = e.x; d.fy = e.y; })
+                        .on('end', (e,d) => { if (!e.active) sim.alphaTarget(0); if (d.type !== 'company') { d.fx = null; d.fy = null; } }));
+
+                nodeCircles.each(function(d) {
+                    const el = d3.select(this);
+                    if (d.type === 'company') {
+                        el.append('rect').attr('width', 28).attr('height', 28).attr('rx', 4).attr('x', -14).attr('y', -14).attr('fill', COLORS.company).attr('stroke', '#fff').attr('stroke-width', 2);
+                    } else if (d.type === 'topic') {
+                        el.append('circle').attr('r', 14).attr('fill', COLORS.topic).attr('stroke', '#fff').attr('stroke-width', 2);
+                    } else if (d.type === 'evidence') {
+                        el.append('polygon').attr('points', '0,-12 10,0 0,12 -10,0').attr('fill', COLORS.evidence).attr('stroke', '#fff').attr('stroke-width', 1.5);
+                    } else if (d.type === 'framework') {
+                        // Hexagon
+                        const hex = [0,1,2,3,4,5].map(i => { const a = Math.PI/6 + i*Math.PI/3; return `${13*Math.cos(a)},${13*Math.sin(a)}`; }).join(' ');
+                        el.append('polygon').attr('points', hex).attr('fill', COLORS.framework).attr('stroke', '#fff').attr('stroke-width', 1.5);
+                    }
+                });
+
+                // Labels
+                const nodeLabels = labelG.selectAll('text').data(nodes).enter().append('text')
+                    .text(d => d.label).attr('text-anchor', 'middle').attr('dy', d => d.type === 'company' ? -22 : 24)
+                    .attr('font-size', d => d.type === 'company' ? 13 : 10).attr('font-weight', d => d.type === 'company' ? 700 : 400)
+                    .attr('fill', '#333').attr('pointer-events', 'none');
+
+                // Tick
+                sim.on('tick', () => {
+                    hullPaths.attr('d', d => {
+                        const h = hullPoints(d.members, 28);
+                        return h ? `M${h.join('L')}Z` : null;
+                    });
+                    nodeCircles.attr('transform', d => `translate(${d.x},${d.y})`);
+                    nodeLabels.attr('x', d => d.x).attr('y', d => d.y);
+                });
+
+                return () => { sim.stop(); svg.selectAll('*').remove(); };
+            }, [filter]);
+
+            // Filter buttons
+            const filters = [
+                { key: null, label: 'All', color: '#666' },
+                { key: 'environmental', label: 'Environmental', color: COLORS.environmental },
+                { key: 'social', label: 'Social', color: COLORS.social },
+                { key: 'governance', label: 'Governance', color: COLORS.governance },
+                { key: 'high_risk', label: 'High Risk', color: COLORS.high_risk },
+            ];
+
+            return React.createElement('div', { style: { width: '100%', height: '100%', position: 'relative' } },
+                React.createElement('div', { style: { position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 10, display: 'flex', gap: 6 } },
+                    filters.map(f => React.createElement('button', {
+                        key: f.key || 'all', className: `filter-btn${filter === f.key ? ' active' : ''}`,
+                        style: { color: f.color, borderColor: filter === f.key ? f.color : '#ddd' },
+                        onClick: () => setFilter(f.key)
+                    }, f.label))
+                ),
+                React.createElement('svg', { ref: svgRef, style: { width: '100%', height: '100%' } })
+            );
+        };
+
+        // ── APP ───────────────────────────────────────────────
+
+        const App = () => {
+            const [mode, setMode] = useState('hypergraph');
+            const [detail, setDetail] = useState(null);
+
+            const onClaimClick = useCallback(claim => setDetail(claim), []);
+
+            const riskClass = score => score >= 50 ? 'risk-high' : score >= 35 ? 'risk-medium' : 'risk-low';
+
+            return React.createElement('div', { style: { width: '100vw', height: '100vh' } },
+                // Header
+                React.createElement('div', { className: 'header' },
+                    React.createElement('div', { className: 'header-left' },
+                        React.createElement('div', { className: 'title' }, 'Tata Motors — ESG Intelligence'),
+                        React.createElement('div', { className: 'subtitle' }, '135 claims | 12 contradictions | 80 hyperedges | Mean credibility 0.25')
+                    ),
+                    React.createElement('div', { className: 'mode-toggle' },
+                        React.createElement('button', { className: `mode-btn${mode === 'supply-chain' ? ' active' : ''}`, onClick: () => { setMode('supply-chain'); setDetail(null); } }, 'Supply Chain'),
+                        React.createElement('button', { className: `mode-btn${mode === 'hypergraph' ? ' active' : ''}`, onClick: () => setMode('hypergraph') }, 'Hypergraph Claims')
+                    )
+                ),
+
+                // Stats panel
+                React.createElement('div', { className: 'stats-panel' },
+                    React.createElement('h3', null, mode === 'supply-chain' ? 'Supply Chain' : 'Claims Analysis'),
+                    mode === 'supply-chain' ? React.createElement(React.Fragment, null,
+                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Tier 1 Suppliers'), React.createElement('span', { className: 'stat-value', style: { color: '#2196f3' } }, '1')),
+                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Technology Partners'), React.createElement('span', { className: 'stat-value', style: { color: '#9c27b0' } }, '2')),
+                        React.createElement('div', { style: { marginTop: 8, fontSize: 10, color: '#999' } }, 'Note: Supply chain data is sparse — only 3 relationships extracted from KB.')
+                    ) : React.createElement(React.Fragment, null,
+                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Total Claims'), React.createElement('span', { className: 'stat-value' }, '135')),
+                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Contradictions'), React.createElement('span', { className: 'stat-value', style: { color: '#F44336' } }, '12')),
+                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'High Risk (>=50%)'), React.createElement('span', { className: 'stat-value', style: { color: '#F44336' } }, '11')),
+                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Mean Credibility'), React.createElement('span', { className: 'stat-value' }, '0.25')),
+                        React.createElement('div', { style: { marginTop: 8, fontSize: 10, fontStyle: 'italic', color: '#999' } }, 'Hover hull to isolate. Click for details.')
+                    )
+                ),
+
+                // Detail panel
+                detail && React.createElement('div', { className: 'detail-panel', style: { display: 'block' } },
+                    React.createElement('button', { className: 'close-btn', onClick: () => setDetail(null) }, '\u00d7'),
+                    React.createElement('h3', null, detail.text),
+                    React.createElement('div', { style: { marginBottom: 6 } },
+                        React.createElement('span', { className: `risk-badge ${riskClass(detail.riskScore)}` }, `${detail.riskScore}% risk`)
+                    ),
+                    React.createElement('div', { style: { marginBottom: 4 } },
+                        React.createElement('strong', null, 'Credibility: '), detail.credibility.toFixed(2)
+                    ),
+                    React.createElement('div', { style: { marginBottom: 4 } },
+                        React.createElement('strong', null, 'Category: '),
+                        React.createElement('span', { style: { color: COLORS[detail.category] } }, detail.category.replace('_', ' '))
+                    ),
+                    React.createElement('div', { style: { marginBottom: 4 } },
+                        React.createElement('strong', null, 'Connected nodes: '), detail.members.length
+                    ),
+                    React.createElement('p', { style: { marginTop: 8, color: '#555', lineHeight: 1.5 } }, detail.detail)
+                ),
+
+                // Legend
+                mode === 'hypergraph' && React.createElement('div', { className: 'legend' },
+                    React.createElement('h4', null, 'Node Types'),
+                    [['Company', COLORS.company, '14px', 'rect'],
+                     ['Topic', COLORS.topic, '14px', 'circle'],
+                     ['Evidence', COLORS.evidence, '14px', 'diamond'],
+                     ['Framework', COLORS.framework, '14px', 'hex']
+                    ].map(([label, color]) =>
+                        React.createElement('div', { key: label, className: 'legend-item' },
+                            React.createElement('div', { className: 'legend-swatch', style: { background: color } }),
+                            React.createElement('span', null, label)
+                        )
+                    ),
+                    React.createElement('h4', { style: { marginTop: 10 } }, 'Hull Colors'),
+                    [['Environmental', COLORS.environmental],
+                     ['Social', COLORS.social],
+                     ['Governance', COLORS.governance],
+                     ['High Risk', COLORS.high_risk]
+                    ].map(([label, color]) =>
+                        React.createElement('div', { key: label, className: 'legend-item' },
+                            React.createElement('div', { className: 'legend-swatch', style: { background: color, opacity: 0.4, border: `2px solid ${color}` } }),
+                            React.createElement('span', null, label)
+                        )
+                    )
+                ),
+
+                // Main view
+                React.createElement('div', { style: { position: 'absolute', top: 60, left: 0, right: 0, bottom: 0 } },
+                    mode === 'supply-chain'
+                        ? React.createElement(SupplyChainView, null)
+                        : React.createElement(HypergraphView, { onClaimClick })
+                )
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</body>
+</html>
