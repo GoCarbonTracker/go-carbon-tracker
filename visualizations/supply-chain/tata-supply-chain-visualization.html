@@ -278,17 +278,19 @@
                 tataG.append('text').attr('text-anchor', 'middle').attr('dy', -4).attr('font-size', 14).attr('font-weight', 700).attr('fill', '#fff').text('Tata Motors');
                 tataG.append('text').attr('text-anchor', 'middle').attr('dy', 14).attr('font-size', 10).attr('fill', '#e8f5e9').text('OEM (Tier 0)');
 
-                // JLR near center — rounded rectangle
-                const jlrX = cx + 100, jlrY = cy + 55;
-                const jlrW = 130, jlrH = 36;
-                const jlrG = nodeG.append('g').attr('transform', `translate(${jlrX},${jlrY})`).style('cursor', 'pointer');
-                jlrG.append('rect').attr('width', jlrW).attr('height', jlrH).attr('x', -jlrW/2).attr('y', -jlrH/2)
-                    .attr('rx', 6).attr('fill', '#1565C0').attr('stroke', '#fff').attr('stroke-width', 2);
-                jlrG.append('text').attr('text-anchor', 'middle').attr('dy', -3).attr('font-size', 10).attr('font-weight', 600).attr('fill', '#fff').text('Jaguar Land Rover');
-                jlrG.append('text').attr('text-anchor', 'middle').attr('dy', 12).attr('font-size', 8).attr('fill', '#bbdefb').text('Subsidiary');
-                // JLR edge
-                edgeG.append('line').attr('x1', cx).attr('y1', cy).attr('x2', jlrX).attr('y2', jlrY)
-                    .attr('stroke', '#1565C0').attr('stroke-width', 2.5).attr('stroke-opacity', 0.4);
+                // JLR near center — only visible when All or Tata Group filter
+                const showJLR = !scFilter || scFilter === 'Tata Group';
+                if (showJLR) {
+                    const jlrX = cx + 100, jlrY = cy + 55;
+                    const jlrW = 130, jlrH = 36;
+                    const jlrG = nodeG.append('g').attr('transform', `translate(${jlrX},${jlrY})`).style('cursor', 'pointer');
+                    jlrG.append('rect').attr('width', jlrW).attr('height', jlrH).attr('x', -jlrW/2).attr('y', -jlrH/2)
+                        .attr('rx', 6).attr('fill', '#1565C0').attr('stroke', '#fff').attr('stroke-width', 2);
+                    jlrG.append('text').attr('text-anchor', 'middle').attr('dy', -3).attr('font-size', 10).attr('font-weight', 600).attr('fill', '#fff').text('Jaguar Land Rover');
+                    jlrG.append('text').attr('text-anchor', 'middle').attr('dy', 12).attr('font-size', 8).attr('fill', '#bbdefb').text('Subsidiary');
+                    edgeG.append('line').attr('x1', cx).attr('y1', cy).attr('x2', jlrX).attr('y2', jlrY)
+                        .attr('stroke', '#1565C0').attr('stroke-width', 2.5).attr('stroke-opacity', 0.4);
+                }
 
                 // 4. Supplier nodes — rounded rectangles sized by mentions
                 const supplierGs = nodeG.selectAll('g.supplier').data(visible).enter().append('g')
