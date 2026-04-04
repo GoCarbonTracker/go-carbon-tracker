@@ -217,12 +217,25 @@
                 const widthScale = d3.scaleSqrt().domain([0, maxMentions]).range([100, 160]);
                 const nodeH = 40;
 
-                // 1. Ring backgrounds with BOLD horizontal labels
+                // 1. Ring zone backgrounds (annulus bands) + dashed circles + labels
                 const ringG = g.append('g').attr('class', 'rings');
+                const bandColors = ['rgba(59,130,246,0.06)', 'rgba(249,115,22,0.06)', 'rgba(34,197,94,0.06)'];
+                const bandInner = [50, radii[0] + 60, radii[1] + 60]; // inner radius of each band
+                const bandOuter = [radii[0] + 60, radii[1] + 60, radii[2] + 60]; // outer radius
+                const arcGen = d3.arc().startAngle(0).endAngle(2 * Math.PI);
+
+                // Annulus fills
+                bandColors.forEach((color, i) => {
+                    ringG.append('path')
+                        .attr('d', arcGen({ innerRadius: bandInner[i], outerRadius: bandOuter[i] }))
+                        .attr('transform', `translate(${cx},${cy})`)
+                        .attr('fill', color);
+                });
+
+                // Dashed boundary circles + labels
                 radii.forEach((r, i) => {
                     ringG.append('circle').attr('cx', cx).attr('cy', cy).attr('r', r + 60)
                         .attr('fill', 'none').attr('stroke', '#e0e0e0').attr('stroke-width', 1).attr('stroke-dasharray', '4,4');
-                    // Horizontal label above each ring (top-center)
                     ringG.append('text')
                         .attr('x', cx).attr('y', cy - r - 66)
                         .attr('text-anchor', 'middle').attr('font-size', 14).attr('fill', '#888').attr('font-weight', 700)
