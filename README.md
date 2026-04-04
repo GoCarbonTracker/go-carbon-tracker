@@ -19,6 +19,7 @@ Over **50,000 companies** worldwide now face mandatory emissions reporting under
 - [Discourse Graph](#discourse-graph)
 - [Extraction Pipeline](#extraction-pipeline)
 - [Credibility & Greenwashing Scoring](#credibility--greenwashing-scoring)
+- [Compliance Mapping](#compliance-mapping)
 - [See It In Action](#see-it-in-action)
 - [Roadmap](#roadmap)
 - [Get Involved](#get-involved)
@@ -231,6 +232,20 @@ The pipeline runs incrementally — we can enrich one company at a time without 
 | Contradictions | Other evidence directly conflicts with this claim |
 | No progress shown | Targets announced but no evidence of actual action |
 | Vague language | Buzzwords without measurable commitments |
+
+---
+
+## Compliance Mapping
+
+Sustainability claims don't exist in a vacuum — they correspond to specific regulatory disclosure requirements under frameworks like CSRD, TCFD, GRI, and CDP.
+
+GoCarbonTracker automatically maps extracted claims against these regulatory requirements, surfacing:
+
+- **Disclosure gaps** — which required datapoints a company hasn't addressed
+- **Framework coverage** — how completely a company's reporting meets each framework's requirements
+- **Cross-framework alignment** — where a single claim satisfies multiple frameworks, and where frameworks conflict
+
+This turns the knowledge base into a compliance intelligence layer — not just "what did the company say?" but "what were they supposed to say, and did they?"
 
 ---
 
