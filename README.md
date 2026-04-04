@@ -2,16 +2,9 @@
 
 ## Climate Intelligence Platform
 
-**GoCarbonTracker** is a climate intelligence platform that reads corporate sustainability reports, extracts the claims companies make about their emissions, checks those claims against real evidence, and tells you who's actually delivering — and who's greenwashing.
+**GoCarbonTracker** is a climate intelligence platform that reads corporate sustainability reports, extracts the claims companies make about their emissions, checks those claims against real evidence, and identifies who's actually delivering — and who's greenwashing.
 
-Over **50,000 companies** worldwide now face mandatory emissions reporting under regulations like CSRD, TCFD, and SEC Climate Rules. Most lack any way to verify what their competitors, suppliers, or even their own subsidiaries are actually claiming. GoCarbonTracker is that verification layer.
-
-[![Companies](https://img.shields.io/badge/Companies%20Analyzed-200%2B-blue)]()
-[![Data Points](https://img.shields.io/badge/Data%20Points-37,877-green)]()
-[![Claims Verified](https://img.shields.io/badge/Claims%20Verified-18,832-orange)]()
-[![Evidence Items](https://img.shields.io/badge/Evidence%20Items-1,638,798-purple)]()
-[![Runtime Cost](https://img.shields.io/badge/Runtime%20Cost-$0.00-success)]()
-[![License](https://img.shields.io/badge/License-Proprietary-lightgrey)]()
+Over **50,000 companies** worldwide now face mandatory emissions reporting under regulations like CSRD, TCFD, and SEC Climate Rules. Most lack any way to verify what their competitors, suppliers, or even their own subsidiaries are actually claiming. GoCarbonTracker is building that verification layer.
 
 ---
 
@@ -20,15 +13,12 @@ Over **50,000 companies** worldwide now face mandatory emissions reporting under
 - [The Problem](#the-problem)
 - [What We Do](#what-we-do)
 - [Proof of Concept: Automotive Industry](#proof-of-concept-automotive-industry)
-- [Architecture Overview](#architecture-overview)
+- [Architecture](#architecture)
 - [HyperGraph RAG Engine](#hypergraph-rag-engine)
-- [Docling Enrichment Pipeline](#docling-enrichment-pipeline)
 - [Discourse Graph](#discourse-graph)
+- [Extraction Pipeline](#extraction-pipeline)
 - [Credibility & Greenwashing Scoring](#credibility--greenwashing-scoring)
-- [The Platform](#the-platform)
 - [See It In Action](#see-it-in-action)
-- [Zero Runtime Cost](#zero-runtime-cost)
-- [Current Progress](#current-progress)
 - [Roadmap](#roadmap)
 - [Get Involved](#get-involved)
 
@@ -38,11 +28,11 @@ Over **50,000 companies** worldwide now face mandatory emissions reporting under
 
 Corporate sustainability reports are full of bold claims — net-zero targets, emissions reductions, science-based commitments. But who actually checks them?
 
-- Who verifies if BMW's supply chain emissions claims align with what their suppliers report?
+- Who verifies if a company's supply chain emissions claims align with what their suppliers report?
 - Who catches it when a company says "carbon neutral" but their own data shows rising emissions?
 - Who compares hundreds of companies across a supply chain to find the weak links?
 
-**Nobody — until now.**
+These are the questions GoCarbonTracker is designed to answer.
 
 ---
 
@@ -50,13 +40,15 @@ Corporate sustainability reports are full of bold claims — net-zero targets, e
 
 GoCarbonTracker reads sustainability reports at scale and turns them into structured, verifiable intelligence:
 
-1. **Extract** — We read corporate sustainability PDFs and pull out structured data: emissions numbers, targets, timelines, and commitments
-2. **Enrich** — Our Docling pipeline digs deeper into complex documents, extracting data from tables, charts, and visual elements that basic text extraction misses
-3. **Analyze** — Our Discourse Graph mines claims from that data, links each claim to supporting and contradicting evidence, and detects inconsistencies
-4. **Score** — Every claim gets a credibility score (9 factors) and a greenwashing risk score (5 factors)
-5. **Visualize** — Interactive dashboards let you explore supply chains, compare companies, and spot patterns
+1. **Extract** — Read corporate sustainability PDFs and pull out structured data: emissions numbers, targets, timelines, and commitments. A tiered extraction pipeline (Docling for document structure and tables, pdfplumber for text, LLM fallback for edge cases) handles the full range of PDF complexity.
 
-The entire system runs at **$0 runtime cost** — no paid AI services, no per-query fees, no cost barriers to scaling.
+2. **Structure** — Organize extracted data into a hypergraph knowledge base where companies, claims, evidence, regulatory frameworks, and supply chain tiers are connected through rich n-ary relationships — not just pairwise edges.
+
+3. **Analyze** — A Discourse Graph mines claims from the structured data, links each claim to supporting and contradicting evidence, and detects inconsistencies across companies and time periods.
+
+4. **Score** — Every claim gets a credibility score (9 factors) and a greenwashing risk score. A contrastive retrieval model learns which structural and graph-based signals best predict claim plausibility.
+
+5. **Visualize** — Interactive dashboards and supply chain maps let you explore companies, compare claims, and spot patterns.
 
 ---
 
@@ -64,20 +56,7 @@ The entire system runs at **$0 runtime cost** — no paid AI services, no per-qu
 
 We started with the automotive industry because of its deep, complex supply chain and high-profile sustainability promises.
 
-### What We've Analyzed
-
-| Metric | Value |
-|--------|-------|
-| Companies Analyzed | 200+ (OEMs + suppliers across 9 tiers) |
-| Data Points Extracted | 37,877 from sustainability reports |
-| Claims Verified | 18,832 structured claims |
-| Evidence Items | 1,638,798 linking data to claims |
-| Contradictions Found | 1,833 cross-claim conflicts |
-| Arguments Scored | 14,714 with credibility analysis |
-
-### Supply Chain Depth
-
-Our knowledge base spans the full automotive supply chain:
+The knowledge base spans the full automotive supply chain — from OEMs through multiple tiers of suppliers down to raw materials:
 
 ```
 OEMs (BMW, Toyota, Volkswagen, Mercedes-Benz, ...)
@@ -89,165 +68,75 @@ OEMs (BMW, Toyota, Volkswagen, Mercedes-Benz, ...)
 
 This lets us trace how emissions claims flow through the supply chain — and where they break down.
 
-### Extraction Depth
-
-| Level | Companies | What It Means |
-|-------|-----------|---------------|
-| Full Report | 71 | Deep analysis — 100+ data points per company |
-| Partial | 22 | Moderate coverage — 21-99 data points |
-| Light | 1 | Basic coverage — 6-20 data points |
-| Mentioned | 122 | Referenced in other companies' reports |
-
 ---
 
-## Architecture Overview
+## Architecture
 
 GoCarbonTracker is built as three interconnected layers:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     FRONTEND APPLICATIONS                       │
-│                                                                 │
-│  ┌────────────────┐  ┌─────────────┐  ┌───────────────────┐   │
-│  │   Dashboard    │  │   Admin     │  │   Graph Explorer  │   │
-│  │  60+ pages     │  │   Panel     │  │  Interactive viz   │   │
-│  │  Emissions UI  │  │  KB mgmt   │  │  Supply chain maps │   │
-│  └───────┬────────┘  └──────┬──────┘  └────────┬──────────┘   │
-│          │                  │                   │               │
-└──────────┼──────────────────┼───────────────────┼───────────────┘
-           │                  │                   │
-     ┌─────┴──────────────────┴───────────────────┴─────┐
-     │                  DATABASE LAYER                    │
-     │  PostgreSQL + Auth + Realtime + Row-Level Security │
-     │  589 companies | Audit trails | Live sync          │
-     └──────────────────────┬────────────────────────────┘
-                            │
-     ┌──────────────────────┴────────────────────────────┐
-     │              INTELLIGENCE ENGINE                    │
-     │                                                     │
-     │  ┌──────────────┐  ┌──────────────┐               │
-     │  │ HyperGraph   │  │  Discourse   │               │
-     │  │ RAG Engine   │  │    Graph     │               │
-     │  │ Contexts     │  │   Claims     │               │
-     │  │ 200+ co.     │  │  Evidence    │               │
-     │  └──────┬───────┘  └──────┬───────┘               │
-     │         │                 │                         │
-     │         └────────┬────────┘                         │
-     │                  │                                  │
-     │  ┌───────────────▼──────────────────┐              │
-     │  │      Docling Enrichment          │              │
-     │  │  Deep PDF extraction layer       │              │
-     │  │  Tables, charts, visual elements │              │
-     │  └──────────────────────────────────┘              │
-     │                                                     │
-     │  PDF Extraction → Knowledge Indexing → Claim Mining │
-     │  → Evidence Linking → Credibility Scoring           │
-     │  → Greenwashing Detection → Comparative Analysis    │
-     └─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│                 FRONTEND APPLICATIONS                │
+│  Dashboard  |  Admin Panel  |  Graph Explorer        │
+└──────────────────────┬──────────────────────────────┘
+                       │
+┌──────────────────────┴──────────────────────────────┐
+│                   DATABASE LAYER                     │
+│  PostgreSQL + Auth + Realtime + Row-Level Security   │
+└──────────────────────┬──────────────────────────────┘
+                       │
+┌──────────────────────┴──────────────────────────────┐
+│                INTELLIGENCE ENGINE                   │
+│                                                      │
+│  Extraction Pipeline (Docling + pdfplumber + LLM)    │
+│         │                                            │
+│         ▼                                            │
+│  HyperGraph Knowledge Base (hypergraph-structured)   │
+│         │                                            │
+│         ├──► Discourse Graph (claims + evidence)     │
+│         │         │                                  │
+│         │         ▼                                  │
+│         │    Credibility & Greenwashing Scoring       │
+│         │                                            │
+│         └──► Contrastive Retrieval (learned scoring)  │
+│                                                      │
+│  Compliance Mapping (ESRS/CSRD datapoint ontology)   │
+└──────────────────────────────────────────────────────┘
 ```
 
-**Data flows bottom-up**: PDF reports are processed by the HyperGraph RAG engine into structured data points. The Docling pipeline enriches these with deeper context from complex document elements. The Discourse Graph then mines claims, links evidence, and scores credibility. This data syncs to the database for persistence and real-time access. Frontend apps query both layers for interactive analysis.
+**Data flows bottom-up**: PDF reports are processed by the extraction pipeline into structured data points. The HyperGraph knowledge base organizes these into queryable relationships. The Discourse Graph mines claims, links evidence, and scores credibility. The contrastive retrieval model learns which signals best predict claim plausibility. Compliance mapping connects claims to regulatory requirements.
 
 ---
 
 ## HyperGraph RAG Engine
 
-The core of GoCarbonTracker. A zero-runtime-cost retrieval-augmented generation engine purpose-built for ESG intelligence.
+The core of GoCarbonTracker. A retrieval-augmented generation engine purpose-built for ESG intelligence.
 
-### Core Concepts
+Most knowledge graph platforms — Stardog, Palantir Foundry, Timbr.ai, Informatica, GraphAware Hume — are general-purpose. They use RDF/OWL ontologies, SQL-native semantic layers, or property graphs to model enterprise data. They're built for data governance, lineage tracking, and business intelligence. None are designed for ESG claim verification or greenwashing detection.
 
-Knowledge graphs changed how we reason about connected information — instead of searching documents, you search *relationships*. Google's Knowledge Graph proved this at web scale: connecting entities, not just pages, transforms what's possible to query. For ESG, the same principle applies — you need to connect companies, their claims, the evidence behind those claims, the regulatory frameworks they operate under, and the supply chain tiers they belong to.
+GoCarbonTracker takes a different approach. Instead of a general-purpose graph, we use a **domain-specific hypergraph** — where a single hyperedge can connect any number of nodes simultaneously. A sustainability claim involves a company, a target year, a baseline, a regulatory framework, supporting evidence, and a supply chain context all at once. In a traditional graph, this fragments across five or six pairwise edges. In a hypergraph, it's one relationship. The foundational research behind this approach is detailed in [Luo et al., "HyperGraphRAG" (NeurIPS 2025)](https://arxiv.org/abs/2503.21322).
 
-But traditional knowledge graphs have a fundamental limitation: every edge connects exactly two nodes. Company A → emits → X tons. That's a binary relationship. Real-world ESG knowledge is messier. A single sustainability claim simultaneously involves a company, a target year, a baseline, a regulatory framework, supporting evidence, and a supply chain context. Representing this in a standard graph requires splitting one relationship into five or six separate edges — losing the inherent structure of the knowledge.
+This domain-specific design enables capabilities that general-purpose KG platforms can't offer out of the box:
 
-Hypergraphs solve this. Originating in mathematics ([Berge, 1984](https://link.springer.com/book/10.1007/978-1-4612-0621-7)) and widely applied in physics to model complex systems where pairwise relationships are insufficient, a hypergraph allows a single edge — called a *hyperedge* — to connect any number of nodes simultaneously. One hyperedge can capture an entire ESG relationship that would fragment across multiple edges in a traditional graph.
-
-HyperGraph RAG takes this further by combining hypergraph-structured knowledge representation with retrieval-augmented generation (RAG). Rather than retrieving flat text chunks like standard RAG systems, HyperGraph RAG retrieves through rich n-ary relationships — producing more accurate and contextually complete results. The foundational research behind this approach is detailed in [Luo et al., "HyperGraphRAG: Retrieval-Augmented Generation via Hypergraph-Structured Knowledge Representation" (NeurIPS 2025)](https://arxiv.org/abs/2503.21322).
-
-Our implementation transforms unstructured sustainability PDFs into a searchable hypergraph knowledge base covering hundreds of companies and tens of thousands of data points at zero runtime cost. But structured, searchable intelligence is only half the picture — to *judge* what companies are actually claiming, you need argumentation. That's where the Discourse Graph comes in.
-
-### What It Does
-
-The HyperGraph RAG engine reads corporate sustainability reports and transforms them into a searchable, queryable knowledge base — without relying on any paid AI APIs.
-
-```
-Corporate Sustainability Reports (PDFs)
-         │
-         ▼
-┌─────────────────────────┐
-│  Extraction Layer       │  Reads text, tables, and visual elements
-│                         │  4-layer company identity validation
-│                         │  Deduplication and quality scoring
-└────────┬────────────────┘
-         │
-         ▼
-┌─────────────────────────┐
-│  Knowledge Base         │  Structured data points from reports
-│                         │  Searchable by company, topic, tier
-│                         │  Hybrid search (semantic + keyword)
-└────────┬────────────────┘
-         │
-         ▼
-┌─────────────────────────┐
-│  Query & Analysis       │  Cross-company benchmarking
-│                         │  Supply chain tracing
-│                         │  Greenwashing risk detection
-└─────────────────────────┘
-```
-
-### Key Capabilities
-
-- **Hybrid Search** — Combines meaning-based search with keyword matching for accurate results
-- **Company Stratification** — Ensures equal representation per company in comparative queries, so no single company dominates results
-- **Data-Dense Boosting** — Emissions tables and quantitative data get higher weight than narrative text
-- **100% Entity Coverage** — Comparative analyses are validated to include every relevant company, not just the ones that are easy to find
-- **Quality-Gated Fallback** — If primary results aren't strong enough, the engine automatically tries alternative search strategies
-- **529+ ESG Patterns** — Industry-specific extraction patterns for Scope 1, 2, and 3 emissions data
-
----
-
-## Docling Enrichment Pipeline
-
-Standard PDF extraction reads text — but sustainability reports pack critical data into tables, charts, infographics, and formatted layouts that text extraction alone misses.
-
-### What Docling Does
-
-The Docling pipeline is our deep extraction layer that goes beyond basic text:
-
-- **Table Extraction** — Reads complex emissions tables with merged cells, multi-level headers, and footnotes
-- **Document Structure Awareness** — Understands sections, headings, and how content is organized within a report
-- **Context Enrichment** — Adds richer metadata to existing knowledge base entries by extracting surrounding context that basic extraction missed
-- **Merge & Enrich** — New Docling-extracted data is intelligently merged with existing knowledge base entries, enriching rather than duplicating
-
-### Impact
-
-Our Docling enrichment has added hundreds of enriched contexts across companies like Ford Motor and Porsche, bringing deeper quantitative data and table-based evidence into the knowledge base that text-only extraction couldn't capture.
-
-The pipeline is designed to run incrementally — we can enrich one company at a time without rebuilding the entire knowledge base.
+- **Hybrid Search** — Semantic + keyword matching for accurate retrieval
+- **Company Stratification** — Equal representation per company in comparative queries
+- **Data-Dense Boosting** — Emissions tables and quantitative data weighted higher than narrative
+- **Quality-Gated Fallback** — Automatic alternative search strategies when primary results are weak
+- **Contrastive Retrieval** — A learned MLP scorer that uses graph-structural signals (Leiden communities, HITS authority, Katz centrality) to assess claim plausibility
 
 ---
 
 ## Discourse Graph
 
-The Discourse Graph is where raw data becomes intelligence. It transforms extracted report text into structured arguments with credibility scoring and greenwashing detection.
+The Discourse Graph turns structured data into intelligence. It transforms extracted report text into structured arguments with credibility scoring and greenwashing detection.
 
-### Core Concepts
+[Discourse graphs](https://discoursegraphs.com/) are an information model for collaborative knowledge synthesis ([Chan et al., arXiv:2407.20666](https://arxiv.org/abs/2407.20666v2)). The core idea: separate *claims* (what someone asserts) from *evidence* (what supports or contradicts it). Each element can be independently examined, connected, and updated.
 
-[Discourse graphs](https://discoursegraphs.com/) are an information model for collaborative knowledge synthesis, developed by Joel Chan and Matt Akamatsu. The core insight is deceptively simple: break knowledge into atomic, modular elements — separate *claims* (what someone asserts) from *evidence* (what supports or contradicts it). Like building blocks, these elements can be independently examined, connected, and updated. Originally designed as a coordination layer for decentralized scientific research — essentially "GitHub for scientific communication" — discourse graphs provide a rigorous framework for structuring argumentation ([Chan et al., arXiv:2407.20666](https://arxiv.org/abs/2407.20666v2)).
-
-We apply this framework to corporate sustainability. Every claim a company makes in a sustainability report — every net-zero target, every emissions reduction assertion, every SBTi commitment — gets extracted as an atomic element in the discourse graph. Each claim is then linked to its supporting and contradicting evidence from across the knowledge base. The ratio between supporting and contradicting evidence, combined with credibility scoring across 9 factors, produces an argument strength assessment and a greenwashing risk score.
-
-This is where HyperGraph RAG and the Discourse Graph become more than the sum of their parts. The hypergraph gives you structured, searchable intelligence — you can find any company's sustainability data across any dimension. The discourse graph gives you *judgement* — it tells you whether what a company claims is backed by evidence or contradicted by it. One finds the data, the other evaluates the claims. Together, they form a verification layer that can process hundreds of companies and surface exactly where corporate sustainability narratives break down.
-
-### How It Works
-
-Every claim a company makes gets structured into a verifiable argument:
+We apply this to corporate sustainability. Every claim a company makes — every net-zero target, every emissions reduction assertion — gets extracted as an atomic element. Each claim is linked to supporting and contradicting evidence from across the knowledge base. The ratio between supporting and contradicting evidence, combined with credibility scoring, produces an argument strength assessment and a greenwashing risk score.
 
 ```
      ┌─────────────────────┐
-     │       Claim         │  "BMW targets net-zero by 2050"
-     │                     │  Type: net_zero_claims
-     │                     │  Credibility: 0.72
+     │       Claim         │  "Company X targets net-zero by 2050"
      └──────────┬──────────┘
                 │
        ┌────────┴────────┐
@@ -255,47 +144,39 @@ Every claim a company makes gets structured into a verifiable argument:
   ┌────▼─────┐    ┌──────▼──────┐
   │Supporting │    │Contradicting│
   │ Evidence  │    │  Evidence   │
-  │    76     │    │      2      │
   └────┬─────┘    └──────┬──────┘
        │                 │
        └────────┬────────┘
                 │
        ┌────────▼────────┐
-       │    Argument     │  Strength: 98.7%
-       │                 │  Verdict: Strong
-       │                 │  Greenwashing Risk: 27%
+       │    Argument     │  Strength + Greenwashing Risk
        └─────────────────┘
 ```
 
-A claim with 76 pieces of supporting evidence and only 2 contradictions? That's a strong argument with low greenwashing risk. A claim with 3 pieces of vague supporting evidence and 12 contradictions? That's a red flag.
-
-### Scale
-
-| Metric | Count |
-|--------|-------|
-| Claims Extracted | 18,832 |
-| Evidence Items | 1,638,798 |
-| Arguments Scored | 14,714 |
-| Contradictions Detected | 1,833 |
-| Companies with Claims | 200+ |
-
 ### ESG Theme Coverage
-
-The Discourse Graph covers the full spectrum of ESG topics:
 
 - **Environmental** — Emissions targets, energy initiatives, biodiversity, climate risk
 - **Social** — Labor practices, supply chain working conditions, community impact
 - **Governance** — Board oversight, integrated reporting, shareholder engagement
 - **Supply Chain** — Supplier emissions, responsible sourcing, circular economy
-- **Integrated ESG** — Cross-cutting sustainability strategies and frameworks
+
+---
+
+## Extraction Pipeline
+
+Sustainability reports pack critical data into tables, charts, infographics, and formatted layouts that basic text extraction misses. Our tiered extraction pipeline handles the full range:
+
+1. **Docling (Tier 0)** — Document structure analysis, table extraction with merged cells and multi-level headers, section-aware parsing
+2. **pdfplumber (Tier 1)** — Text and simple table extraction as a fast fallback
+3. **LLM Fallback (Tier 2)** — Vision-language models for edge cases that structural parsing can't handle
+
+The pipeline runs incrementally — we can enrich one company at a time without rebuilding the entire knowledge base. A confidence scoring system flags extractions below a quality threshold for manual review or LLM re-extraction.
 
 ---
 
 ## Credibility & Greenwashing Scoring
 
 ### Credibility Score (9 Factors)
-
-Each claim is scored on how trustworthy it is:
 
 | What We Check | Example |
 |---------------|---------|
@@ -309,11 +190,11 @@ Each claim is scored on how trustworthy it is:
 | CDP disclosure aligned? | Consistent with CDP submissions? |
 | Regulatory framework aligned? | CSRD, ISSB, TCFD compliant? |
 
-### Greenwashing Risk Score (5 Factors)
+### Greenwashing Risk Detection
 
 | What We Detect | What It Means |
 |----------------|---------------|
-| Low credibility | The claim itself scores poorly on the factors above |
+| Low credibility | The claim scores poorly on the factors above |
 | Weak evidence | Big claims with little data to back them up |
 | Contradictions | Other evidence directly conflicts with this claim |
 | No progress shown | Targets announced but no evidence of actual action |
@@ -321,129 +202,66 @@ Each claim is scored on how trustworthy it is:
 
 ---
 
-## The Platform
-
-### Dashboard
-The main application with 60+ pages covering emissions tracking, company profiles, graph visualization (5 modes), supply chain mapping, and cross-company benchmarking.
-
-### Admin Panel
-Knowledge base management, system health monitoring, data imports, and tier classification tools.
-
-### Graph Explorer
-Interactive visualization portal with multiple rendering modes for exploring company networks, claim relationships, and supply chain structures.
-
----
-
 ## See It In Action
 
-Explore our interactive visualizations — click any link to open in your browser. All are zoomable, pannable, and clickable.
+Explore our interactive visualizations — click any link to open in your browser.
 
 ### Supply Chain Maps
 
 | Visualization | What You'll See |
 |--------------|-----------------|
-| [Full Supply Chain Network](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/automotive-tiers-relationships.html) | Complete tier mapping — OEM to Tier 8, emission flows, data quality indicators |
+| [Full Supply Chain Network](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/automotive-tiers-relationships.html) | Complete tier mapping — OEM to Tier 8 |
 | [Companies by Tier & Country](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_country_all_companies.html) | Companies mapped by supply chain position and headquarters |
 | [Company Relationships](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_with_relationships.html) | How companies connect across the supply chain |
-| [Tier Breakdown](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_separate_all_companies.html) | Companies organized by supply chain level |
-| [Global HQ Distribution](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_country_hq_kb_companies.html) | Where these companies are headquartered worldwide |
-
-### Energy & Emissions
-
-| Visualization | What You'll See |
-|--------------|-----------------|
-| [Energy Initiatives Map](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/hypergraph/energy_initiatives_hypergraph.html) | Full map of energy-related claims, evidence, and connections (large file) |
-| [Energy Initiatives (Animated)](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/energy_initiatives_animated.html) | Animated view of renewable energy initiatives across OEMs |
-| [Energy Network](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/energy_initiatives_vyuh_network.html) | Energy initiatives as an interactive network |
 
 ### OEM Deep Dives
 
-| Visualization | What You'll See |
-|--------------|-----------------|
-| [BMW Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/bmw-supply-chain-visualization.html) | BMW Group's multi-tier supplier network |
-| [Mercedes-Benz Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/mercedes-supply-chain-visualization.html) | Mercedes-Benz supplier structure |
-| [Ferrari Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/ferrari-supply-chain-visualization.html) | Ferrari's supplier network |
+Tata Motors is our deepest case study — with the most extensive extraction and enrichment coverage. BMW, Mercedes-Benz, and Ferrari demonstrate breadth across different OEMs with lighter coverage.
 
----
-
-## Zero Runtime Cost
-
-Most platforms that analyze sustainability data rely on paid AI services — charging per query, per document, per embedding. These costs add up fast and create barriers for smaller organizations.
-
-**GoCarbonTracker's entire knowledge base — tens of thousands of data points, thousands of verified claims, over a million evidence items across 200+ companies — was built and is maintained at $0.00 runtime cost.**
-
-- No paid AI APIs for reading reports
-- No per-query fees for searching the knowledge base
-- No cost to re-index when new reports are added
-- Full rebuild of the entire knowledge base takes under 30 seconds
-
-This means **adding a new industry costs effectively nothing.** When we expand from automotive to energy, finance, or agriculture, the infrastructure cost is the same: zero.
-
----
-
-## Current Progress
-
-### Built
-
-- Automotive knowledge base at zero runtime cost
-- HyperGraph RAG engine with hybrid search and quality-gated retrieval
-- Discourse Graph with credibility scoring and greenwashing detection
-- Evidence linking connecting data points to claims
-- Docling enrichment pipeline for deep PDF extraction
-- 529+ industry-specific extraction patterns
-- Interactive graph visualization with 5 modes
-- 60+ page dashboard with emissions tracking
-- Secure multi-tenant backend with real-time sync
-- 4-layer company identity validation
-- Supply chain mapping across 9 tiers
-
-### In Progress
-
-- Advanced ESG theme extraction (governance, biodiversity, supply chain labor)
-- Expanding Docling enrichment across more companies
-- AI agent integration for automated analysis
-- Performance optimization (target <2s response time)
-
-### What's Next
-
-- Expand to new industries (energy, finance, agriculture)
-- Automated insights and recommendations
-- Custom report builder for regulatory frameworks (TCFD, SEC, CSRD, CDP)
-- Public API for external integrations
-- Predictive emissions modeling
-- Team collaboration features
+| Visualization | Coverage | What You'll See |
+|--------------|----------|-----------------|
+| Tata Motors Supply Chain | Deep | *Coming soon* — full supply chain with enriched table data |
+| [BMW Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/bmw-supply-chain-visualization.html) | Standard | BMW Group's multi-tier supplier network |
+| [Mercedes-Benz Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/mercedes-supply-chain-visualization.html) | Standard | Mercedes-Benz supplier structure |
+| [Ferrari Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/ferrari-supply-chain-visualization.html) | Standard | Ferrari's supplier network |
 
 ---
 
 ## Roadmap
 
 ```
-Phase 1 ✅  Automotive Knowledge Base (200+ companies)
+Phase 1 ✅  Automotive Knowledge Base
 Phase 2 ✅  Discourse Graph & Credibility Scoring
-Phase 3 ✅  Interactive Dashboard (60+ pages, 5 visualization modes)
-Phase 4 🔄  Docling Enrichment & Advanced ESG Extraction
-Phase 5 📋  Multi-Industry Expansion
-Phase 6 📋  Public API & Integrations
-Phase 7 📋  Predictive Analytics & Insights
+Phase 3 ✅  Interactive Dashboard & Visualizations
+Phase 4 🔄  Deep Extraction Pipeline (Docling + table-aware + LLM fallback)
+Phase 5 🔄  ESRS Compliance Intelligence (regulatory datapoint mapping)
+Phase 6 📋  Multi-Industry Expansion
+Phase 7 📋  Public API & Integrations
 ```
+
+---
+
+## Tech Stack
+
+- **Frontend** — React 18, TypeScript, Tailwind CSS
+- **Backend** — PostgreSQL (Supabase), FastAPI
+- **Intelligence** — Python, scikit-learn, PyTorch (contrastive MLP)
+- **Extraction** — Docling, pdfplumber, Ollama (local LLM)
+- **Search** — TF-IDF + semantic embeddings, hybrid retrieval
+- **Visualization** — D3.js, interactive HTML
 
 ---
 
 ## Get Involved
 
-GoCarbonTracker is actively looking for collaborators, especially people with expertise in:
+GoCarbonTracker is looking for collaborators with expertise in:
 
-- **Climate Science** — Validating emissions data against scientific sources
 - **Sustainability Reporting** — CSRD, TCFD, GRI, CDP domain knowledge
-- **Data Analysis** — Pattern recognition across large datasets
-- **Graph Analysis** — Network analysis and relationship mapping
-- **Frontend Development** — Interactive data visualization
+- **Climate Science** — Validating emissions data against scientific sources
+- **Graph/Network Analysis** — Relationship mapping and community detection
+- **Data Visualization** — Interactive visualization of complex datasets
 
-### Interested?
-
-1. **Explore** the visualizations above to see the platform in action
-2. **Open an issue** to discuss ideas or share feedback
-3. **Reach out** if you'd like to collaborate
+**Interested?** [Open an issue](https://github.com/GoCarbonTracker/go-carbon-tracker/issues) or reach out directly.
 
 ---
 
