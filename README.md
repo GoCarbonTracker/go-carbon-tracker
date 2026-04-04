@@ -141,11 +141,11 @@ GoCarbonTracker is built as three interconnected layers:
 
 The core of GoCarbonTracker. A retrieval-augmented generation engine purpose-built for ESG intelligence.
 
-Most knowledge graph platforms — Stardog, Palantir Foundry, Timbr.ai, Informatica, GraphAware Hume — are general-purpose. They use RDF/OWL ontologies, SQL-native semantic layers, or property graphs to model enterprise data. They're built for data governance, lineage tracking, and business intelligence. None are designed for ESG claim verification or greenwashing detection.
+Traditional knowledge graphs connect two nodes per edge — Company A → emits → X tons. But a sustainability claim simultaneously involves a company, a target year, a baseline, a regulatory framework, supporting evidence, and a supply chain context. Splitting this into separate pairwise edges loses the inherent structure.
 
-GoCarbonTracker takes a different approach. Instead of a general-purpose graph, we use a **domain-specific hypergraph** — where a single hyperedge can connect any number of nodes simultaneously. A sustainability claim involves a company, a target year, a baseline, a regulatory framework, supporting evidence, and a supply chain context all at once. In a traditional graph, this fragments across five or six pairwise edges. In a hypergraph, it's one relationship. The foundational research behind this approach is detailed in [Luo et al., "HyperGraphRAG" (NeurIPS 2025)](https://arxiv.org/abs/2503.21322).
+GoCarbonTracker uses a **domain-specific hypergraph** — where a single hyperedge connects any number of nodes simultaneously. One relationship captures the full context of a claim, instead of fragmenting it across five or six edges. The foundational research behind this approach is detailed in [Luo et al., "HyperGraphRAG" (NeurIPS 2025)](https://arxiv.org/abs/2503.21322).
 
-This domain-specific design enables capabilities that general-purpose KG platforms can't offer out of the box:
+This structure enables:
 
 - **Hybrid Search** — Semantic + keyword matching for accurate retrieval
 - **Company Stratification** — Equal representation per company in comparative queries
