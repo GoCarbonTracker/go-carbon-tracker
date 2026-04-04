@@ -232,14 +232,17 @@
                         .attr('fill', color);
                 });
 
-                // Dashed boundary circles + labels
+                // Dashed boundary circles + labels (positioned top-left to avoid node overlap)
                 radii.forEach((r, i) => {
                     ringG.append('circle').attr('cx', cx).attr('cy', cy).attr('r', r + 60)
                         .attr('fill', 'none').attr('stroke', '#e0e0e0').attr('stroke-width', 1).attr('stroke-dasharray', '4,4');
+                    // Label on the left side of each ring band, vertically centered
+                    const labelX = cx - r - 30;
                     ringG.append('text')
-                        .attr('x', cx).attr('y', cy - r - 66)
-                        .attr('text-anchor', 'middle').attr('font-size', 14).attr('fill', '#888').attr('font-weight', 700)
+                        .attr('x', labelX).attr('y', cy)
+                        .attr('text-anchor', 'middle').attr('font-size', 12).attr('fill', '#999').attr('font-weight', 700)
                         .attr('letter-spacing', '0.5px')
+                        .attr('transform', `rotate(-90, ${labelX}, ${cy})`)
                         .text(ringLabels[i].toUpperCase());
                 });
 
@@ -315,8 +318,6 @@
 
                 const circleScale = d3.scaleSqrt().domain([0, maxMentions]).range([24, 44]);
 
-                const rectH = 54; // taller to fit 3 lines
-
                 supplierGs.each(function(d) {
                     const el = d3.select(this);
                     const tc = TIER_COLORS[d.tier] || TIER_COLORS['Tier 1'];
@@ -324,30 +325,22 @@
                     const cat = d.category.length > 24 ? d.category.slice(0,22) + '..' : d.category;
 
                     if (isOuter) {
-                        // Circle — labels below
+                        // Circle — name + category below
                         const r = circleScale(d.mentions || 1);
                         el.append('circle').attr('r', r).attr('fill', tc.fill).attr('stroke', tc.border).attr('stroke-width', 2);
                         el.append('text').attr('text-anchor', 'middle').attr('dy', r + 14)
                             .attr('font-size', 11).attr('font-weight', 600).attr('fill', tc.border).text(d.name);
                         el.append('text').attr('text-anchor', 'middle').attr('dy', r + 27)
                             .attr('font-size', 9).attr('fill', '#888').text(cat);
-                        if (d.mentions) {
-                            el.append('text').attr('text-anchor', 'middle').attr('dy', r + 40)
-                                .attr('font-size', 9).attr('fill', tc.border).attr('opacity', 0.7).text(d.mentions + ' mentions');
-                        }
                     } else {
-                        // Rectangle — 3 lines inside: name, category, mentions
+                        // Rectangle — name + category inside
                         const w = widthScale(d.mentions || 1);
-                        el.append('rect').attr('width', w).attr('height', rectH).attr('x', -w/2).attr('y', -rectH/2)
+                        el.append('rect').attr('width', w).attr('height', nodeH).attr('x', -w/2).attr('y', -nodeH/2)
                             .attr('rx', 6).attr('fill', tc.fill).attr('stroke', tc.border).attr('stroke-width', 2);
-                        el.append('text').attr('text-anchor', 'middle').attr('dy', -10)
+                        el.append('text').attr('text-anchor', 'middle').attr('dy', -4)
                             .attr('font-size', 10).attr('font-weight', 600).attr('fill', '#333').text(d.name);
-                        el.append('text').attr('text-anchor', 'middle').attr('dy', 4)
+                        el.append('text').attr('text-anchor', 'middle').attr('dy', 10)
                             .attr('font-size', 8).attr('fill', '#666').text(cat);
-                        if (d.mentions) {
-                            el.append('text').attr('text-anchor', 'middle').attr('dy', 18)
-                                .attr('font-size', 8).attr('fill', '#888').text(d.mentions + ' mentions');
-                        }
                     }
                 });
 
@@ -611,14 +604,6 @@
                             React.createElement('span', null, label)
                         )
                     ),
-                    React.createElement('h4', { style: { marginTop: 8 } }, 'Node Size'),
-                    React.createElement('div', { style: { fontSize: 10, color: '#888' } }, 'Scaled by KB mention count'),
-                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 } },
-                        React.createElement('div', { style: { width: 12, height: 12, borderRadius: '50%', background: '#ddd', border: '1px solid #bbb' } }),
-                        React.createElement('span', { style: { fontSize: 9 } }, 'Few'),
-                        React.createElement('div', { style: { width: 24, height: 24, borderRadius: '50%', background: '#ddd', border: '1px solid #bbb' } }),
-                        React.createElement('span', { style: { fontSize: 9 } }, 'Many')
-                    )
                 ),
 
                 // Hypergraph legend
