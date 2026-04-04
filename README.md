@@ -17,7 +17,6 @@ Over **50,000 companies** worldwide now face mandatory emissions reporting under
 - [Architecture](#architecture)
 - [HyperGraph RAG Engine](#hypergraph-rag-engine)
 - [Discourse Graph](#discourse-graph)
-- [Extraction Pipeline](#extraction-pipeline)
 - [Credibility & Greenwashing Scoring](#credibility--greenwashing-scoring)
 - [Compliance Mapping](#compliance-mapping)
 - [See It In Action](#see-it-in-action)
@@ -194,17 +193,6 @@ We apply this to corporate sustainability. Every claim a company makes — every
 
 ---
 
-## Extraction Pipeline
-
-Sustainability reports pack critical data into tables, charts, infographics, and formatted layouts that basic text extraction misses. Our tiered extraction pipeline handles the full range:
-
-1. **Docling (Tier 0)** — Document structure analysis, table extraction with merged cells and multi-level headers, section-aware parsing
-2. **pdfplumber (Tier 1)** — Text and simple table extraction as a fast fallback
-3. **LLM Fallback (Tier 2)** — Vision-language models for edge cases that structural parsing can't handle
-
-The pipeline runs incrementally — we can enrich one company at a time without rebuilding the entire knowledge base. A confidence scoring system flags extractions below a quality threshold for manual review or LLM re-extraction.
-
----
 
 ## Credibility & Greenwashing Scoring
 
