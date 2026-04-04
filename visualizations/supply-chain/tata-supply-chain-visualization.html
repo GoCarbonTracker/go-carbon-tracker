@@ -232,18 +232,10 @@
                         .attr('fill', color);
                 });
 
-                // Dashed boundary circles + labels (positioned top-left to avoid node overlap)
-                radii.forEach((r, i) => {
+                // Dashed boundary circles (no text — legend handles ring identification)
+                radii.forEach((r) => {
                     ringG.append('circle').attr('cx', cx).attr('cy', cy).attr('r', r + 60)
                         .attr('fill', 'none').attr('stroke', '#e0e0e0').attr('stroke-width', 1).attr('stroke-dasharray', '4,4');
-                    // Label on the left side of each ring band, vertically centered
-                    const labelX = cx - r - 30;
-                    ringG.append('text')
-                        .attr('x', labelX).attr('y', cy)
-                        .attr('text-anchor', 'middle').attr('font-size', 12).attr('fill', '#999').attr('font-weight', 700)
-                        .attr('letter-spacing', '0.5px')
-                        .attr('transform', `rotate(-90, ${labelX}, ${cy})`)
-                        .text(ringLabels[i].toUpperCase());
                 });
 
                 // 2. Edges (behind nodes)
@@ -590,7 +582,17 @@
 
                 // Supply chain legend
                 mode === 'supply-chain' && React.createElement('div', { className: 'legend' },
-                    React.createElement('h4', null, 'Tier Colors'),
+                    React.createElement('h4', null, 'Ring Zones'),
+                    [['Inner — Tata Group', 'rgba(59,130,246,0.35)'],
+                     ['Middle — Joint Ventures', 'rgba(249,115,22,0.35)'],
+                     ['Outer — External Suppliers', 'rgba(34,197,94,0.35)'],
+                    ].map(([label, color]) =>
+                        React.createElement('div', { key: label, className: 'legend-item' },
+                            React.createElement('div', { className: 'legend-swatch', style: { background: color, borderRadius: '50%' } }),
+                            React.createElement('span', null, label)
+                        )
+                    ),
+                    React.createElement('h4', { style: { marginTop: 8 } }, 'Tier Colors'),
                     [['Tata Group', TIER_COLORS['Tata Group']],
                      ['Joint Venture', TIER_COLORS['Joint Venture']],
                      ['Tier 1', TIER_COLORS['Tier 1']],
