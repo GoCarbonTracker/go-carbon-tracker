@@ -204,7 +204,7 @@
             useEffect(() => {
                 const width = window.innerWidth, height = window.innerHeight - 60;
                 const cx = width / 2, cy = height / 2 + 10;
-                const radii = [140, 280, 410];
+                const radii = [180, 320, 450]; // wider inner ring for 8 nodes
                 const ringLabels = ['Tata Group', 'Joint Ventures & Partners', 'External Suppliers'];
 
                 const svg = d3.select(svgRef.current).attr('width', width).attr('height', height);
@@ -212,49 +212,49 @@
                 const g = svg.append('g');
                 svg.call(d3.zoom().scaleExtent([0.3, 3]).on('zoom', e => g.attr('transform', e.transform)));
 
-                // Mention scale for node sizing
+                // Mention scale for rect width (height fixed at 40)
                 const maxMentions = Math.max(...suppliers.map(s => s.mentions || 1));
-                const sizeScale = d3.scaleSqrt().domain([0, maxMentions]).range([20, 48]);
+                const widthScale = d3.scaleSqrt().domain([0, maxMentions]).range([100, 160]);
+                const nodeH = 40;
 
-                // 1. Ring backgrounds with labels
+                // 1. Ring backgrounds with BOLD horizontal labels
                 const ringG = g.append('g').attr('class', 'rings');
                 radii.forEach((r, i) => {
-                    ringG.append('circle').attr('cx', cx).attr('cy', cy).attr('r', r + 55)
+                    ringG.append('circle').attr('cx', cx).attr('cy', cy).attr('r', r + 60)
                         .attr('fill', 'none').attr('stroke', '#e0e0e0').attr('stroke-width', 1).attr('stroke-dasharray', '4,4');
-                    // Arc label
-                    const labelR = r + 62;
-                    const labelAngle = -Math.PI / 2 - 0.35;
+                    // Horizontal label above each ring (top-center)
                     ringG.append('text')
-                        .attr('x', cx + labelR * Math.cos(labelAngle)).attr('y', cy + labelR * Math.sin(labelAngle))
-                        .attr('text-anchor', 'start').attr('font-size', 11).attr('fill', '#999').attr('font-weight', 500)
-                        .attr('transform', `rotate(${(labelAngle * 180/Math.PI) + 90}, ${cx + labelR * Math.cos(labelAngle)}, ${cy + labelR * Math.sin(labelAngle)})`)
-                        .text(ringLabels[i]);
+                        .attr('x', cx).attr('y', cy - r - 66)
+                        .attr('text-anchor', 'middle').attr('font-size', 14).attr('fill', '#888').attr('font-weight', 700)
+                        .attr('letter-spacing', '0.5px')
+                        .text(ringLabels[i].toUpperCase());
                 });
 
-                // 2. Edges (behind nodes) — only show for visible suppliers
+                // 2. Edges (behind nodes)
                 const edgeG = g.append('g').attr('class', 'edges');
                 const nodeG = g.append('g').attr('class', 'nodes');
 
-                // Build positioned supplier data
+                // Build positioned supplier data — offset inner ring start angle for even spacing
                 const positioned = suppliers.map(s => {
                     const order = ringOrder[s.ring];
                     const idx = order.indexOf(s.id);
                     const total = order.length;
-                    const a = (2 * Math.PI * idx) / total - Math.PI / 2;
+                    // Offset each ring to avoid top overlap with ring labels
+                    const startAngle = s.ring === 0 ? -Math.PI * 0.4 : -Math.PI / 2;
+                    const a = startAngle + (2 * Math.PI * idx) / total;
                     const r = radii[s.ring];
                     return { ...s, x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), angle: a };
                 });
 
                 // Filter
                 const visible = scFilter ? positioned.filter(s => s.tier === scFilter) : positioned;
-                const visibleIds = new Set(visible.map(s => s.id));
 
                 // Draw edges
                 edgeG.selectAll('line').data(visible).enter().append('line')
                     .attr('x1', cx).attr('y1', cy).attr('x2', d => d.x).attr('y2', d => d.y)
                     .attr('stroke', d => (TIER_COLORS[d.tier] || TIER_COLORS['Tier 1']).border)
                     .attr('stroke-width', d => d.tier === 'Tata Group' ? 1.5 : 1)
-                    .attr('stroke-opacity', 0.3)
+                    .attr('stroke-opacity', 0.25)
                     .attr('stroke-dasharray', d => {
                         if (d.tier === 'Technology') return '5,5';
                         if (d.tier === 'Joint Venture') return '8,4';
@@ -262,58 +262,60 @@
                         return null;
                     });
 
-                // 3. Center node (Tata Motors)
+                // 3. Center node (Tata Motors) — rounded rectangle
+                const tataW = 160, tataH = 50;
                 const tataG = nodeG.append('g').attr('transform', `translate(${cx},${cy})`).style('cursor', 'pointer');
-                tataG.append('circle').attr('r', 36).attr('fill', '#4caf50').attr('stroke', '#fff').attr('stroke-width', 3);
-                tataG.append('text').attr('text-anchor', 'middle').attr('dy', -4).attr('font-size', 13).attr('font-weight', 700).attr('fill', '#fff').text('Tata Motors');
-                tataG.append('text').attr('text-anchor', 'middle').attr('dy', 12).attr('font-size', 9).attr('fill', '#e8f5e9').text('OEM (Tier 0)');
+                tataG.append('rect').attr('width', tataW).attr('height', tataH).attr('x', -tataW/2).attr('y', -tataH/2)
+                    .attr('rx', 8).attr('fill', '#4caf50').attr('stroke', '#fff').attr('stroke-width', 3);
+                tataG.append('text').attr('text-anchor', 'middle').attr('dy', -4).attr('font-size', 14).attr('font-weight', 700).attr('fill', '#fff').text('Tata Motors');
+                tataG.append('text').attr('text-anchor', 'middle').attr('dy', 14).attr('font-size', 10).attr('fill', '#e8f5e9').text('OEM (Tier 0)');
 
-                // JLR near center
-                const jlrX = cx + 80, jlrY = cy + 60;
+                // JLR near center — rounded rectangle
+                const jlrX = cx + 100, jlrY = cy + 55;
+                const jlrW = 130, jlrH = 36;
                 const jlrG = nodeG.append('g').attr('transform', `translate(${jlrX},${jlrY})`).style('cursor', 'pointer');
-                jlrG.append('circle').attr('r', 24).attr('fill', '#1565C0').attr('stroke', '#fff').attr('stroke-width', 2);
-                jlrG.append('text').attr('text-anchor', 'middle').attr('dy', 1).attr('font-size', 8).attr('font-weight', 600).attr('fill', '#fff').text('JLR');
-                jlrG.append('text').attr('text-anchor', 'middle').attr('dy', 36).attr('font-size', 9).attr('fill', '#666').text('Jaguar Land Rover');
+                jlrG.append('rect').attr('width', jlrW).attr('height', jlrH).attr('x', -jlrW/2).attr('y', -jlrH/2)
+                    .attr('rx', 6).attr('fill', '#1565C0').attr('stroke', '#fff').attr('stroke-width', 2);
+                jlrG.append('text').attr('text-anchor', 'middle').attr('dy', -3).attr('font-size', 10).attr('font-weight', 600).attr('fill', '#fff').text('Jaguar Land Rover');
+                jlrG.append('text').attr('text-anchor', 'middle').attr('dy', 12).attr('font-size', 8).attr('fill', '#bbdefb').text('Subsidiary');
                 // JLR edge
                 edgeG.append('line').attr('x1', cx).attr('y1', cy).attr('x2', jlrX).attr('y2', jlrY)
-                    .attr('stroke', '#1565C0').attr('stroke-width', 2.5).attr('stroke-opacity', 0.5);
+                    .attr('stroke', '#1565C0').attr('stroke-width', 2.5).attr('stroke-opacity', 0.4);
 
-                // 4. Supplier nodes — sized by mentions
+                // 4. Supplier nodes — rounded rectangles sized by mentions
                 const supplierGs = nodeG.selectAll('g.supplier').data(visible).enter().append('g')
                     .attr('class', 'supplier')
                     .attr('transform', d => `translate(${d.x},${d.y})`)
                     .style('cursor', 'pointer')
                     .on('click', (event, d) => onSupplierClick(d))
                     .on('mouseover', function(event, d) {
-                        // Highlight this node + its edge, dim others
                         supplierGs.attr('opacity', s => s.id === d.id ? 1 : 0.25);
                         edgeG.selectAll('line').attr('stroke-opacity', (e, i, els) => {
                             const el = d3.select(els[i]);
-                            return (el.attr('x2') == d.x && el.attr('y2') == d.y) ? 0.8 : 0.08;
+                            return (el.attr('x2') == d.x && el.attr('y2') == d.y) ? 0.8 : 0.06;
                         });
                     })
                     .on('mouseout', function() {
                         supplierGs.attr('opacity', 1);
-                        edgeG.selectAll('line').attr('stroke-opacity', 0.3);
+                        edgeG.selectAll('line').attr('stroke-opacity', 0.25);
                     });
 
                 supplierGs.each(function(d) {
                     const el = d3.select(this);
-                    const r = sizeScale(d.mentions || 1);
+                    const w = widthScale(d.mentions || 1);
                     const tc = TIER_COLORS[d.tier] || TIER_COLORS['Tier 1'];
-                    el.append('circle').attr('r', r).attr('fill', tc.fill).attr('stroke', tc.border).attr('stroke-width', 2);
-                    // Name
-                    el.append('text').attr('text-anchor', 'middle').attr('dy', d.mentions > 30 ? -2 : 1)
-                        .attr('font-size', r > 28 ? 10 : 8).attr('font-weight', 600).attr('fill', '#333')
-                        .text(d.name.length > 16 ? d.name.slice(0,14) + '..' : d.name);
-                    // Mentions badge
+                    // Rounded rectangle
+                    el.append('rect').attr('width', w).attr('height', nodeH).attr('x', -w/2).attr('y', -nodeH/2)
+                        .attr('rx', 6).attr('fill', tc.fill).attr('stroke', tc.border).attr('stroke-width', 2);
+                    // Name (full — no truncation needed with rects)
+                    el.append('text').attr('text-anchor', 'middle').attr('dy', d.mentions ? -3 : 3)
+                        .attr('font-size', 10).attr('font-weight', 600).attr('fill', '#333')
+                        .text(d.name);
+                    // Mentions + category on second line
                     if (d.mentions) {
-                        el.append('text').attr('text-anchor', 'middle').attr('dy', d.mentions > 30 ? 11 : 12)
+                        el.append('text').attr('text-anchor', 'middle').attr('dy', 11)
                             .attr('font-size', 8).attr('fill', '#666').text(d.mentions + ' mentions');
                     }
-                    // Tier label below
-                    el.append('text').attr('text-anchor', 'middle').attr('dy', r + 14)
-                        .attr('font-size', 7).attr('fill', tc.border).attr('font-weight', 500).text(d.tier);
                 });
 
                 return () => { svg.selectAll('*').remove(); };
