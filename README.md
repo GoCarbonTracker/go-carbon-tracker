@@ -12,6 +12,7 @@ Over **50,000 companies** worldwide now face mandatory emissions reporting under
 
 - [The Problem](#the-problem)
 - [What We Do](#what-we-do)
+- [What You Can Query](#what-you-can-query)
 - [Proof of Concept: Automotive Industry](#proof-of-concept-automotive-industry)
 - [Architecture](#architecture)
 - [HyperGraph RAG Engine](#hypergraph-rag-engine)
@@ -40,15 +41,43 @@ These are the questions GoCarbonTracker is designed to answer.
 
 GoCarbonTracker reads sustainability reports at scale and turns them into structured, verifiable intelligence:
 
-1. **Extract** — Read corporate sustainability PDFs and pull out structured data: emissions numbers, targets, timelines, and commitments. A tiered extraction pipeline (Docling for document structure and tables, pdfplumber for text, LLM fallback for edge cases) handles the full range of PDF complexity.
+1. **Extract** — Read corporate sustainability PDFs and pull out structured data: emissions numbers, targets, timelines, and commitments
+2. **Structure** — Organize extracted data into a hypergraph knowledge base where companies, claims, evidence, regulatory frameworks, and supply chain tiers are connected through rich n-ary relationships
+3. **Analyze** — Mine claims, link each to supporting and contradicting evidence, detect inconsistencies across companies and time periods
+4. **Score** — Credibility scoring (9 factors) and greenwashing risk detection. A contrastive retrieval model learns which signals best predict claim plausibility
+5. **Visualize** — Interactive hypergraph visualizations, supply chain maps, and dashboards to explore companies, compare claims, and spot patterns
 
-2. **Structure** — Organize extracted data into a hypergraph knowledge base where companies, claims, evidence, regulatory frameworks, and supply chain tiers are connected through rich n-ary relationships — not just pairwise edges.
+---
 
-3. **Analyze** — A Discourse Graph mines claims from the structured data, links each claim to supporting and contradicting evidence, and detects inconsistencies across companies and time periods.
+## What You Can Query
 
-4. **Score** — Every claim gets a credibility score (9 factors) and a greenwashing risk score. A contrastive retrieval model learns which structural and graph-based signals best predict claim plausibility.
+Because the knowledge base is structured as a hypergraph — where each relationship connects multiple dimensions simultaneously — you can ask questions that would be impossible with flat document search or traditional knowledge graphs:
 
-5. **Visualize** — Interactive dashboards and supply chain maps let you explore companies, compare claims, and spot patterns.
+**Supply Chain Intelligence**
+- *"Which Tier 1 suppliers claim Scope 3 reductions but have upstream suppliers with increasing emissions?"*
+- *"Which suppliers appear in 5+ OEM supply chains and have weak credibility scores?"*
+- *"Trace the emissions claims from raw materials through Tier 3 → Tier 1 → OEM for a specific component"*
+
+**Cross-Company Benchmarking**
+- *"How does Tata's emissions trajectory compare to BMW's, with supporting evidence from both supply chains?"*
+- *"Which companies in the automotive sector have the highest ratio of contradicting evidence to claims?"*
+- *"Rank all OEMs by the percentage of their claims that are backed by third-party verification"*
+
+**Greenwashing Detection**
+- *"Company A says they source 100% renewable energy — does their supplier's report agree?"*
+- *"Find all net-zero commitments that lack a baseline year, methodology, or interim targets"*
+- *"Which companies increased their emissions while simultaneously announcing carbon neutrality?"*
+
+**Regulatory Gap Analysis**
+- *"Which CSRD E1 datapoints have zero coverage across these 50 companies?"*
+- *"Map all Tata claims to their corresponding ESRS disclosure requirements — where are the gaps?"*
+- *"Which companies meet TCFD recommendations for climate risk disclosure, and which only partially comply?"*
+
+These queries work because of two things no LLM or general-purpose AI can replicate:
+
+1. **A curated knowledge base built from scratch** — every data point extracted, validated, and structured from hundreds of sustainability reports. LLMs can summarize a single report, but they can't cross-reference a company's Scope 3 claims against what their suppliers actually report — because they don't have the structured relationships between them.
+
+2. **Hypergraph structure** — a single hyperedge connects company + topic + evidence + regulatory framework + supply chain context simultaneously. You don't search documents — you traverse relationships across the entire supply chain.
 
 ---
 
@@ -135,22 +164,25 @@ The Discourse Graph turns structured data into intelligence. It transforms extra
 We apply this to corporate sustainability. Every claim a company makes — every net-zero target, every emissions reduction assertion — gets extracted as an atomic element. Each claim is linked to supporting and contradicting evidence from across the knowledge base. The ratio between supporting and contradicting evidence, combined with credibility scoring, produces an argument strength assessment and a greenwashing risk score.
 
 ```
-     ┌─────────────────────┐
-     │       Claim         │  "Company X targets net-zero by 2050"
-     └──────────┬──────────┘
-                │
-       ┌────────┴────────┐
-       │                 │
-  ┌────▼─────┐    ┌──────▼──────┐
-  │Supporting │    │Contradicting│
-  │ Evidence  │    │  Evidence   │
-  └────┬─────┘    └──────┬──────┘
-       │                 │
-       └────────┬────────┘
-                │
-       ┌────────▼────────┐
-       │    Argument     │  Strength + Greenwashing Risk
-       └─────────────────┘
+  ┌──────────────────────────────────────────────────────┐
+  │  Claim: "Tata Motors targets net-zero by 2040"       │
+  │  Credibility: 0.28  |  Greenwashing Risk: 52%        │
+  └──────────────────┬───────────────────────────────────┘
+                     │
+        ┌────────────┴────────────┐
+        │                         │
+   ┌────▼──────┐          ┌───────▼───────┐
+   │ Supporting │          │ Contradicting │
+   │  Evidence  │          │   Evidence    │
+   │            │          │               │
+   │ • Annual   │          │ • Subsidiary  │
+   │   report   │          │   targets     │
+   │   2023     │          │   2039, 2045  │
+   └────────────┘          └───────────────┘
+
+  Why high risk? Three different net-zero dates
+  across Tata parent and divisions — 2039, 2040, 2045.
+  The discourse graph catches this automatically.
 ```
 
 ### ESG Theme Coverage
@@ -241,16 +273,6 @@ Phase 7 📋  Public API & Integrations
 
 ---
 
-## Tech Stack
-
-- **Frontend** — React 18, TypeScript, Tailwind CSS
-- **Backend** — PostgreSQL (Supabase), FastAPI
-- **Intelligence** — Python, scikit-learn, PyTorch (contrastive MLP)
-- **Extraction** — Docling, pdfplumber, Ollama (local LLM)
-- **Search** — TF-IDF + semantic embeddings, hybrid retrieval
-- **Visualization** — D3.js, interactive HTML
-
----
 
 ## Get Involved
 
