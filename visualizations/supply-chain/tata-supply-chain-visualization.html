@@ -321,15 +321,16 @@
                     const isOuter = d.ring === 2; // External suppliers = circles
 
                     if (isOuter) {
-                        // Circle for external suppliers
+                        // Circle for external suppliers — text below, not inside
                         const r = circleScale(d.mentions || 1);
                         el.append('circle').attr('r', r).attr('fill', tc.fill).attr('stroke', tc.border).attr('stroke-width', 2);
-                        el.append('text').attr('text-anchor', 'middle').attr('dy', d.mentions ? -3 : 2)
-                            .attr('font-size', r > 30 ? 9 : 8).attr('font-weight', 600).attr('fill', '#333')
-                            .text(d.name.length > 14 ? d.name.slice(0,12) + '..' : d.name);
+                        el.append('text').attr('text-anchor', 'middle').attr('dy', r + 14)
+                            .attr('font-size', 11).attr('font-weight', 600).attr('fill', tc.border)
+                            .text(d.name);
                         if (d.mentions) {
-                            el.append('text').attr('text-anchor', 'middle').attr('dy', 10)
-                                .attr('font-size', 7).attr('fill', '#666').text(d.mentions + ' mentions');
+                            el.append('text').attr('text-anchor', 'middle').attr('dy', r + 28)
+                                .attr('font-size', 10).attr('fill', tc.border).attr('opacity', 0.7)
+                                .text(d.mentions + ' mentions');
                         }
                     } else {
                         // Rectangle for Tata Group + JV nodes
