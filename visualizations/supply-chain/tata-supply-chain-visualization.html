@@ -6,8 +6,6 @@
     <title>Tata Motors — Supply Chain & Hypergraph Claims</title>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/reactflow@11/dist/umd/index.js"></script>
-    <link href="https://unpkg.com/reactflow@11/dist/style.css" rel="stylesheet">
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -46,10 +44,6 @@
 
     <script type="text/babel" data-presets="react">
         const { useState, useCallback, useMemo, useRef, useEffect } = React;
-        const RF = window.ReactFlow;
-        const ReactFlowComp = RF.default;
-        const { Controls, Background, MiniMap, Handle, Position, MarkerType, useNodesState, useEdgesState } = RF;
-
         // ── DATA ──────────────────────────────────────────────
 
         const suppliers = [
@@ -155,79 +149,177 @@
               members: ['tata', 'f_cdp', 'e_ar2024'], detail: 'CDP participation. Framework membership confirmed.' },
         ];
 
-        // ── SUPPLY CHAIN VIEW ─────────────────────────────────
+        // ── SUPPLY CHAIN VIEW (D3) ────────────────────────────
 
         const TIER_COLORS = {
-            'Tata': { bg: '#e8f5e9', border: '#4caf50' },
-            'Tata Group': { bg: '#e3f2fd', border: '#1565C0' },
-            'Joint Venture': { bg: '#fff3e0', border: '#ef6c00' },
-            'Tier 1': { bg: '#f1f8e9', border: '#558b2f' },
-            'Technology': { bg: '#f3e5f5', border: '#9c27b0' },
-            'Battery': { bg: '#fce4ec', border: '#c62828' },
-            'Assurance': { bg: '#e0f2f1', border: '#00695c' },
-            'Financial': { bg: '#f5f5f5', border: '#616161' },
+            'Tata': { bg: '#e8f5e9', border: '#4caf50', fill: '#c8e6c9' },
+            'Tata Group': { bg: '#e3f2fd', border: '#1565C0', fill: '#bbdefb' },
+            'Joint Venture': { bg: '#fff3e0', border: '#ef6c00', fill: '#ffe0b2' },
+            'Tier 1': { bg: '#f1f8e9', border: '#558b2f', fill: '#dcedc8' },
+            'Technology': { bg: '#f3e5f5', border: '#9c27b0', fill: '#e1bee7' },
+            'Battery': { bg: '#fce4ec', border: '#c62828', fill: '#f8bbd0' },
+            'Assurance': { bg: '#e0f2f1', border: '#00695c', fill: '#b2dfdb' },
+            'Financial': { bg: '#f5f5f5', border: '#616161', fill: '#e0e0e0' },
         };
 
-        const SupplierNode = ({ data }) => {
-            const c = TIER_COLORS[data.tier] || TIER_COLORS['Tier 1'];
-            const isTata = data.tier === 'Tata';
-            const isGroup = data.tier === 'Tata Group';
-            return React.createElement('div', { style: { padding: isTata ? '14px' : '8px 10px', borderRadius: '8px', border: `${isTata ? 3 : isGroup ? 2.5 : 2}px solid ${c.border}`, background: c.bg, minWidth: isTata ? 220 : isGroup ? 140 : 130, fontSize: isTata ? 16 : 11, fontWeight: isTata ? 'bold' : 'normal', textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' } },
-                React.createElement(Handle, { type: 'target', position: Position.Bottom, id: 'in', style: { background: '#555', width: 6, height: 6 } }),
-                React.createElement('div', { style: { fontWeight: 'bold', marginBottom: 2, fontSize: isTata ? 18 : isGroup ? 12 : 11 } }, data.label),
-                !isTata && React.createElement('div', { style: { fontSize: 9, color: '#888' } }, data.category),
-                data.mentions && React.createElement('div', { style: { fontSize: 9, color: '#4caf50', marginTop: 2, fontWeight: 600 } }, data.mentions + ' KB mentions'),
-                React.createElement(Handle, { type: 'source', position: Position.Top, id: 'out', style: { background: '#555', width: 6, height: 6 } })
-            );
+        // ESG topics per supplier (for detail panel)
+        const supplierESG = {
+            autocomp: ['EV transition', 'Battery packs', 'Supply chain'],
+            agratas: ['Battery manufacturing', 'Net zero', 'Circular economy'],
+            tata_steel: ['Scope 1 emissions', 'Decarbonization', 'Circular economy'],
+            tata_power: ['Renewable energy', 'EV charging', 'Net zero'],
+            tata_chem: ['Battery materials', 'Circular economy'],
+            tata_tech: ['Digital transformation', 'Engineering services'],
+            tcs: ['IT sustainability', 'Digital transformation'],
+            tata_elxsi: ['Connected vehicles', 'Automotive software'],
+            cummins: ['Diesel engines', 'Emissions standards'],
+            stellantis: ['Joint production', 'Emissions reporting'],
+            hitachi: ['Construction emissions', 'Energy efficiency'],
+            gotion: ['Battery technology', 'EV supply chain'],
+            nvidia: ['AI/ADAS', 'Autonomous driving'],
+            siemens: ['Digital twin', 'Industry 4.0'],
+            prestolite: ['Electric motors', 'Powertrain'],
+            magna: ['Body/chassis', 'Shared supplier (BMW, Ferrari)'],
+            bosch: ['Sensors', 'Powertrain components'],
+            zf: ['Suspension', 'Brake assemblies'],
+            continental: ['Electronics', 'Brake calipers'],
+            denso: ['HVAC', 'Thermal management'],
+            motherson: ['Wiring harnesses', 'Mirrors'],
+            octillion: ['Li-ion battery packs', 'Curvv EV'],
+            envision: ['Battery cells', 'Global supply'],
+            dnv: ['ESG assurance', 'Non-financial verification'],
+            bnp: ['Automotive financing', 'Green bonds'],
         };
 
-        const SupplyChainView = () => {
-            const cx = 550, cy = 420;
-            const radii = [200, 380, 540]; // inner, middle, outer rings
-            const ringSuppliers = [0, 1, 2].map(r => suppliers.filter(s => s.ring === r));
+        // Sub-cluster angular ordering within each ring
+        const ringOrder = {
+            0: ['autocomp', 'agratas', 'tata_chem', 'tata_steel', 'tata_power', 'tata_tech', 'tcs', 'tata_elxsi'], // materials→EV→digital
+            1: ['cummins', 'stellantis', 'hitachi', 'prestolite', 'gotion', 'nvidia', 'siemens'], // JV cluster then tech
+            2: ['magna', 'bosch', 'zf', 'continental', 'denso', 'motherson', 'octillion', 'envision', 'dnv', 'bnp'], // Tier1→Battery→Other
+        };
 
-            const initialNodes = [
-                { id: 'tata', type: 'supplierNode', position: { x: cx - 110, y: cy - 30 }, data: { label: 'Tata Motors Limited', tier: 'Tata', category: 'OEM (Tier 0)' } },
-                { id: 'jlr', type: 'supplierNode', position: { x: cx + 120, y: cy + 60 }, data: { label: 'Jaguar Land Rover', tier: 'Tata Group', category: 'Subsidiary OEM' } },
-                ...suppliers.map(s => {
-                    const ring = ringSuppliers[s.ring];
-                    const idx = ring.indexOf(s);
-                    const a = (2 * Math.PI * idx) / ring.length - Math.PI / 2;
+        const SupplyChainView = ({ onSupplierClick, scFilter }) => {
+            const svgRef = useRef(null);
+
+            useEffect(() => {
+                const width = window.innerWidth, height = window.innerHeight - 60;
+                const cx = width / 2, cy = height / 2 + 10;
+                const radii = [140, 280, 410];
+                const ringLabels = ['Tata Group', 'Joint Ventures & Partners', 'External Suppliers'];
+
+                const svg = d3.select(svgRef.current).attr('width', width).attr('height', height);
+                svg.selectAll('*').remove();
+                const g = svg.append('g');
+                svg.call(d3.zoom().scaleExtent([0.3, 3]).on('zoom', e => g.attr('transform', e.transform)));
+
+                // Mention scale for node sizing
+                const maxMentions = Math.max(...suppliers.map(s => s.mentions || 1));
+                const sizeScale = d3.scaleSqrt().domain([0, maxMentions]).range([20, 48]);
+
+                // 1. Ring backgrounds with labels
+                const ringG = g.append('g').attr('class', 'rings');
+                radii.forEach((r, i) => {
+                    ringG.append('circle').attr('cx', cx).attr('cy', cy).attr('r', r + 55)
+                        .attr('fill', 'none').attr('stroke', '#e0e0e0').attr('stroke-width', 1).attr('stroke-dasharray', '4,4');
+                    // Arc label
+                    const labelR = r + 62;
+                    const labelAngle = -Math.PI / 2 - 0.35;
+                    ringG.append('text')
+                        .attr('x', cx + labelR * Math.cos(labelAngle)).attr('y', cy + labelR * Math.sin(labelAngle))
+                        .attr('text-anchor', 'start').attr('font-size', 11).attr('fill', '#999').attr('font-weight', 500)
+                        .attr('transform', `rotate(${(labelAngle * 180/Math.PI) + 90}, ${cx + labelR * Math.cos(labelAngle)}, ${cy + labelR * Math.sin(labelAngle)})`)
+                        .text(ringLabels[i]);
+                });
+
+                // 2. Edges (behind nodes) — only show for visible suppliers
+                const edgeG = g.append('g').attr('class', 'edges');
+                const nodeG = g.append('g').attr('class', 'nodes');
+
+                // Build positioned supplier data
+                const positioned = suppliers.map(s => {
+                    const order = ringOrder[s.ring];
+                    const idx = order.indexOf(s.id);
+                    const total = order.length;
+                    const a = (2 * Math.PI * idx) / total - Math.PI / 2;
                     const r = radii[s.ring];
-                    const offsetX = s.ring === 2 ? -65 : -70;
-                    return { id: s.id, type: 'supplierNode', position: { x: cx + r * Math.cos(a) + offsetX, y: cy + r * Math.sin(a) - 20 }, data: { label: s.name, tier: s.tier, category: s.category, mentions: s.mentions } };
-                })
-            ];
+                    return { ...s, x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), angle: a };
+                });
 
-            const edgeStyle = (s) => {
-                const tc = TIER_COLORS[s.tier] || TIER_COLORS['Tier 1'];
-                const base = { stroke: tc.border, strokeWidth: s.tier === 'Tata Group' ? 2.5 : 1.5 };
-                if (s.tier === 'Technology') base.strokeDasharray = '5,5';
-                if (s.tier === 'Joint Venture') base.strokeDasharray = '8,4';
-                if (s.tier === 'Assurance' || s.tier === 'Financial') { base.strokeWidth = 1; base.strokeDasharray = '3,3'; }
-                return base;
-            };
+                // Filter
+                const visible = scFilter ? positioned.filter(s => s.tier === scFilter) : positioned;
+                const visibleIds = new Set(visible.map(s => s.id));
 
-            const initialEdges = [
-                // JLR connects to Tata
-                { id: 'e-jlr', source: 'tata', target: 'jlr', type: 'smoothstep', style: { stroke: '#1565C0', strokeWidth: 3 }, label: 'Subsidiary', labelStyle: { fontSize: 9, fill: '#1565C0' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#1565C0' } },
-                // All suppliers connect to Tata (or JLR for specific ones)
-                ...suppliers.map(s => {
-                    const style = edgeStyle(s);
-                    return { id: `e-${s.id}`, source: 'tata', target: s.id, type: 'smoothstep', style, markerEnd: { type: MarkerType.ArrowClosed, color: style.stroke } };
-                })
-            ];
+                // Draw edges
+                edgeG.selectAll('line').data(visible).enter().append('line')
+                    .attr('x1', cx).attr('y1', cy).attr('x2', d => d.x).attr('y2', d => d.y)
+                    .attr('stroke', d => (TIER_COLORS[d.tier] || TIER_COLORS['Tier 1']).border)
+                    .attr('stroke-width', d => d.tier === 'Tata Group' ? 1.5 : 1)
+                    .attr('stroke-opacity', 0.3)
+                    .attr('stroke-dasharray', d => {
+                        if (d.tier === 'Technology') return '5,5';
+                        if (d.tier === 'Joint Venture') return '8,4';
+                        if (d.tier === 'Assurance' || d.tier === 'Financial') return '3,3';
+                        return null;
+                    });
 
-            const [nodes,,onNC] = useNodesState(initialNodes);
-            const [edges,,onEC] = useEdgesState(initialEdges);
+                // 3. Center node (Tata Motors)
+                const tataG = nodeG.append('g').attr('transform', `translate(${cx},${cy})`).style('cursor', 'pointer');
+                tataG.append('circle').attr('r', 36).attr('fill', '#4caf50').attr('stroke', '#fff').attr('stroke-width', 3);
+                tataG.append('text').attr('text-anchor', 'middle').attr('dy', -4).attr('font-size', 13).attr('font-weight', 700).attr('fill', '#fff').text('Tata Motors');
+                tataG.append('text').attr('text-anchor', 'middle').attr('dy', 12).attr('font-size', 9).attr('fill', '#e8f5e9').text('OEM (Tier 0)');
 
-            return React.createElement('div', { style: { width: '100%', height: '100%' } },
-                React.createElement(ReactFlowComp, { nodes, edges, onNodesChange: onNC, onEdgesChange: onEC, nodeTypes: { supplierNode: SupplierNode }, fitView: true, fitViewOptions: { padding: 0.15 }, attributionPosition: 'bottom-left' },
-                    React.createElement(Background, { variant: 'dots', gap: 12, size: 1 }),
-                    React.createElement(Controls, null),
-                    React.createElement(MiniMap, { nodeColor: n => (TIER_COLORS[n.data?.tier] || TIER_COLORS['Tier 1']).border, style: { height: 100 } })
-                )
-            );
+                // JLR near center
+                const jlrX = cx + 80, jlrY = cy + 60;
+                const jlrG = nodeG.append('g').attr('transform', `translate(${jlrX},${jlrY})`).style('cursor', 'pointer');
+                jlrG.append('circle').attr('r', 24).attr('fill', '#1565C0').attr('stroke', '#fff').attr('stroke-width', 2);
+                jlrG.append('text').attr('text-anchor', 'middle').attr('dy', 1).attr('font-size', 8).attr('font-weight', 600).attr('fill', '#fff').text('JLR');
+                jlrG.append('text').attr('text-anchor', 'middle').attr('dy', 36).attr('font-size', 9).attr('fill', '#666').text('Jaguar Land Rover');
+                // JLR edge
+                edgeG.append('line').attr('x1', cx).attr('y1', cy).attr('x2', jlrX).attr('y2', jlrY)
+                    .attr('stroke', '#1565C0').attr('stroke-width', 2.5).attr('stroke-opacity', 0.5);
+
+                // 4. Supplier nodes — sized by mentions
+                const supplierGs = nodeG.selectAll('g.supplier').data(visible).enter().append('g')
+                    .attr('class', 'supplier')
+                    .attr('transform', d => `translate(${d.x},${d.y})`)
+                    .style('cursor', 'pointer')
+                    .on('click', (event, d) => onSupplierClick(d))
+                    .on('mouseover', function(event, d) {
+                        // Highlight this node + its edge, dim others
+                        supplierGs.attr('opacity', s => s.id === d.id ? 1 : 0.25);
+                        edgeG.selectAll('line').attr('stroke-opacity', (e, i, els) => {
+                            const el = d3.select(els[i]);
+                            return (el.attr('x2') == d.x && el.attr('y2') == d.y) ? 0.8 : 0.08;
+                        });
+                    })
+                    .on('mouseout', function() {
+                        supplierGs.attr('opacity', 1);
+                        edgeG.selectAll('line').attr('stroke-opacity', 0.3);
+                    });
+
+                supplierGs.each(function(d) {
+                    const el = d3.select(this);
+                    const r = sizeScale(d.mentions || 1);
+                    const tc = TIER_COLORS[d.tier] || TIER_COLORS['Tier 1'];
+                    el.append('circle').attr('r', r).attr('fill', tc.fill).attr('stroke', tc.border).attr('stroke-width', 2);
+                    // Name
+                    el.append('text').attr('text-anchor', 'middle').attr('dy', d.mentions > 30 ? -2 : 1)
+                        .attr('font-size', r > 28 ? 10 : 8).attr('font-weight', 600).attr('fill', '#333')
+                        .text(d.name.length > 16 ? d.name.slice(0,14) + '..' : d.name);
+                    // Mentions badge
+                    if (d.mentions) {
+                        el.append('text').attr('text-anchor', 'middle').attr('dy', d.mentions > 30 ? 11 : 12)
+                            .attr('font-size', 8).attr('fill', '#666').text(d.mentions + ' mentions');
+                    }
+                    // Tier label below
+                    el.append('text').attr('text-anchor', 'middle').attr('dy', r + 14)
+                        .attr('font-size', 7).attr('fill', tc.border).attr('font-weight', 500).text(d.tier);
+                });
+
+                return () => { svg.selectAll('*').remove(); };
+            }, [scFilter]);
+
+            return React.createElement('svg', { ref: svgRef, style: { width: '100%', height: '100%' } });
         };
 
         // ── HYPERGRAPH VIEW ───────────────────────────────────
@@ -376,8 +468,10 @@
         const App = () => {
             const [mode, setMode] = useState('hypergraph');
             const [detail, setDetail] = useState(null);
+            const [scFilter, setScFilter] = useState(null);
 
             const onClaimClick = useCallback(claim => setDetail(claim), []);
+            const onSupplierClick = useCallback(s => setDetail({ type: 'supplier', ...s }), []);
 
             const riskClass = score => score >= 50 ? 'risk-high' : score >= 35 ? 'risk-medium' : 'risk-low';
 
@@ -389,8 +483,8 @@
                         React.createElement('div', { className: 'subtitle' }, mode === 'supply-chain' ? '25 suppliers | 3 rings | 8 Tata Group + 5 JV + 12 external' : '135 claims | 12 contradictions | 80 hyperedges | Mean credibility 0.25')
                     ),
                     React.createElement('div', { className: 'mode-toggle' },
-                        React.createElement('button', { className: `mode-btn${mode === 'supply-chain' ? ' active' : ''}`, onClick: () => { setMode('supply-chain'); setDetail(null); } }, 'Supply Chain'),
-                        React.createElement('button', { className: `mode-btn${mode === 'hypergraph' ? ' active' : ''}`, onClick: () => setMode('hypergraph') }, 'Hypergraph Claims')
+                        React.createElement('button', { className: `mode-btn${mode === 'supply-chain' ? ' active' : ''}`, onClick: () => { setMode('supply-chain'); setDetail(null); setScFilter(null); } }, 'Supply Chain'),
+                        React.createElement('button', { className: `mode-btn${mode === 'hypergraph' ? ' active' : ''}`, onClick: () => { setMode('hypergraph'); setDetail(null); } }, 'Hypergraph Claims')
                     )
                 ),
 
@@ -417,27 +511,82 @@
                     )
                 ),
 
-                // Detail panel
+                // Detail panel (claims or supplier)
                 detail && React.createElement('div', { className: 'detail-panel', style: { display: 'block' } },
                     React.createElement('button', { className: 'close-btn', onClick: () => setDetail(null) }, '\u00d7'),
-                    React.createElement('h3', null, detail.text),
-                    React.createElement('div', { style: { marginBottom: 6 } },
-                        React.createElement('span', { className: `risk-badge ${riskClass(detail.riskScore)}` }, `${detail.riskScore}% risk`)
-                    ),
-                    React.createElement('div', { style: { marginBottom: 4 } },
-                        React.createElement('strong', null, 'Credibility: '), detail.credibility.toFixed(2)
-                    ),
-                    React.createElement('div', { style: { marginBottom: 4 } },
-                        React.createElement('strong', null, 'Category: '),
-                        React.createElement('span', { style: { color: COLORS[detail.category] } }, detail.category.replace('_', ' '))
-                    ),
-                    React.createElement('div', { style: { marginBottom: 4 } },
-                        React.createElement('strong', null, 'Connected nodes: '), detail.members.length
-                    ),
-                    React.createElement('p', { style: { marginTop: 8, color: '#555', lineHeight: 1.5 } }, detail.detail)
+                    detail.type === 'supplier' ? React.createElement(React.Fragment, null,
+                        React.createElement('h3', null, detail.name),
+                        React.createElement('div', { style: { marginBottom: 6 } },
+                            React.createElement('span', { style: { display: 'inline-block', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: (TIER_COLORS[detail.tier] || TIER_COLORS['Tier 1']).fill, color: (TIER_COLORS[detail.tier] || TIER_COLORS['Tier 1']).border } }, detail.tier)
+                        ),
+                        React.createElement('div', { style: { marginBottom: 4 } }, React.createElement('strong', null, 'Category: '), detail.category),
+                        React.createElement('div', { style: { marginBottom: 4 } }, React.createElement('strong', null, 'KB Mentions: '), detail.mentions || 'None'),
+                        React.createElement('div', { style: { marginBottom: 4 } }, React.createElement('strong', null, 'Ring: '), ['Inner (Tata Group)', 'Middle (JV/Partners)', 'Outer (External)'][detail.ring]),
+                        React.createElement('div', { style: { marginTop: 8 } },
+                            React.createElement('strong', null, 'ESG Topics:'),
+                            React.createElement('div', { style: { marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 } },
+                                (supplierESG[detail.id] || ['No data']).map(t =>
+                                    React.createElement('span', { key: t, style: { padding: '2px 6px', borderRadius: 8, fontSize: 10, background: '#f0f0f0', color: '#555' } }, t)
+                                )
+                            )
+                        )
+                    ) : React.createElement(React.Fragment, null,
+                        React.createElement('h3', null, detail.text),
+                        React.createElement('div', { style: { marginBottom: 6 } },
+                            React.createElement('span', { className: `risk-badge ${riskClass(detail.riskScore)}` }, `${detail.riskScore}% risk`)
+                        ),
+                        React.createElement('div', { style: { marginBottom: 4 } }, React.createElement('strong', null, 'Credibility: '), detail.credibility.toFixed(2)),
+                        React.createElement('div', { style: { marginBottom: 4 } },
+                            React.createElement('strong', null, 'Category: '),
+                            React.createElement('span', { style: { color: COLORS[detail.category] } }, detail.category.replace('_', ' '))
+                        ),
+                        React.createElement('div', { style: { marginBottom: 4 } }, React.createElement('strong', null, 'Connected nodes: '), detail.members.length),
+                        React.createElement('p', { style: { marginTop: 8, color: '#555', lineHeight: 1.5 } }, detail.detail)
+                    )
                 ),
 
-                // Legend
+                // Supply chain tier filter
+                mode === 'supply-chain' && React.createElement('div', { style: { position: 'absolute', top: 68, left: '50%', transform: 'translateX(-50%)', zIndex: 10, display: 'flex', gap: 6 } },
+                    [{ key: null, label: 'All', color: '#666' },
+                     { key: 'Tata Group', label: 'Tata Group', color: TIER_COLORS['Tata Group'].border },
+                     { key: 'Joint Venture', label: 'JVs', color: TIER_COLORS['Joint Venture'].border },
+                     { key: 'Tier 1', label: 'Tier 1', color: TIER_COLORS['Tier 1'].border },
+                     { key: 'Battery', label: 'Battery', color: TIER_COLORS['Battery'].border },
+                     { key: 'Technology', label: 'Technology', color: TIER_COLORS['Technology'].border },
+                    ].map(f => React.createElement('button', {
+                        key: f.key || 'all', className: `filter-btn${scFilter === f.key ? ' active' : ''}`,
+                        style: { color: f.color, borderColor: scFilter === f.key ? f.color : '#ddd' },
+                        onClick: () => setScFilter(f.key)
+                    }, f.label))
+                ),
+
+                // Supply chain legend
+                mode === 'supply-chain' && React.createElement('div', { className: 'legend' },
+                    React.createElement('h4', null, 'Tier Colors'),
+                    [['Tata Group', TIER_COLORS['Tata Group']],
+                     ['Joint Venture', TIER_COLORS['Joint Venture']],
+                     ['Tier 1', TIER_COLORS['Tier 1']],
+                     ['Technology', TIER_COLORS['Technology']],
+                     ['Battery', TIER_COLORS['Battery']],
+                     ['Assurance', TIER_COLORS['Assurance']],
+                     ['Financial', TIER_COLORS['Financial']],
+                    ].map(([label, tc]) =>
+                        React.createElement('div', { key: label, className: 'legend-item' },
+                            React.createElement('div', { className: 'legend-swatch', style: { background: tc.fill, border: `2px solid ${tc.border}` } }),
+                            React.createElement('span', null, label)
+                        )
+                    ),
+                    React.createElement('h4', { style: { marginTop: 8 } }, 'Node Size'),
+                    React.createElement('div', { style: { fontSize: 10, color: '#888' } }, 'Scaled by KB mention count'),
+                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 } },
+                        React.createElement('div', { style: { width: 12, height: 12, borderRadius: '50%', background: '#ddd', border: '1px solid #bbb' } }),
+                        React.createElement('span', { style: { fontSize: 9 } }, 'Few'),
+                        React.createElement('div', { style: { width: 24, height: 24, borderRadius: '50%', background: '#ddd', border: '1px solid #bbb' } }),
+                        React.createElement('span', { style: { fontSize: 9 } }, 'Many')
+                    )
+                ),
+
+                // Hypergraph legend
                 mode === 'hypergraph' && React.createElement('div', { className: 'legend' },
                     React.createElement('h4', null, 'Node Types'),
                     [['Company', COLORS.company, '14px', 'rect'],
@@ -466,7 +615,7 @@
                 // Main view
                 React.createElement('div', { style: { position: 'absolute', top: 60, left: 0, right: 0, bottom: 0 } },
                     mode === 'supply-chain'
-                        ? React.createElement(SupplyChainView, null)
+                        ? React.createElement(SupplyChainView, { onSupplierClick, scFilter })
                         : React.createElement(HypergraphView, { onClaimClick })
                 )
             );
