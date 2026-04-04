@@ -148,11 +148,10 @@ GoCarbonTracker uses a **domain-specific hypergraph** — where a single hypered
 
 This structure enables:
 
-- **Hybrid Search** — Semantic + keyword matching for accurate retrieval
-- **Company Stratification** — Equal representation per company in comparative queries
-- **Data-Dense Boosting** — Emissions tables and quantitative data weighted higher than narrative
-- **Quality-Gated Fallback** — Automatic alternative search strategies when primary results are weak
-- **Contrastive Retrieval** — A learned MLP scorer that uses graph-structural signals (Leiden communities, HITS authority, Katz centrality) to assess claim plausibility
+- **Smart search** — combines meaning-based and keyword search so you find the right data even when companies use different terminology
+- **Fair comparison** — ensures every company gets equal representation in comparative queries, so large companies don't drown out smaller ones
+- **Numbers over narrative** — emissions tables and quantitative data are prioritized over marketing language
+- **Learned scoring** — a model trained on the knowledge base learns which claims are plausible and which are suspicious, using the structure of the graph itself
 
 ---
 
