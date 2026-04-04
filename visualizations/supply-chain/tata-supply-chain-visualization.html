@@ -219,7 +219,7 @@
 
                 // 1. Ring zone backgrounds (annulus bands) + dashed circles + labels
                 const ringG = g.append('g').attr('class', 'rings');
-                const bandColors = ['rgba(59,130,246,0.06)', 'rgba(249,115,22,0.06)', 'rgba(34,197,94,0.06)'];
+                const bandColors = ['rgba(59,130,246,0.12)', 'rgba(249,115,22,0.12)', 'rgba(34,197,94,0.12)'];
                 const bandInner = [50, radii[0] + 60, radii[1] + 60]; // inner radius of each band
                 const bandOuter = [radii[0] + 60, radii[1] + 60, radii[2] + 60]; // outer radius
                 const arcGen = d3.arc().startAngle(0).endAngle(2 * Math.PI);
