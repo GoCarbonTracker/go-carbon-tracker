@@ -315,34 +315,38 @@
 
                 const circleScale = d3.scaleSqrt().domain([0, maxMentions]).range([24, 44]);
 
+                const rectH = 54; // taller to fit 3 lines
+
                 supplierGs.each(function(d) {
                     const el = d3.select(this);
                     const tc = TIER_COLORS[d.tier] || TIER_COLORS['Tier 1'];
-                    const isOuter = d.ring === 2; // External suppliers = circles
+                    const isOuter = d.ring === 2;
+                    const cat = d.category.length > 24 ? d.category.slice(0,22) + '..' : d.category;
 
                     if (isOuter) {
-                        // Circle for external suppliers — text below, not inside
+                        // Circle — labels below
                         const r = circleScale(d.mentions || 1);
                         el.append('circle').attr('r', r).attr('fill', tc.fill).attr('stroke', tc.border).attr('stroke-width', 2);
                         el.append('text').attr('text-anchor', 'middle').attr('dy', r + 14)
-                            .attr('font-size', 11).attr('font-weight', 600).attr('fill', tc.border)
-                            .text(d.name);
+                            .attr('font-size', 11).attr('font-weight', 600).attr('fill', tc.border).text(d.name);
+                        el.append('text').attr('text-anchor', 'middle').attr('dy', r + 27)
+                            .attr('font-size', 9).attr('fill', '#888').text(cat);
                         if (d.mentions) {
-                            el.append('text').attr('text-anchor', 'middle').attr('dy', r + 28)
-                                .attr('font-size', 10).attr('fill', tc.border).attr('opacity', 0.7)
-                                .text(d.mentions + ' mentions');
+                            el.append('text').attr('text-anchor', 'middle').attr('dy', r + 40)
+                                .attr('font-size', 9).attr('fill', tc.border).attr('opacity', 0.7).text(d.mentions + ' mentions');
                         }
                     } else {
-                        // Rectangle for Tata Group + JV nodes
+                        // Rectangle — 3 lines inside: name, category, mentions
                         const w = widthScale(d.mentions || 1);
-                        el.append('rect').attr('width', w).attr('height', nodeH).attr('x', -w/2).attr('y', -nodeH/2)
+                        el.append('rect').attr('width', w).attr('height', rectH).attr('x', -w/2).attr('y', -rectH/2)
                             .attr('rx', 6).attr('fill', tc.fill).attr('stroke', tc.border).attr('stroke-width', 2);
-                        el.append('text').attr('text-anchor', 'middle').attr('dy', d.mentions ? -3 : 3)
-                            .attr('font-size', 10).attr('font-weight', 600).attr('fill', '#333')
-                            .text(d.name);
+                        el.append('text').attr('text-anchor', 'middle').attr('dy', -10)
+                            .attr('font-size', 10).attr('font-weight', 600).attr('fill', '#333').text(d.name);
+                        el.append('text').attr('text-anchor', 'middle').attr('dy', 4)
+                            .attr('font-size', 8).attr('fill', '#666').text(cat);
                         if (d.mentions) {
-                            el.append('text').attr('text-anchor', 'middle').attr('dy', 11)
-                                .attr('font-size', 8).attr('fill', '#666').text(d.mentions + ' mentions');
+                            el.append('text').attr('text-anchor', 'middle').attr('dy', 18)
+                                .attr('font-size', 8).attr('fill', '#888').text(d.mentions + ' mentions');
                         }
                     }
                 });
