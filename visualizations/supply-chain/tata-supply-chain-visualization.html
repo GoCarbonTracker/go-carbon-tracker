@@ -47,34 +47,35 @@
         // ── DATA ──────────────────────────────────────────────
 
         const suppliers = [
-            // Tata Group (inner ring) — 8
+            // Ring 0: OEM / Tata Group — 2 (Tata AutoComp stays here as core EV unit)
             { id: 'autocomp', name: 'Tata AutoComp', tier: 'Tata Group', category: 'EV components, BMS, motors', mentions: 72, ring: 0 },
-            { id: 'agratas', name: 'Agratas', tier: 'Tata Group', category: 'Battery cells (40GWh)', mentions: 18, ring: 0 },
-            { id: 'tata_steel', name: 'Tata Steel', tier: 'Tata Group', category: 'Steel supply', mentions: 39, ring: 0 },
-            { id: 'tata_power', name: 'Tata Power', tier: 'Tata Group', category: 'EV charging infra', mentions: 29, ring: 0 },
-            { id: 'tata_chem', name: 'Tata Chemicals', tier: 'Tata Group', category: 'Battery materials', mentions: 18, ring: 0 },
-            { id: 'tata_tech', name: 'Tata Technologies', tier: 'Tata Group', category: 'Engineering services', mentions: 173, ring: 0 },
-            { id: 'tcs', name: 'TCS', tier: 'Tata Group', category: 'IT, digital transformation', mentions: 28, ring: 0 },
-            { id: 'tata_elxsi', name: 'Tata Elxsi', tier: 'Tata Group', category: 'Automotive software', mentions: 6, ring: 0 },
-            // JV & Key Partners (middle ring) — 7
-            { id: 'cummins', name: 'Cummins', tier: 'Joint Venture', category: 'Diesel engines', mentions: 60, ring: 1 },
-            { id: 'stellantis', name: 'Fiat / Stellantis', tier: 'Joint Venture', category: 'Cars, engines, transmissions', mentions: 80, ring: 1 },
-            { id: 'hitachi', name: 'Hitachi', tier: 'Joint Venture', category: 'Construction machinery', mentions: 42, ring: 1 },
-            { id: 'gotion', name: 'Gotion Hi-Tech', tier: 'Joint Venture', category: 'Battery technology', mentions: 7, ring: 1 },
-            { id: 'nvidia', name: 'NVIDIA', tier: 'Technology', category: 'AI, ADAS, autonomous', mentions: 15, ring: 1 },
+            // Ring 1: Tier 1 — Mega Suppliers + JVs — 11
+            { id: 'bosch', name: 'Bosch', tier: 'Tier 1', category: 'Sensors, powertrain', mentions: null, ring: 1 },
+            { id: 'continental', name: 'Continental', tier: 'Tier 1', category: 'Brake calipers, electronics', mentions: 13, ring: 1 },
+            { id: 'zf', name: 'ZF', tier: 'Tier 1', category: 'Suspension, brakes', mentions: null, ring: 1 },
+            { id: 'denso', name: 'Denso', tier: 'Tier 1', category: 'HVAC, thermal', mentions: 3, ring: 1 },
+            { id: 'magna', name: 'Magna', tier: 'Tier 1', category: 'Body, chassis, seating', mentions: 5, ring: 1 },
+            { id: 'motherson', name: 'Motherson Sumi', tier: 'Tier 1', category: 'Wiring, bumpers, mirrors', mentions: null, ring: 1 },
+            { id: 'cummins', name: 'Cummins', tier: 'Joint Venture', category: 'Diesel engines (JV)', mentions: 60, ring: 1 },
+            { id: 'stellantis', name: 'Fiat / Stellantis', tier: 'Joint Venture', category: 'Cars, engines (JV)', mentions: 80, ring: 1 },
+            { id: 'hitachi', name: 'Hitachi', tier: 'Joint Venture', category: 'Construction machinery (JV)', mentions: 42, ring: 1 },
+            { id: 'prestolite', name: 'Prestolite Electric', tier: 'Joint Venture', category: 'Electric motors (JV)', mentions: 11, ring: 1 },
             { id: 'siemens', name: 'Siemens', tier: 'Technology', category: 'PLM, digital twin', mentions: 1, ring: 1 },
-            { id: 'prestolite', name: 'Prestolite Electric', tier: 'Joint Venture', category: 'Electric motors', mentions: 11, ring: 1 },
-            // External Suppliers (outer ring) — 10
-            { id: 'magna', name: 'Magna', tier: 'Tier 1', category: 'Body, chassis, seating', mentions: 5, ring: 2 },
-            { id: 'bosch', name: 'Bosch', tier: 'Tier 1', category: 'Sensors, powertrain', mentions: null, ring: 2 },
-            { id: 'zf', name: 'ZF', tier: 'Tier 1', category: 'Suspension, brakes', mentions: null, ring: 2 },
-            { id: 'continental', name: 'Continental', tier: 'Tier 1', category: 'Brake calipers, electronics', mentions: 13, ring: 2 },
-            { id: 'denso', name: 'Denso', tier: 'Tier 1', category: 'HVAC, thermal', mentions: 3, ring: 2 },
-            { id: 'motherson', name: 'Motherson Sumi', tier: 'Tier 1', category: 'Wiring, bumpers, mirrors', mentions: null, ring: 2 },
-            { id: 'octillion', name: 'Octillion Power', tier: 'Battery', category: 'Li-ion packs (Curvv EV)', mentions: null, ring: 2 },
+            // Ring 2: Battery Ecosystem — 4
+            { id: 'agratas', name: 'Agratas', tier: 'Battery', category: 'Battery cells (gigafactory)', mentions: 18, ring: 2 },
+            { id: 'gotion', name: 'Gotion Hi-Tech', tier: 'Battery', category: 'Battery technology (JV)', mentions: 7, ring: 2 },
             { id: 'envision', name: 'Envision AESC', tier: 'Battery', category: 'Battery cells', mentions: null, ring: 2 },
-            { id: 'dnv', name: 'DNV', tier: 'Assurance', category: 'ESG verification', mentions: 12, ring: 2 },
-            { id: 'bnp', name: 'BNP Paribas', tier: 'Financial', category: 'Automotive financing', mentions: 6, ring: 2 },
+            { id: 'octillion', name: 'Octillion Power', tier: 'Battery', category: 'Li-ion packs (Curvv EV)', mentions: null, ring: 2 },
+            // Ring 3: Technology + Services — 9
+            { id: 'nvidia', name: 'NVIDIA', tier: 'Technology', category: 'AI, ADAS, autonomous', mentions: 15, ring: 3 },
+            { id: 'tcs', name: 'TCS', tier: 'Technology', category: 'IT, digital transformation', mentions: 28, ring: 3 },
+            { id: 'tata_elxsi', name: 'Tata Elxsi', tier: 'Technology', category: 'Automotive software', mentions: 6, ring: 3 },
+            { id: 'tata_tech', name: 'Tata Technologies', tier: 'Technology', category: 'Engineering services', mentions: 173, ring: 3 },
+            { id: 'dnv', name: 'DNV', tier: 'Assurance', category: 'ESG verification', mentions: 12, ring: 3 },
+            { id: 'bnp', name: 'BNP Paribas', tier: 'Financial', category: 'Automotive financing', mentions: 6, ring: 3 },
+            { id: 'tata_steel', name: 'Tata Steel', tier: 'Tata Group', category: 'Steel supply', mentions: 39, ring: 3 },
+            { id: 'tata_power', name: 'Tata Power', tier: 'Tata Group', category: 'EV charging infra', mentions: 29, ring: 3 },
+            { id: 'tata_chem', name: 'Tata Chemicals', tier: 'Tata Group', category: 'Battery materials', mentions: 18, ring: 3 },
         ];
 
         const COLORS = {
@@ -193,9 +194,10 @@
 
         // Sub-cluster angular ordering within each ring
         const ringOrder = {
-            0: ['autocomp', 'agratas', 'tata_chem', 'tata_steel', 'tata_power', 'tata_tech', 'tcs', 'tata_elxsi'], // materials→EV→digital
-            1: ['cummins', 'stellantis', 'hitachi', 'prestolite', 'gotion', 'nvidia', 'siemens'], // JV cluster then tech
-            2: ['magna', 'bosch', 'zf', 'continental', 'denso', 'motherson', 'octillion', 'envision', 'dnv', 'bnp'], // Tier1→Battery→Other
+            0: ['autocomp'], // OEM core
+            1: ['bosch', 'continental', 'zf', 'denso', 'magna', 'motherson', 'cummins', 'stellantis', 'hitachi', 'prestolite', 'siemens'], // Tier1 then JVs
+            2: ['agratas', 'gotion', 'envision', 'octillion'], // Battery ecosystem
+            3: ['nvidia', 'tcs', 'tata_elxsi', 'tata_tech', 'dnv', 'bnp', 'tata_steel', 'tata_power', 'tata_chem'], // Tech→Services→Materials
         };
 
         const SupplyChainView = ({ onSupplierClick, scFilter }) => {
@@ -204,8 +206,7 @@
             useEffect(() => {
                 const width = window.innerWidth, height = window.innerHeight - 60;
                 const cx = width / 2, cy = height / 2 + 10;
-                const radii = [180, 320, 450]; // wider inner ring for 8 nodes
-                const ringLabels = ['Tata Group', 'Joint Ventures & Partners', 'External Suppliers'];
+                const radii = [80, 220, 340, 460]; // OEM, Tier1, Battery, Tech+Services
 
                 const svg = d3.select(svgRef.current).attr('width', width).attr('height', height);
                 svg.selectAll('*').remove();
@@ -219,9 +220,9 @@
 
                 // 1. Ring zone backgrounds (annulus bands) + dashed circles + labels
                 const ringG = g.append('g').attr('class', 'rings');
-                const bandColors = ['rgba(59,130,246,0.12)', 'rgba(249,115,22,0.12)', 'rgba(34,197,94,0.12)'];
-                const bandInner = [50, radii[0] + 60, radii[1] + 60]; // inner radius of each band
-                const bandOuter = [radii[0] + 60, radii[1] + 60, radii[2] + 60]; // outer radius
+                const bandColors = ['rgba(59,130,246,0.12)', 'rgba(249,115,22,0.12)', 'rgba(220,38,38,0.10)', 'rgba(139,92,246,0.10)'];
+                const bandInner = [50, radii[0] + 50, radii[1] + 50, radii[2] + 50];
+                const bandOuter = [radii[0] + 50, radii[1] + 50, radii[2] + 50, radii[3] + 50];
                 const arcGen = d3.arc().startAngle(0).endAngle(2 * Math.PI);
 
                 // Annulus fills
@@ -234,7 +235,7 @@
 
                 // Dashed boundary circles (no text — legend handles ring identification)
                 radii.forEach((r) => {
-                    ringG.append('circle').attr('cx', cx).attr('cy', cy).attr('r', r + 60)
+                    ringG.append('circle').attr('cx', cx).attr('cy', cy).attr('r', r + 50)
                         .attr('fill', 'none').attr('stroke', '#e0e0e0').attr('stroke-width', 1).attr('stroke-dasharray', '4,4');
                 });
 
@@ -242,20 +243,20 @@
                 const edgeG = g.append('g').attr('class', 'edges');
                 const nodeG = g.append('g').attr('class', 'nodes');
 
-                // Build positioned supplier data — offset inner ring start angle for even spacing
+                // Build positioned supplier data
                 const positioned = suppliers.map(s => {
                     const order = ringOrder[s.ring];
                     const idx = order.indexOf(s.id);
                     const total = order.length;
-                    // Offset each ring to avoid top overlap with ring labels
-                    const startAngle = s.ring === 0 ? -Math.PI * 0.4 : -Math.PI / 2;
-                    const a = startAngle + (2 * Math.PI * idx) / total;
+                    const startAngle = -Math.PI / 2;
+                    const a = total === 1 ? Math.PI : startAngle + (2 * Math.PI * idx) / total;
                     const r = radii[s.ring];
                     return { ...s, x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), angle: a };
                 });
 
-                // Filter
-                const visible = scFilter ? positioned.filter(s => s.tier === scFilter) : positioned;
+                // Filter by ring-based tier groups
+                const filterRings = { 'OEM': [0], 'Tier 1': [1], 'Battery': [2], 'Tech': [3] };
+                const visible = scFilter ? positioned.filter(s => (filterRings[scFilter] || []).includes(s.ring)) : positioned;
 
                 // Draw edges
                 edgeG.selectAll('line').data(visible).enter().append('line')
@@ -279,7 +280,7 @@
                 tataG.append('text').attr('text-anchor', 'middle').attr('dy', 14).attr('font-size', 10).attr('fill', '#e8f5e9').text('OEM (Tier 0)');
 
                 // JLR near center — only visible when All or Tata Group filter
-                const showJLR = !scFilter || scFilter === 'Tata Group';
+                const showJLR = !scFilter || scFilter === 'OEM';
                 if (showJLR) {
                     const jlrX = cx + 100, jlrY = cy + 55;
                     const jlrW = 130, jlrH = 36;
@@ -315,7 +316,7 @@
                 supplierGs.each(function(d) {
                     const el = d3.select(this);
                     const tc = TIER_COLORS[d.tier] || TIER_COLORS['Tier 1'];
-                    const isOuter = d.ring === 2;
+                    const isOuter = d.ring >= 2; // Battery + Tech/Services = circles
                     const cat = d.category.length > 24 ? d.category.slice(0,22) + '..' : d.category;
 
                     if (isOuter) {
@@ -502,7 +503,7 @@
                 React.createElement('div', { className: 'header' },
                     React.createElement('div', { className: 'header-left' },
                         React.createElement('div', { className: 'title' }, 'Tata Motors — ESG Intelligence'),
-                        React.createElement('div', { className: 'subtitle' }, mode === 'supply-chain' ? '25 suppliers | 3 rings | 8 Tata Group + 5 JV + 12 external' : '135 claims | 12 contradictions | 80 hyperedges | Mean credibility 0.25')
+                        React.createElement('div', { className: 'subtitle' }, mode === 'supply-chain' ? '25 suppliers | 4 tiers | OEM + Tier 1/JVs + Battery + Tech/Services' : '135 claims | 12 contradictions | 80 hyperedges | Mean credibility 0.25')
                     ),
                     React.createElement('div', { className: 'mode-toggle' },
                         React.createElement('button', { className: `mode-btn${mode === 'supply-chain' ? ' active' : ''}`, onClick: () => { setMode('supply-chain'); setDetail(null); setScFilter(null); } }, 'Supply Chain'),
@@ -514,16 +515,14 @@
                 React.createElement('div', { className: 'stats-panel' },
                     React.createElement('h3', null, mode === 'supply-chain' ? 'Supply Chain' : 'Claims Analysis'),
                     mode === 'supply-chain' ? React.createElement(React.Fragment, null,
-                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Tata Group'), React.createElement('span', { className: 'stat-value', style: { color: '#1565C0' } }, '8')),
-                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Joint Ventures'), React.createElement('span', { className: 'stat-value', style: { color: '#ef6c00' } }, '5')),
-                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Tier 1 External'), React.createElement('span', { className: 'stat-value', style: { color: '#558b2f' } }, '6')),
-                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Battery'), React.createElement('span', { className: 'stat-value', style: { color: '#c62828' } }, '2')),
-                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Technology'), React.createElement('span', { className: 'stat-value', style: { color: '#9c27b0' } }, '2')),
-                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Other (DNV, BNP)'), React.createElement('span', { className: 'stat-value', style: { color: '#616161' } }, '2')),
+                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'OEM / Tata Group'), React.createElement('span', { className: 'stat-value', style: { color: '#1565C0' } }, '1 + JLR')),
+                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Tier 1 & JVs'), React.createElement('span', { className: 'stat-value', style: { color: '#ef6c00' } }, '11')),
+                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Battery Ecosystem'), React.createElement('span', { className: 'stat-value', style: { color: '#c62828' } }, '4')),
+                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Tech & Services'), React.createElement('span', { className: 'stat-value', style: { color: '#7c3aed' } }, '9')),
                         React.createElement('div', { style: { marginTop: 6, paddingTop: 6, borderTop: '1px solid #eee' } },
                             React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label', style: { fontWeight: 600 } }, 'Total'), React.createElement('span', { className: 'stat-value' }, '25 + JLR'))
                         ),
-                        React.createElement('div', { style: { marginTop: 8, fontSize: 10, color: '#999' } }, 'Sources: KB mining + JLR Supplier Excellence Awards + web research.')
+                        React.createElement('div', { style: { marginTop: 8, fontSize: 10, color: '#999' } }, 'Automotive tier taxonomy. KB mining + JLR awards + web research.')
                     ) : React.createElement(React.Fragment, null,
                         React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Total Claims'), React.createElement('span', { className: 'stat-value' }, '135')),
                         React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Contradictions'), React.createElement('span', { className: 'stat-value', style: { color: '#F44336' } }, '12')),
@@ -570,11 +569,10 @@
                 // Supply chain tier filter
                 mode === 'supply-chain' && React.createElement('div', { style: { position: 'absolute', top: 68, left: '50%', transform: 'translateX(-50%)', zIndex: 10, display: 'flex', gap: 6 } },
                     [{ key: null, label: 'All', color: '#666' },
-                     { key: 'Tata Group', label: 'Tata Group', color: TIER_COLORS['Tata Group'].border },
-                     { key: 'Joint Venture', label: 'JVs', color: TIER_COLORS['Joint Venture'].border },
-                     { key: 'Tier 1', label: 'Tier 1', color: TIER_COLORS['Tier 1'].border },
-                     { key: 'Battery', label: 'Battery', color: TIER_COLORS['Battery'].border },
-                     { key: 'Technology', label: 'Technology', color: TIER_COLORS['Technology'].border },
+                     { key: 'OEM', label: 'OEM', color: TIER_COLORS['Tata Group'].border, rings: [0] },
+                     { key: 'Tier 1', label: 'Tier 1 & JVs', color: TIER_COLORS['Tier 1'].border, rings: [1] },
+                     { key: 'Battery', label: 'Battery', color: TIER_COLORS['Battery'].border, rings: [2] },
+                     { key: 'Tech', label: 'Tech & Services', color: '#7c3aed', rings: [3] },
                     ].map(f => React.createElement('button', {
                         key: f.key || 'all', className: `filter-btn${scFilter === f.key ? ' active' : ''}`,
                         style: { color: f.color, borderColor: scFilter === f.key ? f.color : '#ddd' },
@@ -585,9 +583,10 @@
                 // Supply chain legend
                 mode === 'supply-chain' && React.createElement('div', { className: 'legend' },
                     React.createElement('h4', null, 'Ring Zones'),
-                    [['Inner — Tata Group', 'rgba(59,130,246,0.35)'],
-                     ['Middle — Joint Ventures', 'rgba(249,115,22,0.35)'],
-                     ['Outer — External Suppliers', 'rgba(34,197,94,0.35)'],
+                    [['Ring 1 — OEM / Tata Group', 'rgba(59,130,246,0.35)'],
+                     ['Ring 2 — Tier 1 & JVs', 'rgba(249,115,22,0.35)'],
+                     ['Ring 3 — Battery Ecosystem', 'rgba(220,38,38,0.30)'],
+                     ['Ring 4 — Tech & Services', 'rgba(139,92,246,0.30)'],
                     ].map(([label, color]) =>
                         React.createElement('div', { key: label, className: 'legend-item' },
                             React.createElement('div', { className: 'legend-swatch', style: { background: color, borderRadius: '50%' } }),
