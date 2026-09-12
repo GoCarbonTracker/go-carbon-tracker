@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tutorial: Supply Chain 101 - Learn Automotive Tiers</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow@11.10.4/dist/style.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+        }
+
+        #root {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+        }
+
+        /* Left Sidebar - Lesson Steps */
+        .sidebar-left {
+            width: 280px;
+            background: white;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            background: #667eea;
+            color: white;
+        }
+
+        .sidebar-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .sidebar-subtitle {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .lesson-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .lesson-item {
+            padding: 12px 15px;
+            margin-bottom: 5px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+            font-size: 13px;
+        }
+
+        .lesson-item:hover {
+            background: #f5f5f5;
+        }
+
+        .lesson-item.active {
+            background: #e8f5e9;
+            border-left-color: #4caf50;
+            font-weight: 600;
+        }
+
+        .lesson-item.completed {
+            opacity: 0.7;
+        }
+
+        .lesson-item.completed::after {
+            content: ' ✓';
+            color: #4caf50;
+        }
+
+        .lesson-item.locked {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .lesson-item.locked::after {
+            content: ' 🔒';
+        }
+
+        .progress-bar {
+            height: 4px;
+            background: #e0e0e0;
+            margin: 0 20px 20px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #4caf50;
+            transition: width 0.3s;
+        }
+
+        /* Main Canvas */
+        .main-canvas {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            position: relative;
+        }
+
+        .canvas-header {
+            padding: 20px;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+
+        .step-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .step-subtitle {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .flow-container {
+            flex: 1;
+            position: relative;
+        }
+
+        /* Right Sidebar - Context Panel */
+        .sidebar-right {
+            width: 350px;
+            background: white;
+            box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+        }
+
+        .context-panel {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .context-section {
+            margin-bottom: 20px;
+        }
+
+        .context-section h3 {
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .context-section p {
+            font-size: 14px;
+            line-height: 1.6;
+            color: #555;
+            margin-bottom: 10px;
+        }
+
+        .context-section ul {
+            font-size: 14px;
+            line-height: 1.8;
+            color: #555;
+            padding-left: 20px;
+        }
+
+        .highlight-box {
+            background: #fff3e0;
+            border-left: 4px solid #ff9800;
+            padding: 12px;
+            margin: 15px 0;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .alert-box {
+            background: #ffebee;
+            border-left: 4px solid #f44336;
+            padding: 12px;
+            margin: 15px 0;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .success-box {
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            padding: 12px;
+            margin: 15px 0;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        /* Quiz Panel */
+        .quiz-panel {
+            background: #f5f5f5;
+            padding: 20px;
+            border-top: 2px solid #e0e0e0;
+        }
+
+        .quiz-question {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .quiz-options {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .quiz-option {
+            padding: 12px 15px;
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+        }
+
+        .quiz-option:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .quiz-option.selected {
+            border-color: #667eea;
+            background: #e8f0fe;
+        }
+
+        .quiz-option.correct {
+            border-color: #4caf50;
+            background: #e8f5e9;
+        }
+
+        .quiz-option.incorrect {
+            border-color: #f44336;
+            background: #ffebee;
+        }
+
+        .quiz-feedback {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .quiz-feedback.correct {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .quiz-feedback.incorrect {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        /* Control Panel */
+        .control-panel {
+            padding: 15px 20px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .step-counter {
+            font-size: 13px;
+            color: #666;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(102, 126, 234, 0.7); }
+            50% { box-shadow: 0 0 0 15px rgba(102, 126, 234, 0); }
+        }
+
+        .pulse-animation {
+            animation: pulse 2s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom": "https://esm.sh/react-dom@18.2.0",
+            "react-dom/": "https://esm.sh/react-dom@18.2.0/",
+            "reactflow": "https://esm.sh/reactflow@11.10.4?external=react,react-dom"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import React from 'react';
+        import ReactDOM from 'react-dom/client';
+        import ReactFlow, {
+            Controls,
+            Background,
+            MiniMap,
+            Handle,
+            Position,
+            useNodesState,
+            useEdgesState
+        } from 'reactflow';
+
+        const { useState, useEffect } = React;
+
+        // Tutorial Steps Data
+        const tutorialSteps = [
+            {
+                id: 0,
+                title: "Welcome to Supply Chain 101",
+                subtitle: "Learn how cars are made from raw materials to finished vehicles",
+                description: "In this 15-minute tutorial, you'll discover the 9-tier automotive supply chain structure. We'll build it step-by-step, starting with familiar car brands and tracing back to the mines and factories that provide the raw materials.",
+                keyPoints: [
+                    "Understand the 9-tier structure",
+                    "Learn about OEMs, suppliers, and materials",
+                    "Discover where emissions come from",
+                    "See how recycling creates circular loops"
+                ],
+                visibleTiers: [],
+                visibleEdges: [],
+                highlights: [],
+                quiz: null
+            },
+            {
+                id: 1,
+                title: "Step 1: Meet the OEMs",
+                subtitle: "Tier 0 - The car manufacturers you know",
+                description: "OEMs (Original Equipment Manufacturers) are the companies that build and sell cars under their own brand names. These are the familiar names like BMW, Mercedes, Tesla, and Volkswagen.",
+                keyPoints: [
+                    "OEMs assemble finished vehicles",
+                    "They are responsible for 95-99% Scope 3 emissions",
+                    "Examples: BMW, Mercedes, Tesla, VW, Stellantis",
+                    "Located at the 'bottom' as the final assembly point"
+                ],
+                visibleTiers: ['tier0'],
+                visibleEdges: [],
+                highlights: ['tier0'],
+                quiz: {
+                    question: "Which companies are OEMs (car manufacturers)?",
+                    options: [
+                        { id: 'a', text: 'BMW, Tesla, Mercedes', correct: true },
+                        { id: 'b', text: 'Bosch, Continental, ZF', correct: false },
+                        { id: 'c', text: 'CATL, LG Energy, Samsung', correct: false },
+                        { id: 'd', text: 'ArcelorMittal, Alcoa, BASF', correct: false }
+                    ],
+                    feedback: {
+                        correct: "Correct! BMW, Tesla, and Mercedes are OEMs - they make complete vehicles.",
+                        incorrect: "Not quite. OEMs are car manufacturers, not suppliers or material companies. Try again!"
+                    }
+                }
+            },
+            {
+                id: 2,
+                title: "Step 2: Meet the Mega-Suppliers",
+                subtitle: "Tier 1 - The system integrators",
+                description: "Tier 1 suppliers provide complete systems to OEMs: entire engines, full dashboards, brake systems, etc. They integrate components from smaller suppliers into ready-to-install modules.",
+                keyPoints: [
+                    "Provide complete systems (engines, brakes, interiors)",
+                    "Direct relationship with OEMs",
+                    "Represent 15-30% of vehicle value",
+                    "Examples: Bosch, Continental, ZF, Denso, Magna"
+                ],
+                visibleTiers: ['tier0', 'tier1'],
+                visibleEdges: ['e-tier1-tier0'],
+                highlights: ['tier1'],
+                quiz: {
+                    question: "What do Tier 1 suppliers provide to OEMs?",
+                    options: [
+                        { id: 'a', text: 'Raw materials like steel and aluminum', correct: false },
+                        { id: 'b', text: 'Complete systems like engines and brakes', correct: true },
+                        { id: 'c', text: 'Finished vehicles ready to sell', correct: false },
+                        { id: 'd', text: 'Only small parts like screws', correct: false }
+                    ],
+                    feedback: {
+                        correct: "Yes! Tier 1 suppliers provide complete systems - whole engines, full brake systems, entire dashboards.",
+                        incorrect: "Tier 1 suppliers are system integrators, not material providers or small parts makers."
+                    }
+                }
+            },
+            {
+                id: 3,
+                title: "Step 3: The Battery Ecosystem",
+                subtitle: "Tier 2 - Critical for electric vehicles",
+                description: "The battery ecosystem has 4 sub-tiers: Cell Makers (2a) who produce battery cells, Pack Integrators (2b) who assemble them into battery packs, Recyclers (2c) who recover materials, and Raw Material Miners (2d) who extract lithium, cobalt, and nickel.",
+                keyPoints: [
+                    "Tier 2a: Cell makers (CATL, LG Energy, Samsung SDI)",
+                    "Tier 2b: Pack integrators (assemble cells + BMS)",
+                    "Tier 2c: Recyclers (Redwood Materials, Li-Cycle)",
+                    "Tier 2d: Lithium/cobalt/nickel miners"
+                ],
+                visibleTiers: ['tier0', 'tier1', 'tier2_battery'],
+                visibleEdges: ['e-tier1-tier0', 'e-tier2-tier1'],
+                highlights: ['tier2_battery'],
+                quiz: {
+                    question: "What percentage of battery carbon footprint comes from raw material mining?",
+                    options: [
+                        { id: 'a', text: '10-20%', correct: false },
+                        { id: 'b', text: '25-35%', correct: false },
+                        { id: 'c', text: '40-60%', correct: true },
+                        { id: 'd', text: '70-80%', correct: false }
+                    ],
+                    feedback: {
+                        correct: "Correct! Mining lithium, cobalt, and nickel accounts for 40-60% of battery emissions.",
+                        incorrect: "Raw material mining is the biggest contributor - it's 40-60% of battery emissions."
+                    }
+                }
+            },
+            {
+                id: 4,
+                title: "Step 4: The Critical Gap",
+                subtitle: "Tier 2.5 - SMEs: Invisible but everywhere",
+                description: "⚠️ CRITICAL DATA GAP: Tier 2.5 represents 60-70% of suppliers by company count but we have less than 10% data coverage. These are the 'hidden' suppliers making fasteners, cables, seals, and bearings - small parts that are everywhere but hard to track.",
+                keyPoints: [
+                    "10,000+ fasteners per vehicle (Würth, ITW)",
+                    "Cables and wiring harnesses (Leoni, Yazaki)",
+                    "Seals and gaskets (Trelleborg, Parker Hannifin)",
+                    "Critical gap: <10% data coverage despite huge numbers"
+                ],
+                visibleTiers: ['tier0', 'tier1', 'tier2_battery', 'tier2_5'],
+                visibleEdges: ['e-tier1-tier0', 'e-tier2-tier1', 'e-tier2.5-tier1'],
+                highlights: ['tier2_5'],
+                quiz: {
+                    question: "Why is Tier 2.5 called a 'critical gap'?",
+                    options: [
+                        { id: 'a', text: 'Because there are no companies in this tier', correct: false },
+                        { id: 'b', text: 'Because we have 60-70% of suppliers but <10% data', correct: true },
+                        { id: 'c', text: 'Because these companies don\'t emit any carbon', correct: false },
+                        { id: 'd', text: 'Because this tier was just discovered', correct: false }
+                    ],
+                    feedback: {
+                        correct: "Exactly! We know 60-70% of suppliers are SMEs, but we only have data on <10% of them.",
+                        incorrect: "The gap isn't about company existence - it's about missing data for thousands of suppliers."
+                    }
+                }
+            },
+            {
+                id: 5,
+                title: "Step 5: Raw Materials Foundation",
+                subtitle: "Tier 3 - Steel, aluminum, glass, chemicals",
+                description: "Tier 3 provides the foundation materials: steel (60-70% of vehicle mass), aluminum (increasing in EVs), glass, chemicals/polymers, and tires. These materials are highly emissions-intensive.",
+                keyPoints: [
+                    "Steel: 1.8-2.5 tCO2e per ton (ArcelorMittal, SSAB)",
+                    "Aluminum: 12-16 tCO2e per ton primary (Alcoa, Norsk Hydro)",
+                    "Glass, chemicals, polymers (BASF, DuPont)",
+                    "Tires: Continental Tires, Michelin, Bridgestone"
+                ],
+                visibleTiers: ['tier0', 'tier1', 'tier2_battery', 'tier2_5', 'tier3'],
+                visibleEdges: ['e-tier1-tier0', 'e-tier2-tier1', 'e-tier2.5-tier1', 'e-tier3-tier2.5', 'e-tier3-tier2'],
+                highlights: ['tier3'],
+                quiz: null
+            },
+            {
+                id: 6,
+                title: "Step 6: Electronics & Software",
+                subtitle: "Tier 4 - The digital brain",
+                description: "Tier 4 provides semiconductors, sensors, and software. As cars become more autonomous and connected, this tier's importance grows. Semiconductor fabs are very energy-intensive.",
+                keyPoints: [
+                    "Semiconductors: NXP, Infineon, Renesas",
+                    "Sensors: Mobileye, Luminar (LiDAR), Innoviz",
+                    "Software: BlackBerry QNX, CARIAD",
+                    "Supplies to Tier 1 (not directly to OEMs)"
+                ],
+                visibleTiers: ['tier0', 'tier1', 'tier2_battery', 'tier2_5', 'tier3', 'tier4'],
+                visibleEdges: ['e-tier1-tier0', 'e-tier2-tier1', 'e-tier2.5-tier1', 'e-tier3-tier2.5', 'e-tier3-tier2', 'e-tier4-tier1'],
+                highlights: ['tier4'],
+                quiz: null
+            },
+            {
+                id: 7,
+                title: "Step 7: Circular Economy Loop",
+                subtitle: "Recycling reduces emissions by 60-90%",
+                description: "The circular economy loop shows how battery recycling dramatically reduces emissions. Instead of mining new lithium (10-15 tCO2e per ton), recycled materials produce only 1-3 tCO2e per ton - a 60-90% reduction!",
+                keyPoints: [
+                    "Battery lifecycle: Mining → Cells → Packs → Use → Recycling → Mining",
+                    "Recycling saves 60-90% emissions vs virgin materials",
+                    "Redwood Materials, Li-Cycle leading battery recycling",
+                    "Similar loops for steel, aluminum recycling"
+                ],
+                visibleTiers: ['tier0', 'tier1', 'tier2_battery', 'tier2_5', 'tier3', 'tier4', 'circular'],
+                visibleEdges: ['e-tier1-tier0', 'e-tier2-tier1', 'e-tier2.5-tier1', 'e-tier3-tier2.5', 'e-tier3-tier2', 'e-tier4-tier1', 'e-circular-tier2', 'e-tier2-circular'],
+                highlights: ['circular'],
+                quiz: {
+                    question: "How much can recycling reduce emissions compared to virgin materials?",
+                    options: [
+                        { id: 'a', text: '10-20%', correct: false },
+                        { id: 'b', text: '30-40%', correct: false },
+                        { id: 'c', text: '60-90%', correct: true },
+                        { id: 'd', text: '100% (zero emissions)', correct: false }
+                    ],
+                    feedback: {
+                        correct: "Yes! Recycling can reduce emissions by 60-90% compared to mining virgin materials.",
+                        incorrect: "Recycling is even more impactful - it reduces emissions by 60-90%!"
+                    }
+                }
+            },
+            {
+                id: 8,
+                title: "Step 8: Infrastructure Enablers",
+                subtitle: "Tier 6 - Charging, logistics, dealers",
+                description: "Tier 6 enables vehicle delivery and operation: charging infrastructure for EVs, hydrogen fueling, logistics providers who transport vehicles, and dealers who sell them.",
+                keyPoints: [
+                    "Charging: ABB, ChargePoint, Tritium",
+                    "Hydrogen: Air Liquide, Linde, Nel ASA",
+                    "Logistics: Wallenius Wilhelmsen, DHL",
+                    "Dealers: AutoNation, Penske, Lithia"
+                ],
+                visibleTiers: ['tier0', 'tier1', 'tier2_battery', 'tier2_5', 'tier3', 'tier4', 'circular', 'tier6'],
+                visibleEdges: ['e-tier1-tier0', 'e-tier2-tier1', 'e-tier2.5-tier1', 'e-tier3-tier2.5', 'e-tier3-tier2', 'e-tier4-tier1', 'e-circular-tier2', 'e-tier2-circular', 'e-tier6-tier0'],
+                highlights: ['tier6'],
+                quiz: null
+            },
+            {
+                id: 9,
+                title: "Step 9: Mobility Services",
+                subtitle: "Tier 7 - Fleet operators validate emissions",
+                description: "Tier 7 operates vehicle fleets (Uber, Lyft, Waymo) and provides a critical validation function: their real-world driving data verifies whether OEM emission claims are accurate. Typical variance is ±10-20%.",
+                keyPoints: [
+                    "Fleet operators: Uber, Lyft, Didi, Grab",
+                    "Autonomous: Waymo, Cruise, Zoox",
+                    "Validates OEM Scope 3 Category 11 (use-phase)",
+                    "Real-world data shows ±10-20% variance from claims"
+                ],
+                visibleTiers: ['tier0', 'tier1', 'tier2_battery', 'tier2_5', 'tier3', 'tier4', 'circular', 'tier6', 'tier7'],
+                visibleEdges: ['e-tier1-tier0', 'e-tier2-tier1', 'e-tier2.5-tier1', 'e-tier3-tier2.5', 'e-tier3-tier2', 'e-tier4-tier1', 'e-circular-tier2', 'e-tier2-circular', 'e-tier6-tier0', 'e-tier7-tier6', 'e-tier7-tier0'],
+                highlights: ['tier7'],
+                quiz: {
+                    question: "Why does Tier 7 fleet operator data matter?",
+                    options: [
+                        { id: 'a', text: 'They sell the most vehicles', correct: false },
+                        { id: 'b', text: 'They validate OEM emission claims with real data', correct: true },
+                        { id: 'c', text: 'They manufacture electric batteries', correct: false },
+                        { id: 'd', text: 'They recycle old vehicles', correct: false }
+                    ],
+                    feedback: {
+                        correct: "Exactly! Fleet operators like Uber provide real-world data to verify OEM claims.",
+                        incorrect: "Tier 7's key role is validation - they test whether OEM emission claims match reality."
+                    }
+                }
+            },
+            {
+                id: 10,
+                title: "Step 10: Financial Ecosystem",
+                subtitle: "Tier 8 - Finance, insurance, ESG assurance",
+                description: "Tier 8 provides financial services: captive finance arms (Toyota Financial), insurance (Allianz), and ESG assurance (EY, DNV). They track Scope 3 Category 15: financed emissions.",
+                keyPoints: [
+                    "Captive finance: Toyota Financial, GM Financial",
+                    "Insurance: Allianz, AXA, Zurich",
+                    "ESG assurance: EY, PwC, KPMG, DNV",
+                    "Scope 3 Category 15: financed emissions (90-99% of total)"
+                ],
+                visibleTiers: ['tier0', 'tier1', 'tier2_battery', 'tier2_5', 'tier3', 'tier4', 'circular', 'tier6', 'tier7', 'tier8'],
+                visibleEdges: ['e-tier1-tier0', 'e-tier2-tier1', 'e-tier2.5-tier1', 'e-tier3-tier2.5', 'e-tier3-tier2', 'e-tier4-tier1', 'e-circular-tier2', 'e-tier2-circular', 'e-tier6-tier0', 'e-tier7-tier6', 'e-tier7-tier0', 'e-tier8-tier0'],
+                highlights: ['tier8'],
+                quiz: null
+            },
+            {
+                id: 11,
+                title: "Step 11: Specialty Components",
+                subtitle: "Tier 5 - Engineering and niche parts",
+                description: "Tier 5 provides engineering services (testing, validation) and specialty components for niche applications.",
+                keyPoints: [
+                    "Engineering: EDAG, AVL, FEV, Ricardo",
+                    "Specialty parts: ElringKlinger, Webasto",
+                    "Testing and validation services",
+                    "Variable emission profiles"
+                ],
+                visibleTiers: ['tier0', 'tier1', 'tier2_battery', 'tier2_5', 'tier3', 'tier4', 'tier5', 'circular', 'tier6', 'tier7', 'tier8'],
+                visibleEdges: ['e-tier1-tier0', 'e-tier2-tier1', 'e-tier2.5-tier1', 'e-tier3-tier2.5', 'e-tier3-tier2', 'e-tier4-tier1', 'e-tier5-tier4', 'e-circular-tier2', 'e-tier2-circular', 'e-tier6-tier0', 'e-tier7-tier6', 'e-tier7-tier0', 'e-tier8-tier0'],
+                highlights: ['tier5'],
+                quiz: null
+            },
+            {
+                id: 12,
+                title: "Congratulations! 🎉",
+                subtitle: "You've mastered the automotive supply chain",
+                description: "You've successfully learned all 9 tiers of the automotive supply chain! You now understand how vehicles are built from raw materials, where emissions come from, the critical data gaps, and how circular economy loops reduce environmental impact.",
+                keyPoints: [
+                    "✅ You can identify all 9 tiers and key companies",
+                    "✅ You understand emission flows and Scope 3 dominance",
+                    "✅ You know about the Tier 2.5 critical data gap",
+                    "✅ You've seen circular economy loops (60-90% reduction)",
+                    "✅ You understand validation flows (Tier 7 → Tier 0)"
+                ],
+                visibleTiers: ['tier0', 'tier1', 'tier2_battery', 'tier2_5', 'tier3', 'tier4', 'tier5', 'circular', 'tier6', 'tier7', 'tier8'],
+                visibleEdges: ['e-tier1-tier0', 'e-tier2-tier1', 'e-tier2.5-tier1', 'e-tier3-tier2.5', 'e-tier3-tier2', 'e-tier4-tier1', 'e-tier5-tier4', 'e-circular-tier2', 'e-tier2-circular', 'e-tier3-circular', 'e-tier6-tier0', 'e-tier7-tier6', 'e-tier7-tier0', 'e-tier8-tier0'],
+                highlights: [],
+                quiz: null
+            }
+        ];
+
+        // Tier Node Component
+        const TierNode = ({ data }) => {
+            const getNodeStyle = () => {
+                let bgColor = '#fff';
+                let borderColor = '#ddd';
+
+                if (data.dataQuality === 'high') {
+                    bgColor = '#e8f5e9';
+                    borderColor = '#4caf50';
+                } else if (data.dataQuality === 'medium') {
+                    bgColor = '#fff3e0';
+                    borderColor = '#ff9800';
+                } else if (data.dataQuality === 'low') {
+                    bgColor = '#ffebee';
+                    borderColor = '#f44336';
+                }
+
+                return {
+                    padding: '14px',
+                    borderRadius: '8px',
+                    border: `2px solid ${borderColor}`,
+                    background: bgColor,
+                    minWidth: '200px',
+                    maxWidth: '240px',
+                    fontSize: '12px',
+                    boxShadow: data.highlighted ? '0 0 0 3px rgba(102, 126, 234, 0.3)' : '0 1px 3px rgba(0,0,0,0.1)',
+                    cursor: 'pointer',
+                    opacity: data.dimmed ? 0.3 : 1,
+                    transition: 'all 0.3s'
+                };
+            };
+
+            return React.createElement('div', { style: getNodeStyle() },
+                React.createElement(Handle, { type: "target", position: Position.Top, style: { background: '#555', width: 8, height: 8 } }),
+                React.createElement('div', { style: { fontWeight: '600', marginBottom: '6px', fontSize: '13px', color: '#333' } },
+                    data.label
+                ),
+                data.categories && React.createElement('div', { style: { fontSize: '10px', color: '#666', marginBottom: '6px', fontStyle: 'italic' } },
+                    data.categories
+                ),
+                data.companies && React.createElement('div', { style: { fontSize: '10px', color: '#666', marginTop: '6px' } },
+                    '🏢 ' + data.companies
+                ),
+                data.criticalGap && React.createElement('div', {
+                    style: {
+                        fontSize: '10px',
+                        color: '#d32f2f',
+                        fontWeight: '600',
+                        marginTop: '6px',
+                        padding: '4px',
+                        background: '#ffebee',
+                        borderRadius: '3px'
+                    }
+                },
+                    '⚠️ ' + data.criticalGap
+                ),
+                React.createElement(Handle, { type: "source", position: Position.Bottom, style: { background: '#555', width: 8, height: 8 } })
+            );
+        };
+
+        const nodeTypes = { tierNode: TierNode };
+
+        // All tier definitions
+        const allTiers = {
+            tier0: {
+                id: 'tier0',
+                type: 'tierNode',
+                position: { x: 400, y: 900 },
+                data: {
+                    label: 'Tier 0: OEMs',
+                    categories: 'Passenger/Light Duty • Commercial/Industrial',
+                    companies: 'BMW, Mercedes, Tesla, VW...',
+                    dataQuality: 'high'
+                }
+            },
+            tier1: {
+                id: 'tier1',
+                type: 'tierNode',
+                position: { x: 400, y: 720 },
+                data: {
+                    label: 'Tier 1: Mega-Suppliers',
+                    categories: 'Powertrain • Chassis • Interiors • Electronics',
+                    companies: 'Bosch, Continental, ZF, Denso...',
+                    dataQuality: 'high'
+                }
+            },
+            tier2_battery: {
+                id: 'tier2_battery',
+                type: 'tierNode',
+                position: { x: 250, y: 540 },
+                data: {
+                    label: 'Tier 2: Battery Ecosystem',
+                    categories: 'Cell Makers • Pack Integrators • Recyclers',
+                    companies: 'CATL, LG Energy, Samsung SDI...',
+                    dataQuality: 'medium'
+                }
+            },
+            tier2_5: {
+                id: 'tier2_5',
+                type: 'tierNode',
+                position: { x: 550, y: 540 },
+                data: {
+                    label: 'Tier 2.5: Critical SMEs',
+                    categories: 'Fasteners • Cables • Seals • Bearings',
+                    companies: 'Würth, Leoni, SKF...',
+                    criticalGap: '<10% data coverage',
+                    dataQuality: 'low'
+                }
+            },
+            tier3: {
+                id: 'tier3',
+                type: 'tierNode',
+                position: { x: 400, y: 360 },
+                data: {
+                    label: 'Tier 3: Raw Materials',
+                    categories: 'Steel • Aluminum • Glass • Chemicals • Tires',
+                    companies: 'ArcelorMittal, Alcoa, BASF...',
+                    dataQuality: 'high'
+                }
+            },
+            tier4: {
+                id: 'tier4',
+                type: 'tierNode',
+                position: { x: 700, y: 540 },
+                data: {
+                    label: 'Tier 4: Electronics/Software',
+                    categories: 'Semiconductors • Sensors • Software',
+                    companies: 'NXP, Infineon, Mobileye...',
+                    dataQuality: 'medium'
+                }
+            },
+            tier5: {
+                id: 'tier5',
+                type: 'tierNode',
+                position: { x: 100, y: 540 },
+                data: {
+                    label: 'Tier 5: Specialty',
+                    categories: 'Engineering Services • Specialty Parts',
+                    companies: 'EDAG, AVL, FEV',
+                    dataQuality: 'low'
+                }
+            },
+            tier6: {
+                id: 'tier6',
+                type: 'tierNode',
+                position: { x: 100, y: 900 },
+                data: {
+                    label: 'Tier 6: Infrastructure',
+                    categories: 'Charging • Logistics • Dealers',
+                    companies: 'ABB, ChargePoint, DHL',
+                    dataQuality: 'medium'
+                }
+            },
+            tier7: {
+                id: 'tier7',
+                type: 'tierNode',
+                position: { x: 100, y: 720 },
+                data: {
+                    label: 'Tier 7: Mobility Services',
+                    categories: 'Fleet Operators • Autonomous',
+                    companies: 'Uber, Waymo, Tesla Supercharger',
+                    dataQuality: 'medium'
+                }
+            },
+            tier8: {
+                id: 'tier8',
+                type: 'tierNode',
+                position: { x: 700, y: 900 },
+                data: {
+                    label: 'Tier 8: Financial',
+                    categories: 'Captive Finance • Insurers • ESG',
+                    companies: 'Toyota Financial, Allianz, EY',
+                    dataQuality: 'low'
+                }
+            },
+            circular: {
+                id: 'circular',
+                type: 'tierNode',
+                position: { x: 250, y: 180 },
+                data: {
+                    label: 'Circular Economy',
+                    categories: 'Battery Recycling • Material Recovery',
+                    companies: 'Redwood Materials, Li-Cycle',
+                    dataQuality: 'medium'
+                }
+            }
+        };
+
+        // All edge definitions
+        const allEdges = {
+            'e-tier1-tier0': {
+                id: 'e-tier1-tier0',
+                source: 'tier1',
+                target: 'tier0',
+                label: 'Direct Supply',
+                type: 'smoothstep',
+                animated: true,
+                style: { stroke: '#4caf50', strokeWidth: 3 },
+                labelStyle: { fontSize: 11, fill: '#4caf50', fontWeight: 'bold' }
+            },
+            'e-tier2-tier1': {
+                id: 'e-tier2-tier1',
+                source: 'tier2_battery',
+                target: 'tier1',
+                label: 'Battery Systems',
+                type: 'smoothstep',
+                style: { stroke: '#2196f3', strokeWidth: 2 }
+            },
+            'e-tier2.5-tier1': {
+                id: 'e-tier2.5-tier1',
+                source: 'tier2_5',
+                target: 'tier1',
+                label: 'Components',
+                type: 'smoothstep',
+                style: { stroke: '#ff9800', strokeWidth: 2 }
+            },
+            'e-tier3-tier2.5': {
+                id: 'e-tier3-tier2.5',
+                source: 'tier3',
+                target: 'tier2_5',
+                label: 'Raw Materials',
+                type: 'smoothstep',
+                style: { stroke: '#795548', strokeWidth: 2 }
+            },
+            'e-tier3-tier2': {
+                id: 'e-tier3-tier2',
+                source: 'tier3',
+                target: 'tier2_battery',
+                type: 'smoothstep',
+                style: { stroke: '#795548', strokeWidth: 2 }
+            },
+            'e-tier4-tier1': {
+                id: 'e-tier4-tier1',
+                source: 'tier4',
+                target: 'tier1',
+                label: 'Electronics',
+                type: 'smoothstep',
+                style: { stroke: '#9c27b0', strokeWidth: 2 }
+            },
+            'e-tier5-tier4': {
+                id: 'e-tier5-tier4',
+                source: 'tier5',
+                target: 'tier4',
+                label: 'Engineering',
+                type: 'smoothstep',
+                style: { stroke: '#9e9e9e', strokeWidth: 1 }
+            },
+            'e-tier6-tier0': {
+                id: 'e-tier6-tier0',
+                source: 'tier6',
+                target: 'tier0',
+                label: 'Logistics',
+                type: 'smoothstep',
+                style: { stroke: '#607d8b', strokeWidth: 1, strokeDasharray: '5,5' }
+            },
+            'e-tier7-tier6': {
+                id: 'e-tier7-tier6',
+                source: 'tier7',
+                target: 'tier6',
+                type: 'smoothstep',
+                style: { stroke: '#607d8b', strokeWidth: 1 }
+            },
+            'e-tier7-tier0': {
+                id: 'e-tier7-tier0',
+                source: 'tier7',
+                target: 'tier0',
+                label: 'Use-Phase Validation',
+                type: 'smoothstep',
+                style: { stroke: '#f44336', strokeWidth: 1, strokeDasharray: '10,5' },
+                labelStyle: { fontSize: 10, fill: '#f44336' }
+            },
+            'e-tier8-tier0': {
+                id: 'e-tier8-tier0',
+                source: 'tier8',
+                target: 'tier0',
+                label: 'Finance',
+                type: 'smoothstep',
+                style: { stroke: '#ffc107', strokeWidth: 1, strokeDasharray: '3,3' }
+            },
+            'e-circular-tier2': {
+                id: 'e-circular-tier2',
+                source: 'circular',
+                target: 'tier2_battery',
+                label: 'Recycled Materials',
+                type: 'smoothstep',
+                animated: true,
+                style: { stroke: '#4caf50', strokeWidth: 2 },
+                labelStyle: { fontSize: 10, fill: '#4caf50' }
+            },
+            'e-tier2-circular': {
+                id: 'e-tier2-circular',
+                source: 'tier2_battery',
+                target: 'circular',
+                label: 'End-of-Life',
+                type: 'smoothstep',
+                animated: true,
+                style: { stroke: '#4caf50', strokeWidth: 2, strokeDasharray: '5,5' }
+            },
+            'e-tier3-circular': {
+                id: 'e-tier3-circular',
+                source: 'tier3',
+                target: 'circular',
+                label: 'Reduces virgin need',
+                type: 'smoothstep',
+                style: { stroke: '#4caf50', strokeWidth: 1, strokeDasharray: '5,5' },
+                labelStyle: { fontSize: 9 }
+            }
+        };
+
+        // Main Tutorial App
+        function TutorialApp() {
+            const [currentStep, setCurrentStep] = useState(0);
+            const [completedSteps, setCompletedSteps] = useState([]);
+            const [quizAnswer, setQuizAnswer] = useState(null);
+            const [quizFeedback, setQuizFeedback] = useState(null);
+
+            const step = tutorialSteps[currentStep];
+            const progress = (completedSteps.length / tutorialSteps.length) * 100;
+
+            // Build visible nodes and edges based on current step
+            const visibleNodes = step.visibleTiers.map(tierId => ({
+                ...allTiers[tierId],
+                data: {
+                    ...allTiers[tierId].data,
+                    highlighted: step.highlights.includes(tierId),
+                    dimmed: step.highlights.length > 0 && !step.highlights.includes(tierId)
+                }
+            }));
+
+            const visibleEdges = step.visibleEdges.map(edgeId => allEdges[edgeId]);
+
+            const [nodes, setNodes, onNodesChange] = useNodesState(visibleNodes);
+            const [edges, setEdges, onEdgesChange] = useEdgesState(visibleEdges);
+
+            // Update nodes/edges when step changes
+            useEffect(() => {
+                setNodes(visibleNodes);
+                setEdges(visibleEdges);
+                setQuizAnswer(null);
+                setQuizFeedback(null);
+            }, [currentStep]);
+
+            const handleNext = () => {
+                if (step.quiz && !quizFeedback) {
+                    alert('Please answer the quiz question first!');
+                    return;
+                }
+
+                if (!completedSteps.includes(currentStep)) {
+                    setCompletedSteps([...completedSteps, currentStep]);
+                }
+
+                if (currentStep < tutorialSteps.length - 1) {
+                    setCurrentStep(currentStep + 1);
+                }
+            };
+
+            const handlePrevious = () => {
+                if (currentStep > 0) {
+                    setCurrentStep(currentStep - 1);
+                }
+            };
+
+            const handleQuizAnswer = (optionId) => {
+                setQuizAnswer(optionId);
+                const selectedOption = step.quiz.options.find(opt => opt.id === optionId);
+                setQuizFeedback({
+                    correct: selectedOption.correct,
+                    text: selectedOption.correct ? step.quiz.feedback.correct : step.quiz.feedback.incorrect
+                });
+            };
+
+            return React.createElement('div', { style: { display: 'flex', width: '100%', height: '100%' } },
+                // Left Sidebar
+                React.createElement('div', { className: 'sidebar-left' },
+                    React.createElement('div', { className: 'sidebar-header' },
+                        React.createElement('div', { className: 'sidebar-title' }, 'Supply Chain 101'),
+                        React.createElement('div', { className: 'sidebar-subtitle' }, '15-minute beginner tutorial')
+                    ),
+                    React.createElement('div', { className: 'progress-bar' },
+                        React.createElement('div', { className: 'progress-fill', style: { width: `${progress}%` } })
+                    ),
+                    React.createElement('div', { className: 'lesson-list' },
+                        tutorialSteps.map((s, idx) =>
+                            React.createElement('div', {
+                                key: s.id,
+                                className: `lesson-item ${idx === currentStep ? 'active' : ''} ${completedSteps.includes(idx) ? 'completed' : ''}`,
+                                onClick: () => setCurrentStep(idx)
+                            },
+                                `${idx}. ${s.title.replace(/^Step \d+: /, '')}`
+                            )
+                        )
+                    )
+                ),
+                // Main Canvas
+                React.createElement('div', { className: 'main-canvas' },
+                    React.createElement('div', { className: 'canvas-header' },
+                        React.createElement('div', { className: 'step-title' }, step.title),
+                        React.createElement('div', { className: 'step-subtitle' }, step.subtitle)
+                    ),
+                    React.createElement('div', { className: 'flow-container' },
+                        React.createElement(ReactFlow, {
+                            nodes: nodes,
+                            edges: edges,
+                            onNodesChange: onNodesChange,
+                            onEdgesChange: onEdgesChange,
+                            nodeTypes: nodeTypes,
+                            fitView: true,
+                            minZoom: 0.5,
+                            maxZoom: 1.5
+                        },
+                            React.createElement(Background, { variant: "dots", gap: 20, size: 1, color: "#ddd" }),
+                            React.createElement(Controls)
+                        )
+                    ),
+                    React.createElement('div', { className: 'control-panel' },
+                        React.createElement('button', {
+                            className: 'btn btn-secondary',
+                            onClick: handlePrevious,
+                            disabled: currentStep === 0
+                        }, '← Previous'),
+                        React.createElement('div', { className: 'step-counter' },
+                            `Step ${currentStep + 1} of ${tutorialSteps.length}`
+                        ),
+                        React.createElement('button', {
+                            className: 'btn btn-primary',
+                            onClick: handleNext,
+                            disabled: currentStep === tutorialSteps.length - 1 && completedSteps.includes(currentStep)
+                        }, currentStep === tutorialSteps.length - 1 ? 'Finish' : 'Next →')
+                    )
+                ),
+                // Right Sidebar
+                React.createElement('div', { className: 'sidebar-right' },
+                    React.createElement('div', { className: 'context-panel' },
+                        React.createElement('div', { className: 'context-section' },
+                            React.createElement('h3', null, '📚 Learn'),
+                            React.createElement('p', null, step.description)
+                        ),
+                        step.keyPoints && React.createElement('div', { className: 'context-section' },
+                            React.createElement('h3', null, '🎯 Key Points'),
+                            React.createElement('ul', null,
+                                step.keyPoints.map((point, idx) =>
+                                    React.createElement('li', { key: idx }, point)
+                                )
+                            )
+                        ),
+                        step.highlights.length > 0 && step.highlights[0] === 'tier2_5' && React.createElement('div', { className: 'alert-box' },
+                            React.createElement('strong', null, '⚠️ Critical Data Gap'),
+                            React.createElement('br'),
+                            'Tier 2.5 represents 60-70% of suppliers but we only have data on <10% of them!'
+                        ),
+                        step.highlights.length > 0 && step.highlights[0] === 'circular' && React.createElement('div', { className: 'success-box' },
+                            React.createElement('strong', null, '♻️ Circular Economy Impact'),
+                            React.createElement('br'),
+                            'Recycling reduces emissions by 60-90% compared to virgin materials!'
+                        )
+                    ),
+                    step.quiz && React.createElement('div', { className: 'quiz-panel' },
+                        React.createElement('div', { className: 'quiz-question' }, step.quiz.question),
+                        React.createElement('div', { className: 'quiz-options' },
+                            step.quiz.options.map(option =>
+                                React.createElement('div', {
+                                    key: option.id,
+                                    className: `quiz-option ${quizAnswer === option.id ? 'selected' : ''} ${quizFeedback && option.id === quizAnswer ? (quizFeedback.correct ? 'correct' : 'incorrect') : ''}`,
+                                    onClick: () => !quizFeedback && handleQuizAnswer(option.id)
+                                },
+                                    option.text
+                                )
+                            )
+                        ),
+                        quizFeedback && React.createElement('div', {
+                            className: `quiz-feedback ${quizFeedback.correct ? 'correct' : 'incorrect'}`
+                        },
+                            (quizFeedback.correct ? '✓ ' : '✗ ') + quizFeedback.text
+                        )
+                    )
+                )
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(TutorialApp));
+    </script>
+</body>
+</html>

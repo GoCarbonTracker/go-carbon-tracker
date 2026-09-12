@@ -33,6 +33,15 @@ Interactive HTML visualizations generated from the GoCarbonTracker HyperGraph kn
 | `mercedes-supply-chain-visualization.html` | Mercedes-Benz supplier tiers |
 | `ferrari-supply-chain-visualization.html` | Ferrari supplier network |
 
+## Tutorials (`tutorials/`)
+
+Guided walkthroughs of the 9-tier automotive supply chain model the knowledge base is organised around. Figures in the narration are illustrative industry ranges, not values extracted from the knowledge base.
+
+| File | Description |
+|------|-------------|
+| `supply-chain-101.html` | 13-step lesson with quiz questions; tiers appear one at a time as you progress |
+| `automotive-tiers-interactive-tutorial.html` | 10-step narrated tour of the full tier map with highlighted nodes and flows |
+
 ## How to View
 
 Open any `.html` file in a modern browser. All visualizations are self-contained — no server needed. Zoom, pan, click nodes, and filter interactively.

@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Automotive Supply Chain Tutorial</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.28.4/babel.min.js"></script>
+    <script src="https://unpkg.com/reactflow@11/dist/umd/index.js"></script>
+    <link href="https://unpkg.com/reactflow@11/dist/style.css" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+        }
+        #root {
+            width: 100vw;
+            height: 100vh;
+            background: white;
+            position: relative;
+        }
+
+        /* Tutorial Overlay */
+        .tutorial-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to top, rgba(255,255,255,0.98), rgba(255,255,255,0.95));
+            backdrop-filter: blur(10px);
+            border-top: 3px solid #667eea;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+            z-index: 2000;
+            padding: 30px;
+            max-height: 280px;
+            overflow-y: auto;
+            transition: all 0.3s ease;
+        }
+
+        .tutorial-content {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .tutorial-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+
+        .tutorial-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .tutorial-subtitle {
+            font-size: 14px;
+            color: #666;
+            font-weight: 500;
+        }
+
+        .step-indicator {
+            background: #667eea;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .story-text {
+            font-size: 16px;
+            line-height: 1.8;
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .highlight-box {
+            background: #fff3e0;
+            border-left: 4px solid #ff9800;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+
+        .highlight-title {
+            font-weight: 600;
+            color: #f57c00;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .highlight-text {
+            font-size: 14px;
+            color: #555;
+            line-height: 1.6;
+        }
+
+        .tutorial-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+        }
+
+        .btn-secondary:hover {
+            background: #f5f7ff;
+        }
+
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .progress-bar {
+            flex: 1;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            transition: width 0.3s ease;
+        }
+
+        /* Highlighted node effect */
+        .node-highlight {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(102, 126, 234, 0.7); }
+            50% { box-shadow: 0 0 0 20px rgba(102, 126, 234, 0); }
+        }
+
+        .flow-container {
+            width: 100%;
+            height: 100%;
+        }
+
+        .company-badge {
+            display: inline-block;
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            margin: 0 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-presets="react">
+        // Debug: Check if libraries are loaded
+        console.log('React:', typeof React);
+        console.log('ReactDOM:', typeof ReactDOM);
+        console.log('ReactFlow:', window.ReactFlow);
+
+        if (!window.ReactFlow) {
+            console.error('ReactFlow is not loaded!');
+            document.getElementById('root').innerHTML = '<h1 style="color: red; padding: 20px;">Error: ReactFlow library failed to load. Check browser console for details.</h1>';
+            throw new Error('ReactFlow library not loaded');
+        }
+
+        const { useState, useCallback, useEffect } = React;
+        const ReactFlow = window.ReactFlow?.default || window.ReactFlow;
+        const {
+            Controls,
+            Background,
+            MiniMap,
+            Handle,
+            Position,
+            MarkerType,
+            useNodesState,
+            useEdgesState
+        } = window.ReactFlow || {};
+
+        console.log('ReactFlow component:', ReactFlow);
+        console.log('Position:', Position);
+
+        // Tutorial steps with storytelling
+        const tutorialSteps = [
+            {
+                id: 0,
+                title: "The Journey of a Car",
+                subtitle: "From mines to your driveway",
+                highlightNodes: [],
+                highlightEdges: [],
+                story: "Imagine you just bought a new electric vehicle. Have you ever wondered how many companies worked together to create it? The automotive supply chain is like a massive relay race, where materials and parts pass through 9 different levels before becoming your car. Let's follow this journey from the very beginning!",
+                highlight: {
+                    title: "🎯 What You'll Discover",
+                    text: "You'll see how companies like BMW, Bosch, and BASF work together, understand where 95% of emissions really come from, and discover why some small suppliers hold the key to the entire industry."
+                }
+            },
+            {
+                id: 1,
+                title: "Tier 0: The Familiar Names",
+                subtitle: "BMW, Tesla, and Mercedes - The Final Assembly",
+                highlightNodes: ['tier0'],
+                highlightEdges: [],
+                story: "Let's start at the finish line. These are the car companies you know - BMW, Mercedes, Tesla, Volkswagen. They're called OEMs (Original Equipment Manufacturers). Here's the surprising part: they only account for 1-5% of a car's total emissions! The other 95-99% comes from their supply chain.",
+                highlight: {
+                    title: "💡 The Big Secret",
+                    text: "When BMW reports their emissions, the assembly plant is tiny compared to all the suppliers making batteries, steel, and electronics. This is why Scope 3 emissions matter so much!"
+                }
+            },
+            {
+                id: 2,
+                title: "Tier 1: The Mega-Suppliers",
+                subtitle: "Bosch, Continental, Denso - The System Integrators",
+                highlightNodes: ['tier0', 'tier1'],
+                highlightEdges: ['tier1-tier0-powertrain', 'tier1-tier0-chassis'],
+                story: "Meet the giants you've probably never heard of. Companies like Bosch and Continental are massive - sometimes even bigger than the car companies! They're like master chefs, taking ingredients from hundreds of smaller suppliers and combining them into complete systems. Bosch might deliver an entire braking system to BMW, already assembled and tested.",
+                highlight: {
+                    title: "🔗 Real Example: Continental",
+                    text: "Continental supplies to nearly every major car company. They coordinate with 60-70% of all suppliers! If you look at a BMW, Mercedes, and Audi side-by-side, they might all have Continental tires, Bosch brakes, and Denso electronics."
+                }
+            },
+            {
+                id: 3,
+                title: "Tier 2: The Battery Makers",
+                subtitle: "CATL, LG Energy, Panasonic - Powering the EV Revolution",
+                highlightNodes: ['tier1', 'tier2'],
+                highlightEdges: ['tier2-tier1-batteries'],
+                story: "Now we're getting to where the real emissions happen. Battery makers like CATL and LG Energy Solution are the stars of the EV revolution. A single battery pack can weigh 500kg and account for 30-40% of an EV's total lifetime emissions. These companies don't just make batteries - they're creating the future of transportation.",
+                highlight: {
+                    title: "⚡ The Power Players",
+                    text: "CATL (China) is the world's largest battery maker, supplying Tesla, BMW, and Mercedes. LG and Panasonic supply everyone from GM to Tesla. Just 10 battery companies control the entire EV industry!"
+                }
+            },
+            {
+                id: 4,
+                title: "Tier 2.5: The Hidden Critical Layer",
+                subtitle: "The Small Companies That Hold Everything Together",
+                highlightNodes: ['tier2', 'tier2.5'],
+                highlightEdges: ['tier2.5-tier1-fasteners', 'tier2.5-tier1-seals'],
+                story: "Here's where it gets interesting. These are the companies you've NEVER heard of - the ones making fasteners, seals, bearings, and cables. They're small, but critical. Without them, nothing works. And here's the problem: we have almost NO data on them. Less than 10% report their emissions!",
+                highlight: {
+                    title: "⚠️ The Critical Data Gap",
+                    text: "Tier 2.5 represents 60-70% of all suppliers by count! Imagine trying to calculate a car's carbon footprint when you're missing data from thousands of small companies. This is the industry's biggest challenge."
+                }
+            },
+            {
+                id: 5,
+                title: "Tier 3: Where It All Begins",
+                subtitle: "ArcelorMittal, BASF, Alcoa - The Material Giants",
+                highlightNodes: ['tier2.5', 'tier3'],
+                highlightEdges: ['tier3-tier2-steel', 'tier3-tier2-aluminum'],
+                story: "Now we're at the foundation. These companies take raw materials from the earth and transform them into steel, aluminum, glass, chemicals, and plastics. ArcelorMittal makes the steel. BASF creates the chemicals and polymers. Alcoa produces the aluminum. This is where 50-80% of Scope 3 emissions come from!",
+                highlight: {
+                    title: "🏭 The Emission Heavyweights",
+                    text: "A single steel plant can emit 1-50 million tons of CO2 per year. When you drive an EV, most of its carbon footprint was created here - in the steel mills and chemical plants - not at the assembly line!"
+                }
+            },
+            {
+                id: 6,
+                title: "Tier 4: The Brain Makers",
+                subtitle: "NVIDIA, Intel, Bosch - Electronics & Software",
+                highlightNodes: ['tier3', 'tier4'],
+                highlightEdges: ['tier4-tier1-semiconductors'],
+                story: "Modern cars are computers on wheels. A Tesla has more computing power than a fighter jet! Companies like NVIDIA make the AI chips for autonomous driving. Intel and Infineon make the semiconductors. Mobileye creates the vision systems. Cars now have 100+ sensors and run on millions of lines of code.",
+                highlight: {
+                    title: "🤖 The Tech Takeover",
+                    text: "Software is now 40% of a car's value! The semiconductor shortage of 2021 shut down entire car factories. These tech companies have as much power as traditional auto suppliers."
+                }
+            },
+            {
+                id: 7,
+                title: "The Support Network",
+                subtitle: "Tiers 5-8: Logistics, Finance, and Services",
+                highlightNodes: ['tier5', 'tier6', 'tier7', 'tier8'],
+                highlightEdges: ['tier6-tier0-logistics', 'tier7-tier0-fleet'],
+                story: "Behind every physical component is an invisible network of services. DHL and DB Schenker move parts around the world. Companies like ChargePoint build charging networks. Fleet operators like Uber buy thousands of cars. And banks like Mercedes-Benz Financial make it affordable for consumers.",
+                highlight: {
+                    title: "🌐 The Invisible Foundation",
+                    text: "A single car has parts from 30+ countries! The logistics network is so complex that disrupting one port can delay production worldwide. Remember the Suez Canal blockage? That's how interconnected this system is."
+                }
+            },
+            {
+                id: 8,
+                title: "The Circular Loop",
+                subtitle: "Redwood Materials, Li-Cycle - Closing the Circle",
+                highlightNodes: ['circular', 'tier2'],
+                highlightEdges: ['circular-tier2-recycled'],
+                story: "Here's the future: instead of mining new materials, we recycle old batteries and parts. Companies like Redwood Materials (founded by Tesla's ex-CTO) are building massive battery recycling plants. They recover lithium, cobalt, and nickel from old batteries and send them back to battery makers. This can reduce emissions by 60-90%!",
+                highlight: {
+                    title: "♻️ The Circular Economy Promise",
+                    text: "By 2030, recycled materials could supply 30-40% of battery demand! Instead of mining in Chile and Congo, we'll 'mine' old batteries in Nevada and Germany. This is the key to sustainable transportation."
+                }
+            },
+            {
+                id: 9,
+                title: "The Complete Picture",
+                subtitle: "How It All Connects",
+                highlightNodes: ['circular', 'tier0', 'tier1', 'tier2', 'tier2.5', 'tier3', 'tier4', 'tier5', 'tier6', 'tier7', 'tier8'],
+                highlightEdges: ['tier1-tier0-powertrain', 'tier2-tier1-batteries', 'tier3-tier2-steel', 'circular-tier2-recycled'],
+                story: "Now you see the full relay race. Raw materials flow from mines → through material processors → to component makers → through integrators → to car companies → to you. And increasingly, back to recyclers to start again. Every tier depends on the others. When you buy a car, you're buying the work of thousands of companies across 9 different levels.",
+                highlight: {
+                    title: "🎯 The Big Takeaway",
+                    text: "The automotive industry isn't just about cars - it's about understanding the world's most complex supply chain. The companies that master Tier 2.5 data, build recycling loops, and optimize across all 9 tiers will lead the sustainable transportation revolution!"
+                }
+            }
+        ];
+
+        // Custom Node Component
+        const TierNode = ({ data }) => {
+            const getNodeStyle = () => {
+                let bgColor = '#fff';
+                let borderColor = '#ddd';
+
+                if (data.dataQuality === 'high') {
+                    bgColor = '#e8f5e9';
+                    borderColor = '#4caf50';
+                } else if (data.dataQuality === 'medium') {
+                    bgColor = '#fff3e0';
+                    borderColor = '#ff9800';
+                } else if (data.dataQuality === 'low') {
+                    bgColor = '#ffebee';
+                    borderColor = '#f44336';
+                }
+
+                const isHighlighted = data.highlighted;
+                const isDimmed = data.dimmed;
+
+                return {
+                    padding: '16px',
+                    borderRadius: '8px',
+                    border: isHighlighted ? `3px solid #667eea` : `2px solid ${borderColor}`,
+                    background: isHighlighted ? '#f5f7ff' : bgColor,
+                    minWidth: '240px',
+                    maxWidth: '280px',
+                    fontSize: '13px',
+                    boxShadow: isHighlighted ? '0 0 0 4px rgba(102, 126, 234, 0.3)' : '0 1px 3px rgba(0,0,0,0.1)',
+                    cursor: 'pointer',
+                    opacity: isDimmed ? 0.3 : 1,
+                    transition: 'all 0.3s ease',
+                    transform: isHighlighted ? 'scale(1.05)' : 'scale(1)'
+                };
+            };
+
+            return (
+                <div style={getNodeStyle()}>
+                    <Handle
+                        type="target"
+                        position={Position.Top}
+                        style={{ background: '#555', width: 8, height: 8 }}
+                    />
+
+                    <div style={{ fontWeight: '600', marginBottom: '8px', fontSize: '14px', color: '#333' }}>
+                        {data.label}
+                    </div>
+
+                    {data.categories && (
+                        <div style={{ fontSize: '11px', color: '#666', marginBottom: '8px', fontStyle: 'italic' }}>
+                            {data.categories}
+                        </div>
+                    )}
+
+                    {data.emissions && (
+                        <div style={{ fontSize: '11px', color: '#555', marginBottom: '8px', lineHeight: '1.6' }}>
+                            <div>📊 Scope 1+2: {data.emissions.scope12}</div>
+                            <div>📈 Scope 3: {data.emissions.scope3} ({data.emissions.scope3_percent})</div>
+                        </div>
+                    )}
+
+                    {data.companies && (
+                        <div style={{ fontSize: '11px', color: '#666', marginTop: '8px', borderTop: '1px solid #eee', paddingTop: '8px' }}>
+                            🏢 {data.companies}
+                        </div>
+                    )}
+
+                    {data.criticalGap && (
+                        <div style={{
+                            fontSize: '11px',
+                            color: '#d32f2f',
+                            fontWeight: '600',
+                            marginTop: '8px',
+                            padding: '6px',
+                            background: '#ffebee',
+                            borderRadius: '4px',
+                            border: '1px solid #f44336'
+                        }}>
+                            ⚠️ {data.criticalGap}
+                        </div>
+                    )}
+
+                    <Handle
+                        type="source"
+                        position={Position.Bottom}
+                        style={{ background: '#555', width: 8, height: 8 }}
+                    />
+                </div>
+            );
+        };
+
+        const nodeTypes = {
+            tierNode: TierNode
+        };
+
+        function App() {
+            const [currentStep, setCurrentStep] = useState(0);
+            const step = tutorialSteps[currentStep];
+
+            // Base nodes - will be modified based on current step
+            const baseNodes = [
+                { id: 'circular', type: 'tierNode', position: { x: 550, y: 20 }, data: { label: 'Circular Economy', categories: 'Battery Recycling • Material Recovery', emissions: { scope12: '60-90% reduction', scope3: 'vs virgin materials', scope3_percent: 'N/A' }, companies: 'Redwood Materials, Li-Cycle', dataQuality: 'medium' } },
+                { id: 'tier3', type: 'tierNode', position: { x: 850, y: 180 }, data: { label: 'Tier 3: Raw Materials', categories: 'Steel • Aluminum • Glass • Chemicals • Tires', emissions: { scope12: '1M-50M tCO2e', scope3: '50-200M tCO2e', scope3_percent: '50-80%' }, companies: 'ArcelorMittal, Alcoa, BASF...', dataQuality: 'high' } },
+                { id: 'tier5', type: 'tierNode', position: { x: 50, y: 340 }, data: { label: 'Tier 5: Specialty', categories: 'Engineering Services • Specialty Parts', emissions: { scope12: '10-100K tCO2e', scope3: '100K-1M tCO2e', scope3_percent: '70-90%' }, companies: 'Specialized engineering firms', dataQuality: 'low' } },
+                { id: 'tier2', type: 'tierNode', position: { x: 550, y: 340 }, data: { label: 'Tier 2: Battery Ecosystem', categories: 'Cells • Packs • Integrators • Recyclers • Raw Materials', emissions: { scope12: '100K-5M tCO2e', scope3: '1M-50M tCO2e', scope3_percent: '80-95%' }, companies: 'CATL, LG, Panasonic, Samsung SDI', dataQuality: 'high' } },
+                { id: 'tier4', type: 'tierNode', position: { x: 1050, y: 340 }, data: { label: 'Tier 4: Electronics & Software', categories: 'Semiconductors • Sensors • Software • Connectivity', emissions: { scope12: '10K-1M tCO2e', scope3: '100K-10M tCO2e', scope3_percent: '70-90%' }, companies: 'NVIDIA, Intel, Mobileye', dataQuality: 'medium' } },
+                { id: 'tier2.5', type: 'tierNode', position: { x: 350, y: 500 }, data: { label: 'Tier 2.5: Critical SMEs', categories: 'Fasteners • Seals • Bearings • Cables', emissions: { scope12: '1K-100K tCO2e', scope3: '10K-1M tCO2e', scope3_percent: '60-70%' }, companies: 'Thousands of small suppliers', criticalGap: '<10% data coverage', dataQuality: 'low' } },
+                { id: 'tier6', type: 'tierNode', position: { x: 750, y: 500 }, data: { label: 'Tier 6: Infrastructure & Logistics', categories: 'Charging • Hydrogen • Logistics • Dealers', emissions: { scope12: '100K-1M tCO2e', scope3: '1M-10M tCO2e', scope3_percent: '80-90%' }, companies: 'ChargePoint, DHL, DB Schenker', dataQuality: 'medium' } },
+                { id: 'tier7', type: 'tierNode', position: { x: 250, y: 660 }, data: { label: 'Tier 7: Mobility Services', categories: 'Fleet Operators • Autonomous • Connectivity • Charging Networks', emissions: { scope12: '10K-500K tCO2e', scope3: '100K-5M tCO2e', scope3_percent: '90-95%' }, companies: 'Uber, Waymo, Tesla Network', dataQuality: 'medium' } },
+                { id: 'tier1', type: 'tierNode', position: { x: 550, y: 660 }, data: { label: 'Tier 1: Mega-Suppliers', categories: 'Powertrain • Chassis/Brakes • Interiors • Electronics/ADAS • Lighting', emissions: { scope12: '100K-10M tCO2e', scope3: '1M-100M tCO2e', scope3_percent: '85-95%' }, companies: 'Bosch, Continental, Denso, Magna', dataQuality: 'high' } },
+                { id: 'tier8', type: 'tierNode', position: { x: 850, y: 660 }, data: { label: 'Tier 8: Financial Ecosystem', categories: 'Captive Finance • Insurance • ESG Assurance', emissions: { scope12: '1K-50K tCO2e', scope3: '10M-1B+ tCO2e', scope3_percent: '99%+' }, companies: 'Mercedes-Benz Financial, Allianz', dataQuality: 'medium' } },
+                { id: 'tier0', type: 'tierNode', position: { x: 550, y: 820 }, data: { label: 'Tier 0: OEMs', categories: 'Passenger/Light Duty • Commercial/Industrial', emissions: { scope12: '100K-5M tCO2e', scope3: '10M-100M+ tCO2e', scope3_percent: '95-99%' }, companies: 'BMW, Mercedes, Tesla, VW, Stellantis', dataQuality: 'high' } }
+            ];
+
+            // Apply highlighting based on current step
+            const nodes = baseNodes.map(node => {
+                const isHighlighted = step.highlightNodes.includes(node.id);
+                const isDimmed = step.highlightNodes.length > 0 && !isHighlighted;
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        highlighted: isHighlighted,
+                        dimmed: isDimmed
+                    }
+                };
+            });
+
+            const edges = [
+                { id: 'tier1-tier0-powertrain', source: 'tier1', target: 'tier0', label: 'Complete Systems', animated: true, style: { stroke: '#4caf50', strokeWidth: 2 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#4caf50' } },
+                { id: 'tier2-tier1-batteries', source: 'tier2', target: 'tier1', label: 'Battery Packs', animated: true, style: { stroke: '#2196f3', strokeWidth: 2 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#2196f3' } },
+                { id: 'tier2.5-tier1-fasteners', source: 'tier2.5', target: 'tier1', label: 'Critical Components', style: { stroke: '#f44336', strokeWidth: 2, strokeDasharray: '5,5' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#f44336' } },
+                { id: 'tier3-tier2-steel', source: 'tier3', target: 'tier2', label: 'Raw Materials', style: { stroke: '#9e9e9e', strokeWidth: 2 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#9e9e9e' } },
+                { id: 'tier4-tier1-semiconductors', source: 'tier4', target: 'tier1', label: 'Electronics', animated: true, style: { stroke: '#ff9800', strokeWidth: 2 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#ff9800' } },
+                { id: 'tier6-tier0-logistics', source: 'tier6', target: 'tier0', label: 'Distribution', style: { stroke: '#795548', strokeWidth: 2 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#795548' } },
+                { id: 'tier7-tier0-fleet', source: 'tier7', target: 'tier0', label: 'Fleet Purchases', style: { stroke: '#673ab7', strokeWidth: 2 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#673ab7' } },
+                { id: 'tier8-tier0-finance', source: 'tier8', target: 'tier0', label: 'Financial Services', style: { stroke: '#009688', strokeWidth: 2 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#009688' } },
+                { id: 'circular-tier2-recycled', source: 'circular', target: 'tier2', label: 'Recycled Materials', animated: true, style: { stroke: '#8bc34a', strokeWidth: 3 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#8bc34a' } }
+            ];
+
+            // Highlight edges based on current step
+            const highlightedEdges = edges.map(edge => {
+                const isHighlighted = step.highlightEdges.includes(edge.id);
+                return {
+                    ...edge,
+                    animated: isHighlighted || edge.animated,
+                    style: {
+                        ...edge.style,
+                        strokeWidth: isHighlighted ? 4 : edge.style.strokeWidth,
+                        opacity: step.highlightEdges.length > 0 && !isHighlighted ? 0.2 : 1
+                    }
+                };
+            });
+
+            const [nodesState, setNodes, onNodesChange] = useNodesState(nodes);
+            const [edgesState, setEdges, onEdgesChange] = useEdgesState(highlightedEdges);
+
+            // Update nodes and edges when step changes
+            useEffect(() => {
+                setNodes(nodes);
+                setEdges(highlightedEdges);
+            }, [currentStep]);
+
+            const handleNext = () => {
+                if (currentStep < tutorialSteps.length - 1) {
+                    setCurrentStep(currentStep + 1);
+                }
+            };
+
+            const handlePrevious = () => {
+                if (currentStep > 0) {
+                    setCurrentStep(currentStep - 1);
+                }
+            };
+
+            const progress = ((currentStep + 1) / tutorialSteps.length) * 100;
+
+            return (
+                <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                    <div className="flow-container">
+                        <ReactFlow
+                            nodes={nodesState}
+                            edges={edgesState}
+                            onNodesChange={onNodesChange}
+                            onEdgesChange={onEdgesChange}
+                            nodeTypes={nodeTypes}
+                            fitView
+                            minZoom={0.5}
+                            maxZoom={1.5}
+                        >
+                            <Background color="#f0f0f0" gap={16} />
+                            <Controls />
+                            <MiniMap
+                                nodeColor={(node) => {
+                                    if (node.data.dataQuality === 'high') return '#4caf50';
+                                    if (node.data.dataQuality === 'medium') return '#ff9800';
+                                    return '#f44336';
+                                }}
+                                style={{ background: 'white' }}
+                            />
+                        </ReactFlow>
+                    </div>
+
+                    {/* Tutorial Overlay */}
+                    <div className="tutorial-overlay">
+                        <div className="tutorial-content">
+                            <div className="tutorial-header">
+                                <div>
+                                    <div className="tutorial-title">{step.title}</div>
+                                    <div className="tutorial-subtitle">{step.subtitle}</div>
+                                </div>
+                                <div className="step-indicator">
+                                    Step {currentStep + 1} of {tutorialSteps.length}
+                                </div>
+                            </div>
+
+                            <div className="story-text">
+                                {step.story}
+                            </div>
+
+                            {step.highlight && (
+                                <div className="highlight-box">
+                                    <div className="highlight-title">{step.highlight.title}</div>
+                                    <div className="highlight-text">{step.highlight.text}</div>
+                                </div>
+                            )}
+
+                            <div className="tutorial-controls">
+                                <button
+                                    className="btn btn-secondary"
+                                    onClick={handlePrevious}
+                                    disabled={currentStep === 0}
+                                >
+                                    ← Previous
+                                </button>
+
+                                <div className="progress-bar">
+                                    <div className="progress-fill" style={{ width: `${progress}%` }} />
+                                </div>
+
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={handleNext}
+                                    disabled={currentStep === tutorialSteps.length - 1}
+                                >
+                                    {currentStep === tutorialSteps.length - 1 ? 'Complete! ✓' : 'Next →'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

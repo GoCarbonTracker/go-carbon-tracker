@@ -248,6 +248,15 @@ Explore our interactive visualizations — click any link to open in your browse
 | [Companies by Tier & Country](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_country_all_companies.html) | Companies mapped by supply chain position and headquarters |
 | [Company Relationships](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_with_relationships.html) | How companies connect across the supply chain |
 
+### Tutorials
+
+New to automotive supply chains? Start here.
+
+| Tutorial | What You'll Learn |
+|----------|-------------------|
+| [Supply Chain 101](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/tutorials/supply-chain-101.html) | The 9-tier model built up one tier at a time, with quiz checkpoints |
+| [Interactive Tier Tour](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/tutorials/automotive-tiers-interactive-tutorial.html) | A narrated walk through the full tier map, from OEMs to raw materials and back through recycling |
+
 ### OEM Deep Dives
 
 Tata Motors is our deepest case study — with the most extensive extraction and enrichment coverage. BMW, Mercedes-Benz, and Ferrari demonstrate breadth across different OEMs with lighter coverage.
