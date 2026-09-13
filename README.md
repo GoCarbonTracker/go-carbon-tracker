@@ -92,4 +92,4 @@ Built by [Varun Moka](https://github.com/varunmoka7).
 
 Copyright 2025-2026 Varun Moka.
 
-The contents of this repository (README, documentation, and the visualization pages) are licensed under [Creative Commons Attribution 4.0](LICENSE). You may share and adapt them with attribution. Three things are not covered: the GoCarbonTracker application source code, which is a separate work and is not published; the GoCarbonTracker name and logo; and the sentences quoted from Tata Motors documents, which remain the copyright of their original publisher and are quoted here for review.
+The contents of this repository (README, documentation, and the visualization pages) are licensed under [Creative Commons Attribution 4.0](LICENSE). You may share and adapt them with attribution. Three things are not covered, as set out in [NOTICE.md](NOTICE.md): the GoCarbonTracker application source code, which is a separate work and is not published; the GoCarbonTracker name and logo; and the sentences quoted from Tata Motors documents, which remain the copyright of their original publisher and are quoted here for review.

@@ -500,7 +500,7 @@
                 React.createElement('div', { className: 'header' },
                     React.createElement('div', { className: 'header-left' },
                         React.createElement('div', { className: 'title' }, 'Tata Motors — ESG Intelligence'),
-                        React.createElement('div', { className: 'subtitle' }, mode === 'supply-chain' ? '25 suppliers | 3 rings | Tata Group + Tier 1/Partners + Battery/Tech/Services' : '135 claims | 12 contradictions | 80 hyperedges | Mean credibility 0.25')
+                        React.createElement('div', { className: 'subtitle' }, mode === 'supply-chain' ? '25 suppliers | 3 rings | Tata Group + Tier 1/Partners + Battery/Tech/Services' : '135 claims | 12 flagged, 0 confirmed after review | 80 hyperedges | Mean credibility 0.25')
                     ),
                     React.createElement('div', { className: 'mode-toggle' },
                         React.createElement('button', { className: `mode-btn${mode === 'supply-chain' ? ' active' : ''}`, onClick: () => { setMode('supply-chain'); setDetail(null); setScFilter(null); } }, 'Supply Chain'),
@@ -521,7 +521,8 @@
                         React.createElement('div', { style: { marginTop: 8, fontSize: 10, color: '#999' } }, 'KB mining + JLR Supplier Awards + web research.')
                     ) : React.createElement(React.Fragment, null,
                         React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Total Claims'), React.createElement('span', { className: 'stat-value' }, '135')),
-                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Contradictions'), React.createElement('span', { className: 'stat-value', style: { color: '#F44336' } }, '12')),
+                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Flagged conflicts'), React.createElement('span', { className: 'stat-value', style: { color: '#F44336' } }, '12')),
+                        React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Confirmed after review'), React.createElement('span', { className: 'stat-value' }, '0')),
                         React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'High Risk (>=50%)'), React.createElement('span', { className: 'stat-value', style: { color: '#F44336' } }, '11')),
                         React.createElement('div', { className: 'stat-row' }, React.createElement('span', { className: 'stat-label' }, 'Mean Credibility'), React.createElement('span', { className: 'stat-value' }, '0.25')),
                         React.createElement('div', { style: { marginTop: 8, fontSize: 10, fontStyle: 'italic', color: '#999' } }, 'Hover hull to isolate. Click for details.')
