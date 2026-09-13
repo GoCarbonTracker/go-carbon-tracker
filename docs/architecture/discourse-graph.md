@@ -106,7 +106,7 @@ Credibility Score = Weighted Average of 9 Factors
 
 ---
 
-## Greenwashing Risk Assessment
+## Review-Priority Risk Assessment
 
 After credibility scoring, each claim-argument pair is given a review-priority risk score (0-100 scale). It ranks candidates for human review; it is not a greenwashing verdict:
 
