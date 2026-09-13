@@ -4,6 +4,8 @@
 
 # GoCarbonTracker
 
+This repository is the public introduction to GoCarbonTracker: what it does, one worked example, and where to see it running. The application itself is not here.
+
 GoCarbonTracker reads corporate climate reports and links every claim back to the page it came from, so a company can see what its own disclosures say, and where they appear to conflict, before a regulator or auditor does.
 
 <p>
@@ -11,18 +13,18 @@ GoCarbonTracker reads corporate climate reports and links every claim back to th
   <a href="https://hypergraph.gocarbontracker.net"><b>Open the hypergraph</b></a>
 </p>
 
-## What this repository contains
-
-Public documentation and static interactive visualizations. It does **not** contain the extraction, retrieval, or analysis source code, and it is not a self-hostable release. The source code lives in a private development repository. See [Status](#status-as-of-2026-09-13) for what is public and what is not.
-
 ## See it live
 
 | Where | What you will see |
 |---|---|
 | [gocarbontracker.net](https://gocarbontracker.net) | The project in one scroll: what it reads, what it produces, where to go next. |
 | [Hypergraph intro](https://hypergraph.gocarbontracker.net) | Five chapters on how a claim becomes a node, how evidence attaches to it, and what an apparent conflict looks like before review. |
-| [Automotive explorer](https://hypergraph.gocarbontracker.net/automotive) | The automotive supply chain by tier and country, with a Tata Motors company-intelligence panel. |
+| [Automotive explorer](https://hypergraph.gocarbontracker.net/automotive) | The automotive supply chain by tier and country, with company-intelligence panels for Tata Motors, BMW, Mercedes-Benz, and Ferrari. Tata is the only one whose output has been reviewed; the other three show unreviewed extraction output. |
 | [Supply chain maps](visualizations/README.md) | Static tier maps, tutorials, and OEM supplier networks served from this repository via GitHub Pages. Each page's README entry says whether its figures are extracted or illustrative. |
+
+## What this repository contains
+
+Public documentation and static interactive visualizations. It does **not** contain the extraction, retrieval, or analysis source code, and it is not a self-hostable release. The source code lives in a private development repository. See [Status](#status-as-of-2026-09-13) for what is public and what is not.
 
 ## One worked example: Tata Motors
 
@@ -36,7 +38,7 @@ Tata Motors is the company we have gone deepest on: annual and integrated report
 | "net zero emissions By 2045" | Tata Motors Integrated Annual Report 2023-24 | "…achieve net zero GHG emissions by 2045 in the CV business and by 2040 in the PV business." |
 | "Net Zero by 2040" | Tata Motors CDP Climate Change response 2024 | "…achieving Net Zero by 2040 for PV and 2045 for CV Business." |
 
-Our index places these at PDF pages 12, 25, and 92 respectively. Those page numbers are derived from a corpus-wide index and were not re-checked against the original PDFs on 2026-09-13; the document names and quoted sentences were.
+Our index places these at PDF pages 12, 25, and 92 respectively. Page numbers are from our index and have not yet been checked against the original PDFs; the document names and quoted sentences have.
 
 **Contradiction detection did not.** An automated pass flagged 12 candidate conflicts in the Tata disclosures. Manual review on 2026-09-09 found **0 genuine contradictions**. The three claims above are one of them: the extractor split "2040 for PV and 2045 for CV" into two claims and then paired them against each other. The rest were table rows fragmented into separate claims, a GRI index table (page pointers) compared against an actual emissions disclosure, and one probable OCR misread.
 
@@ -88,4 +90,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). [Open an issue](https://github.com/GoCar
 
 Built by [Varun Moka](https://github.com/varunmoka7).
 
-Copyright 2025-2026 Varun Moka. The documentation and visualizations in this repository are published for review; no licence is granted yet for reuse or redistribution, and the application source code is not published.
+Copyright 2025-2026 Varun Moka.
+
+The contents of this repository (README, documentation, and the visualization pages) are licensed under [Creative Commons Attribution 4.0](LICENSE). You may share and adapt them with attribution. Three things are not covered: the GoCarbonTracker application source code, which is a separate work and is not published; the GoCarbonTracker name and logo; and the sentences quoted from Tata Motors documents, which remain the copyright of their original publisher and are quoted here for review.
