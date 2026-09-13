@@ -1,5 +1,6 @@
 # Extraction Pipeline — Architecture Deep Dive
 
+> **Design document, written 2026-03-14.** It describes how the system is designed to work. Any count, size, timing, or cost figure below is a snapshot from that date, not a live number. Detection outputs described here are candidates for human review, not findings; see the [README](../../README.md#one-worked-example-tata-motors) for what review of the Tata Motors output produced.
 ## Overview
 
 The extraction pipeline transforms raw PDF sustainability reports into structured, queryable contexts. It uses a multimodal approach with automatic fallback — starting with lightweight text extraction and escalating to AI vision only when necessary.
@@ -101,7 +102,7 @@ The extraction engine includes **529+ regex patterns** specifically designed for
 
 ## Company ID Enforcement
 
-A 4-layer validation system prevents data corruption across 216 companies:
+A 4-layer validation system prevents data corruption across the knowledge base (216 companies as of 2026-03-14):
 
 ```
 Layer 1: Automatic Fixing

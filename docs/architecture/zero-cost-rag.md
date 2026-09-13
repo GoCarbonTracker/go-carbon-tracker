@@ -1,5 +1,6 @@
 # Zero-Cost RAG — Design Philosophy
 
+> **Design document, written 2026-03-14.** It describes how the system is designed to work. Any count, size, timing, or cost figure below is a snapshot from that date, not a live number. Detection outputs described here are candidates for human review, not findings; see the [README](../../README.md#one-worked-example-tata-motors) for what review of the Tata Motors output produced.
 ## The Problem with Traditional RAG
 
 Most RAG (Retrieval-Augmented Generation) systems rely on expensive external APIs:
@@ -74,7 +75,7 @@ Neither BM25 nor TF-IDF alone is sufficient. Together, they cover different retr
 
 ## Results
 
-| Metric | Value |
+| Metric (snapshot 2026-03-14) | Value |
 |--------|-------|
 | Knowledge Base Size | 37,877 contexts |
 | Query Response Time | <3 seconds |

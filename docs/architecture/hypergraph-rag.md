@@ -1,10 +1,11 @@
 # HyperGraph RAG Engine — Architecture Deep Dive
 
+> **Design document, written 2026-03-14.** It describes how the system is designed to work. Any count, size, timing, or cost figure below is a snapshot from that date, not a live number. Detection outputs described here are candidates for human review, not findings; see the [README](../../README.md#one-worked-example-tata-motors) for what review of the Tata Motors output produced.
 ## Overview
 
 The HyperGraph RAG (Retrieval-Augmented Generation) engine is the core intelligence layer of GoCarbonTracker. It transforms unstructured PDF sustainability reports into a structured, queryable knowledge graph — entirely at zero API cost.
 
-Unlike traditional RAG systems that rely on expensive embedding APIs (OpenAI, Cohere), our engine uses local TF-IDF embeddings and BM25 indexing. The entire knowledge base — 37,877 contexts from 216 companies — was built without a single external API call.
+Unlike traditional RAG systems that rely on expensive embedding APIs (OpenAI, Cohere), our engine uses local TF-IDF embeddings and BM25 indexing. The knowledge base (37,877 contexts from 216 companies as of 2026-03-14) was built without a single external API call.
 
 ---
 

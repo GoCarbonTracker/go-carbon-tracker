@@ -1,10 +1,11 @@
 # Discourse Graph — Architecture Deep Dive
 
+> **Design document, written 2026-03-14.** It describes how the system is designed to work. Any count, size, timing, or cost figure below is a snapshot from that date, not a live number. Detection outputs described here are candidates for human review, not findings; see the [README](../../README.md#one-worked-example-tata-motors) for what review of the Tata Motors output produced.
 ## Overview
 
-The Discourse Graph is GoCarbonTracker's system for transforming raw sustainability report text into structured, verifiable arguments. It answers the question: **"Is this company's climate claim credible, or is it greenwashing?"**
+The Discourse Graph is GoCarbonTracker's system for transforming raw sustainability report text into structured, verifiable arguments. It answers the question: **"What does this company claim, what evidence in its own documents supports or conflicts with it, and which apparent conflicts deserve a human look?"**
 
-Every claim extracted from a corporate report is linked to supporting and contradicting evidence, scored for credibility across 9 factors, and assessed for greenwashing risk across 5 dimensions.
+Every claim extracted from a corporate report is linked to supporting and contradicting evidence, scored for credibility across 9 factors, and assessed for risk across 5 dimensions. The risk score ranks candidates for review; it is not a verdict.
 
 ---
 
@@ -107,7 +108,7 @@ Credibility Score = Weighted Average of 9 Factors
 
 ## Greenwashing Risk Assessment
 
-After credibility scoring, each claim-argument pair is assessed for greenwashing risk (0-100 scale):
+After credibility scoring, each claim-argument pair is given a review-priority risk score (0-100 scale). It ranks candidates for human review; it is not a greenwashing verdict:
 
 | Risk Factor | Weight | What It Detects |
 |------------|--------|----------------|
@@ -124,7 +125,7 @@ After credibility scoring, each claim-argument pair is assessed for greenwashing
 | 0-25 | Low | Well-supported, credible claim |
 | 26-50 | Medium | Some concerns, needs deeper review |
 | 51-75 | High | Significant credibility gaps |
-| 76-100 | Critical | Strong indicators of greenwashing |
+| 76-100 | Critical | Review first |
 
 ---
 
@@ -156,7 +157,7 @@ Contradictions are automatically detected when:
 2. A company's claim conflicts with **supplier data** (e.g., OEM claims supply chain decarbonization, but suppliers report increased emissions)
 3. **Year-over-year** data shows regression against stated targets
 
-Currently: **1,833 contradictions detected** across the automotive knowledge base.
+Snapshot 2026-03-14: 1,833 candidate contradictions detected across the automotive knowledge base. These are unreviewed candidates. The only adjudicated sample, Tata Motors on 2026-09-09, went 12 flagged to 0 genuine; every candidate was an extraction artifact.
 
 ---
 

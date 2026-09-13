@@ -1,303 +1,91 @@
+<p align="center">
+  <img src="gct-logo.png" alt="GoCarbonTracker" width="96">
+</p>
+
 # GoCarbonTracker
 
-## Climate Intelligence Platform
+GoCarbonTracker reads corporate climate reports and links every claim back to the page it came from, so a company can see what its own disclosures say, and where they appear to conflict, before a regulator or auditor does.
 
-**GoCarbonTracker** is a climate intelligence platform that reads corporate sustainability reports, extracts the claims companies make about their emissions, checks those claims against real evidence, and identifies who's actually delivering — and who's greenwashing.
+<p>
+  <a href="https://gocarbontracker.net"><b>Project website</b></a> &nbsp;·&nbsp;
+  <a href="https://hypergraph.gocarbontracker.net"><b>Open the hypergraph</b></a>
+</p>
 
-Over **50,000 companies** worldwide now face mandatory emissions reporting under regulations like CSRD, TCFD, and SEC Climate Rules. Most lack any way to verify what their competitors, suppliers, or even their own subsidiaries are actually claiming. GoCarbonTracker is building that verification layer.
+## What this repository contains
 
----
+Public documentation and static interactive visualizations. It does **not** contain the extraction, retrieval, or analysis source code, and it is not a self-hostable release. The source code lives in a private development repository. See [Status](#status-as-of-2026-09-13) for what is public and what is not.
 
-## Table of Contents
+## See it live
 
-- [The Problem](#the-problem)
-- [What We Do](#what-we-do)
-- [What You Can Query](#what-you-can-query)
-- [Proof of Concept: Automotive Industry](#proof-of-concept-automotive-industry)
-- [Architecture](#architecture)
-- [HyperGraph RAG Engine](#hypergraph-rag-engine)
-- [Discourse Graph](#discourse-graph)
-- [Credibility & Greenwashing Scoring](#credibility--greenwashing-scoring)
-- [Compliance Mapping](#compliance-mapping)
-- [See It In Action](#see-it-in-action)
-- [Roadmap](#roadmap)
-- [Get Involved](#get-involved)
+| Where | What you will see |
+|---|---|
+| [gocarbontracker.net](https://gocarbontracker.net) | The project in one scroll: what it reads, what it produces, where to go next. |
+| [Hypergraph intro](https://hypergraph.gocarbontracker.net) | Five chapters on how a claim becomes a node, how evidence attaches to it, and what an apparent conflict looks like before review. |
+| [Automotive explorer](https://hypergraph.gocarbontracker.net/automotive) | The automotive supply chain by tier and country, with a Tata Motors company-intelligence panel. |
+| [Supply chain maps](visualizations/README.md) | Static tier maps, tutorials, and OEM supplier networks served from this repository via GitHub Pages. Each page's README entry says whether its figures are extracted or illustrative. |
 
----
+## One worked example: Tata Motors
 
-## The Problem
+Tata Motors is the company we have gone deepest on: annual and integrated reports, BRSR filings, CDP responses, CSR reports, policies, and investor presentations, all public documents.
 
-Corporate sustainability reports are full of bold claims — net-zero targets, emissions reductions, science-based commitments. But who actually checks them?
+**Citation tracing works.** Every Tata claim in the knowledge base resolves to a source document and a position in it. Three examples of the same target, as extracted:
 
-- Who verifies if a company's supply chain emissions claims align with what their suppliers report?
-- Who catches it when a company says "carbon neutral" but their own data shows rising emissions?
-- Who compares hundreds of companies across a supply chain to find the weak links?
+| Extracted claim | Source document | Sentence in the document |
+|---|---|---|
+| "net zero emissions by 2040" | Tata Motors Integrated Annual Report 2023-24 | "…fulfilling our sustainability target of attaining net zero emissions by 2040." |
+| "net zero emissions By 2045" | Tata Motors Integrated Annual Report 2023-24 | "…achieve net zero GHG emissions by 2045 in the CV business and by 2040 in the PV business." |
+| "Net Zero by 2040" | Tata Motors CDP Climate Change response 2024 | "…achieving Net Zero by 2040 for PV and 2045 for CV Business." |
 
-These are the questions GoCarbonTracker is designed to answer.
+Our index places these at PDF pages 12, 25, and 92 respectively. Those page numbers are derived from a corpus-wide index and were not re-checked against the original PDFs on 2026-09-13; the document names and quoted sentences were.
 
----
+**Contradiction detection did not.** An automated pass flagged 12 candidate conflicts in the Tata disclosures. Manual review on 2026-09-09 found **0 genuine contradictions**. The three claims above are one of them: the extractor split "2040 for PV and 2045 for CV" into two claims and then paired them against each other. The rest were table rows fragmented into separate claims, a GRI index table (page pointers) compared against an actual emissions disclosure, and one probable OCR misread.
 
-## What We Do
+That is the useful result. The system can trace a claim to its source. Telling a real inconsistency from an extraction artifact is the hard problem, and it is not solved. Nothing on the live sites or in this repository reports a contradiction as a finding; the automotive explorer shows Tata as "12 flagged, 0 confirmed after review".
 
-GoCarbonTracker reads sustainability reports at scale and turns them into structured, verifiable intelligence:
+## How it works
 
-1. **Extract** — Read corporate sustainability PDFs and pull out structured data: emissions numbers, targets, timelines, and commitments
-2. **Structure** — Organize extracted data into a hypergraph knowledge base where companies, claims, evidence, regulatory frameworks, and supply chain tiers are connected through rich n-ary relationships
-3. **Analyze** — Mine claims, link each to supporting and contradicting evidence, detect inconsistencies across companies and time periods
-4. **Score** — Credibility scoring (9 factors) and greenwashing risk detection. A contrastive retrieval model learns which signals best predict claim plausibility
-5. **Visualize** — Interactive hypergraph visualizations, supply chain maps, and dashboards to explore companies, compare claims, and spot patterns
+1. [Extraction pipeline](docs/architecture/extraction-pipeline.md): PDF reports become page-level contexts, text first, escalating to table-aware and vision extraction when text fails.
+2. [HyperGraph knowledge base](docs/architecture/hypergraph-rag.md): contexts are indexed and connected so one relationship can hold a company, a topic, its evidence, and its supply-chain position at once.
+3. [Zero-cost retrieval](docs/architecture/zero-cost-rag.md): local BM25 and TF-IDF indexing, no external embedding API.
+4. [Discourse graph](docs/architecture/discourse-graph.md): claims are separated from evidence, linked, and scored; conflicts are surfaced as candidates.
+5. Human review before anything is published. Candidates become findings only after someone reads the source pages.
 
----
+The architecture documents were written in March 2026 and describe design intent. Each carries a note at the top saying which figures are dated snapshots.
 
-## What You Can Query
+## Evidence and review standard
 
-Because the knowledge base is structured as a hypergraph — where each relationship connects multiple dimensions simultaneously — you can ask questions that would be impossible with flat document search or traditional knowledge graphs:
+- A detection is a candidate, not a finding.
+- Every published example names the source document and quotes the sentence.
+- Adjudication happens before publication, and the negative result is reported when that is what review produced.
+- Visualization data that is illustrative rather than extracted is labelled as such in [visualizations/README.md](visualizations/README.md).
+- Counts in this repository carry a date. A count without a date is an error; please open an issue.
 
-**Supply Chain Intelligence**
-- *"Which Tier 1 suppliers claim Scope 3 reductions but have upstream suppliers with increasing emissions?"*
-- *"Which suppliers appear in 5+ OEM supply chains and have weak credibility scores?"*
-- *"Trace the emissions claims from raw materials through Tier 3 → Tier 1 → OEM for a specific component"*
+## Status, as of 2026-09-13
 
-**Cross-Company Benchmarking**
-- *"How does Tata's emissions trajectory compare to BMW's, with supporting evidence from both supply chains?"*
-- *"Which companies in the automotive sector have the highest ratio of contradicting evidence to claims?"*
-- *"Rank all OEMs by the percentage of their claims that are backed by third-party verification"*
+| Component | State |
+|---|---|
+| Landing page, gocarbontracker.net | Live |
+| Hypergraph intro and automotive explorer | Live |
+| Tata Motors citation tracing | Verified end to end, 2026-09-09 |
+| Tata Motors contradiction detection | 12 flagged, 0 genuine after manual review, 2026-09-09 |
+| Dashboard, dashboard.gocarbontracker.net | Placeholder page, not a product |
+| Extraction, retrieval, and analysis source code | Private, not published |
+| Companies beyond Tata Motors | Automotive supply chain, lighter coverage; not adjudicated |
+| Compliance mapping to CSRD and ESRS | Designed, not built |
 
-**Greenwashing Detection**
-- *"Company A says they source 100% renewable energy — does their supplier's report agree?"*
-- *"Find all net-zero commitments that lack a baseline year, methodology, or interim targets"*
-- *"Which companies increased their emissions while simultaneously announcing carbon neutrality?"*
+## Get involved
 
-**Regulatory Gap Analysis**
-- *"Which CSRD E1 datapoints have zero coverage across these 50 companies?"*
-- *"Map all Tata claims to their corresponding ESRS disclosure requirements — where are the gaps?"*
-- *"Which companies meet TCFD recommendations for climate risk disclosure, and which only partially comply?"*
+Useful contributions right now, none of which need code access:
 
-These queries work because of two things no LLM or general-purpose AI can replicate:
+- **Source corrections.** If a quoted sentence or document name above is wrong, open an issue with the document and page.
+- **Methods review.** Read the [discourse graph](docs/architecture/discourse-graph.md) design and tell us where the artifact classes above would slip through.
+- **Case-study review.** Sustainability reporting practitioners who can read a Tata, BMW, or Mercedes-Benz disclosure and say whether an apparent conflict is real.
+- **Visualization accessibility.** The static pages under [visualizations/](visualizations/) need keyboard and screen-reader review.
 
-1. **A curated knowledge base built from scratch** — every data point extracted, validated, and structured from hundreds of sustainability reports. LLMs can summarize a single report, but they can't cross-reference a company's Scope 3 claims against what their suppliers actually report — because they don't have the structured relationships between them.
-
-2. **Hypergraph structure** — a single hyperedge connects company + topic + evidence + regulatory framework + supply chain context simultaneously. You don't search documents — you traverse relationships across the entire supply chain.
-
----
-
-## Proof of Concept: Automotive Industry
-
-We started with the automotive industry because of its deep, complex supply chain and high-profile sustainability promises.
-
-The knowledge base spans the full automotive supply chain — from OEMs through multiple tiers of suppliers down to raw materials:
-
-```
-OEMs (BMW, Toyota, Volkswagen, Mercedes-Benz, ...)
-  └── Tier 1 — Major systems (Bosch, Continental, Denso, ...)
-       └── Tier 2 — Sub-systems and components
-            └── Tier 3 — Specialized parts
-                 └── Tiers 4-8 — Raw materials, chemicals, mining
-```
-
-This lets us trace how emissions claims flow through the supply chain — and where they break down.
+See [CONTRIBUTING.md](CONTRIBUTING.md). [Open an issue](https://github.com/GoCarbonTracker/go-carbon-tracker/issues) to start.
 
 ---
 
-## Architecture
+Built by [Varun Moka](https://github.com/varunmoka7).
 
-GoCarbonTracker is built as three interconnected layers:
-
-```
-┌─────────────────────────────────────────────────────┐
-│                 FRONTEND APPLICATIONS                │
-│  Dashboard  |  Admin Panel  |  Graph Explorer        │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────┴──────────────────────────────┐
-│                   DATABASE LAYER                     │
-│  PostgreSQL + Auth + Realtime + Row-Level Security   │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────┴──────────────────────────────┐
-│                INTELLIGENCE ENGINE                   │
-│                                                      │
-│  Extraction Pipeline (Docling + pdfplumber + LLM)    │
-│         │                                            │
-│         ▼                                            │
-│  HyperGraph Knowledge Base (hypergraph-structured)   │
-│         │                                            │
-│         ├──► Discourse Graph (claims + evidence)     │
-│         │         │                                  │
-│         │         ▼                                  │
-│         │    Credibility & Greenwashing Scoring       │
-│         │                                            │
-│         └──► Contrastive Retrieval (learned scoring)  │
-│                                                      │
-│  Compliance Mapping (ESRS/CSRD datapoint ontology)   │
-└──────────────────────────────────────────────────────┘
-```
-
-**Data flows bottom-up**: PDF reports are processed by the extraction pipeline into structured data points. The HyperGraph knowledge base organizes these into queryable relationships. The Discourse Graph mines claims, links evidence, and scores credibility. The contrastive retrieval model learns which signals best predict claim plausibility. Compliance mapping connects claims to regulatory requirements.
-
----
-
-## HyperGraph RAG Engine
-
-The core of GoCarbonTracker. A retrieval-augmented generation engine purpose-built for ESG intelligence.
-
-Traditional knowledge graphs connect two nodes per edge — Company A → emits → X tons. But a sustainability claim simultaneously involves a company, a target year, a baseline, a regulatory framework, supporting evidence, and a supply chain context. Splitting this into separate pairwise edges loses the inherent structure.
-
-GoCarbonTracker uses a **domain-specific hypergraph** — where a single hyperedge connects any number of nodes simultaneously. One relationship captures the full context of a claim, instead of fragmenting it across five or six edges. The foundational research behind this approach is detailed in [Luo et al., "HyperGraphRAG" (NeurIPS 2025)](https://arxiv.org/abs/2503.21322).
-
-This structure enables:
-
-- **Smart search** — combines meaning-based and keyword search so you find the right data even when companies use different terminology
-- **Fair comparison** — ensures every company gets equal representation in comparative queries, so large companies don't drown out smaller ones
-- **Numbers over narrative** — emissions tables and quantitative data are prioritized over marketing language
-- **Learned scoring** — a model trained on the knowledge base learns which claims are plausible and which are suspicious, using the structure of the graph itself
-
----
-
-## Discourse Graph
-
-The Discourse Graph turns structured data into intelligence. It transforms extracted report text into structured arguments with credibility scoring and greenwashing detection.
-
-[Discourse graphs](https://discoursegraphs.com/) are an information model for collaborative knowledge synthesis ([Chan et al., arXiv:2407.20666](https://arxiv.org/abs/2407.20666v2)). The core idea: separate *claims* (what someone asserts) from *evidence* (what supports or contradicts it). Each element can be independently examined, connected, and updated.
-
-We apply this to corporate sustainability. Every claim a company makes — every net-zero target, every emissions reduction assertion — gets extracted as an atomic element. Each claim is linked to supporting and contradicting evidence from across the knowledge base. The ratio between supporting and contradicting evidence, combined with credibility scoring, produces an argument strength assessment and a greenwashing risk score.
-
-```
-  ┌──────────────────────────────────────────────────────┐
-  │  Claim: "Tata Motors targets net-zero by 2040"       │
-  │  Credibility: 0.28  |  Greenwashing Risk: 52%        │
-  └──────────────────┬───────────────────────────────────┘
-                     │
-        ┌────────────┴────────────┐
-        │                         │
-   ┌────▼──────┐          ┌───────▼───────┐
-   │ Supporting │          │ Contradicting │
-   │  Evidence  │          │   Evidence    │
-   │            │          │               │
-   │ • Annual   │          │ • Subsidiary  │
-   │   report   │          │   targets     │
-   │   2023     │          │   2039, 2045  │
-   └────────────┘          └───────────────┘
-
-  Why high risk? Three different net-zero dates
-  across Tata parent and divisions — 2039, 2040, 2045.
-  The discourse graph catches this automatically.
-```
-
-### ESG Theme Coverage
-
-- **Environmental** — Emissions targets, energy initiatives, biodiversity, climate risk
-- **Social** — Labor practices, supply chain working conditions, community impact
-- **Governance** — Board oversight, integrated reporting, shareholder engagement
-- **Supply Chain** — Supplier emissions, responsible sourcing, circular economy
-
----
-
-
-## Credibility & Greenwashing Scoring
-
-### Credibility Score (9 Factors)
-
-| What We Check | Example |
-|---------------|---------|
-| Specific numbers present? | "Reduced by 15%" vs "significantly reduced" |
-| Clear baseline and target? | "From 2019 baseline, targeting 2030" vs vague timelines |
-| Third-party verification? | External audit or certification referenced? |
-| Methodology explained? | How did they measure it? |
-| Concrete timelines? | Specific years, not just "by mid-century" |
-| Source credibility? | Annual report vs marketing brochure |
-| Externally assured? | Independent assurance statement? |
-| CDP disclosure aligned? | Consistent with CDP submissions? |
-| Regulatory framework aligned? | CSRD, ISSB, TCFD compliant? |
-
-### Greenwashing Risk Detection
-
-| What We Detect | What It Means |
-|----------------|---------------|
-| Low credibility | The claim scores poorly on the factors above |
-| Weak evidence | Big claims with little data to back them up |
-| Contradictions | Other evidence directly conflicts with this claim |
-| No progress shown | Targets announced but no evidence of actual action |
-| Vague language | Buzzwords without measurable commitments |
-
----
-
-## Compliance Mapping
-
-Sustainability claims don't exist in a vacuum — they correspond to specific regulatory disclosure requirements under frameworks like CSRD, TCFD, GRI, and CDP.
-
-GoCarbonTracker automatically maps extracted claims against these regulatory requirements, surfacing:
-
-- **Disclosure gaps** — which required datapoints a company hasn't addressed
-- **Framework coverage** — how completely a company's reporting meets each framework's requirements
-- **Cross-framework alignment** — where a single claim satisfies multiple frameworks, and where frameworks conflict
-
-This turns the knowledge base into a compliance intelligence layer — not just "what did the company say?" but "what were they supposed to say, and did they?"
-
----
-
-## See It In Action
-
-Explore our interactive visualizations — click any link to open in your browser.
-
-### Supply Chain Maps
-
-| Visualization | What You'll See |
-|--------------|-----------------|
-| [Full Supply Chain Network](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/automotive-tiers-relationships.html) | Complete tier mapping — OEM to Tier 8 |
-| [Companies by Tier & Country](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_tier_country_all_companies.html) | Companies mapped by supply chain position and headquarters |
-| [Company Relationships](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/vyuh/vyuh_format_with_relationships.html) | How companies connect across the supply chain |
-
-### Tutorials
-
-New to automotive supply chains? Start here.
-
-| Tutorial | What You'll Learn |
-|----------|-------------------|
-| [Supply Chain 101](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/tutorials/supply-chain-101.html) | The 9-tier model built up one tier at a time, with quiz checkpoints |
-| [Interactive Tier Tour](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/tutorials/automotive-tiers-interactive-tutorial.html) | A narrated walk through the full tier map, from OEMs to raw materials and back through recycling |
-
-### OEM Deep Dives
-
-Tata Motors is our deepest case study — with the most extensive extraction and enrichment coverage. BMW, Mercedes-Benz, and Ferrari demonstrate breadth across different OEMs with lighter coverage.
-
-| Visualization | Coverage | What You'll See |
-|--------------|----------|-----------------|
-| [Tata Motors Hypergraph](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/tata-supply-chain-visualization.html) | Deep | Supply chain + hypergraph claims view with interactive hull regions |
-| [BMW Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/bmw-supply-chain-visualization.html) | Standard | BMW Group's multi-tier supplier network |
-| [Mercedes-Benz Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/mercedes-supply-chain-visualization.html) | Standard | Mercedes-Benz supplier structure |
-| [Ferrari Supply Chain](https://gocarbontracker.github.io/go-carbon-tracker/visualizations/supply-chain/ferrari-supply-chain-visualization.html) | Standard | Ferrari's supplier network |
-
----
-
-## Roadmap
-
-```
-Phase 1 ✅  Automotive Knowledge Base
-Phase 2 ✅  Discourse Graph & Credibility Scoring
-Phase 3 ✅  Interactive Dashboard & Visualizations
-Phase 4 🔄  Deep Extraction Pipeline (Docling + table-aware + LLM fallback)
-Phase 5 🔄  ESRS Compliance Intelligence (regulatory datapoint mapping)
-Phase 6 📋  Multi-Industry Expansion
-Phase 7 📋  Public API & Integrations
-```
-
----
-
-
-## Get Involved
-
-GoCarbonTracker is looking for collaborators with expertise in:
-
-- **Sustainability Reporting** — CSRD, TCFD, GRI, CDP domain knowledge
-- **Climate Science** — Validating emissions data against scientific sources
-- **Graph/Network Analysis** — Relationship mapping and community detection
-- **Data Visualization** — Interactive visualization of complex datasets
-
-**Interested?** [Open an issue](https://github.com/GoCarbonTracker/go-carbon-tracker/issues) or reach out directly.
-
----
-
-Built by [Varun](https://github.com/varunmoka7)
-
-**Copyright 2025-2026 GoCarbonTracker. All rights reserved.**
+Copyright 2025-2026 Varun Moka. The documentation and visualizations in this repository are published for review; no licence is granted yet for reuse or redistribution, and the application source code is not published.

@@ -1,58 +1,23 @@
 # Contributing to GoCarbonTracker
 
-Thank you for your interest in contributing to GoCarbonTracker! We're building an open climate intelligence platform and welcome collaborators across multiple disciplines.
+This repository holds public documentation and static visualizations. The application source code is private and is not open for pull requests. What you can contribute here is review: of sources, of methods, of the visualizations.
 
-## Areas Where We Need Help
+## What helps
 
-### Graph Theory & Data Structures
-- Optimizing hypergraph operations and traversal algorithms
-- Efficient hyperedge storage and retrieval patterns
-- Graph-based similarity and clustering for ESG claims
+**Source corrections.** The README and the hypergraph site quote sentences from public Tata Motors documents. If a quote, document name, or page is wrong, open an issue with the document, the page, and the correct text.
 
-### NLP & Information Extraction
-- Improving claim extraction accuracy from PDF reports
-- Multi-language support for non-English sustainability reports
-- Table extraction from complex PDF layouts
+**Methods review.** The [architecture documents](docs/architecture/) describe how claims are extracted, linked to evidence, and flagged as candidate conflicts. Every Tata contradiction the system flagged turned out to be an extraction artifact. If you can see another artifact class that would slip through, or a way to catch the known ones, write it up in an issue.
 
-### Climate Science & ESG
-- Validating emissions data against scientific sources (NOAA, NASA, IPCC)
-- Expanding claim type taxonomy for new ESG frameworks
-- Credibility scoring methodology refinement
+**Case-study review.** If you read sustainability disclosures for a living (CSRD, BRSR, CDP, GRI) and can look at an apparent conflict and say whether it is real, that judgement is the scarcest input this project has.
 
-### Frontend Engineering
-- React 18, TypeScript, graph visualization
-- Cytoscape.js, D3.js, Force-Graph-3D integrations
-- Accessibility (WCAG 2.1 AA compliance)
+**Visualization accessibility.** The pages under [visualizations/](visualizations/) are self-contained HTML. Keyboard navigation and screen-reader behaviour have not been reviewed. Issues with a specific page and browser are welcome; pull requests to those HTML files are too.
 
-### Data Engineering
-- Scaling the extraction pipeline to new industries
-- Performance optimization for large knowledge bases
-- Real-time data synchronization patterns
+## How
 
-## How to Get Involved
+1. Open an [issue](https://github.com/GoCarbonTracker/go-carbon-tracker/issues). Say which document, page, or file you are talking about.
+2. For visualization fixes, fork, change the HTML file, and open a pull request. Keep each pull request to one page.
+3. Do not add counts or status claims to any document without a date on the same line.
 
-1. **Browse the architecture docs** in [`docs/architecture/`](./docs/architecture/) to understand the system design
-2. **Explore the visualizations** in [`visualizations/`](./visualizations/) to see the platform in action
-3. **Open an issue** to discuss your ideas or ask questions
-4. **Reach out directly** via GitHub issues for collaboration discussions
+## Conduct
 
-## Development Standards
-
-- **TypeScript strict mode** — no implicit any
-- **WCAG 2.1 AA** — accessibility compliance required
-- **Multi-tenant isolation** — all code supports Row Level Security
-- **Climate data accuracy** — validated against authoritative sources
-- **100% entity coverage** — comparative queries must cover all queried companies
-
-## Code of Conduct
-
-We are committed to providing a welcoming and inclusive environment. All contributors are expected to:
-
-- Be respectful and constructive in all interactions
-- Focus on what is best for the project and the climate community
-- Accept constructive criticism gracefully
-- Show empathy towards other community members
-
-## Questions?
-
-Open an issue or start a discussion — we're happy to help you get started.
+Be direct and specific. Criticise the evidence, not the person. Corrections that name a page beat opinions that do not.
