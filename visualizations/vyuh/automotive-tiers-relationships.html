@@ -87,13 +87,60 @@
             font-weight: bold;
             color: #667eea;
         }
+        .caption {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(640px, calc(100% - 40px));
+            background: white;
+            padding: 14px 18px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            z-index: 1000;
+            font-size: 14px;
+            color: #333;
+        }
+        .caption-title {
+            font-weight: bold;
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+        .caption-step {
+            font-weight: normal;
+            color: #888;
+            font-size: 12px;
+            margin-left: 8px;
+        }
+        .caption-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .caption-controls button {
+            padding: 6px 12px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .caption-controls button.primary {
+            background: #667eea;
+            border-color: #667eea;
+            color: white;
+        }
+        .caption-controls button:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel" data-presets="react">
-        const { useState, useCallback, useMemo } = React;
+        const { useState, useCallback, useMemo, useEffect, useRef } = React;
         const ReactFlow = window.ReactFlow.default;
         const {
             Controls,
@@ -104,8 +151,24 @@
             MarkerType,
             useNodesState,
             useEdgesState,
-            ConnectionMode
+            ConnectionMode,
+            ReactFlowProvider,
+            useReactFlow
         } = window.ReactFlow;
+
+        // Auto-play walkthrough: one step per stage of the chain, revealed cumulatively.
+        const STEPS = [
+            { title: 'It starts in the ground', text: 'Steel, aluminium, glass, chemicals and tyres. Tier 3 carries the heaviest direct emissions in the chain.', nodes: ['tier3'], edges: [] },
+            { title: 'Materials become components', text: 'Raw materials feed three branches at once: battery makers, electronics, and the small suppliers of fasteners, cables and seals.', nodes: ['tier2_battery', 'tier2_5', 'tier4'], edges: ['e3-2', 'e3-2.5', 'e3-4'] },
+            { title: 'The hidden gap', text: 'Tier 2.5 is where reporting thins out. These SMEs rarely publish emissions, so every tier above them inherits the blind spot.', nodes: ['tier2_5'], edges: [] },
+            { title: 'Engineering services', text: 'Specialty engineering firms design and test what the electronics tier builds.', nodes: ['tier5'], edges: ['e5-4'] },
+            { title: 'Systems integration', text: 'Tier 1 mega-suppliers assemble components into powertrains, chassis, interiors and lighting systems.', nodes: ['tier1'], edges: ['e2-1', 'e2.5-1', 'e4-1'] },
+            { title: 'Final assembly', text: 'The OEM builds the car. Almost all of its footprint is Scope 3: it was emitted in the tiers below this box.', nodes: ['tier0'], edges: ['e1-0'] },
+            { title: 'After the factory', text: 'Charging, logistics and dealers move the car; fleet operators run it. Use-phase data flows back to the OEM.', nodes: ['tier6', 'tier7'], edges: ['e7-6', 'e6-0', 'e7-0-validation'] },
+            { title: 'Money and assurance', text: 'Captive finance, insurers and ESG assurance sit beside the chain. Their footprint is almost entirely what they finance.', nodes: ['tier8'], edges: ['e8-0'] },
+            { title: 'Closing the loop', text: 'End-of-life batteries come back as recovered materials, cutting the need for virgin Tier 3 input.', nodes: ['circular'], edges: ['e-circular-1', 'e-circular-2', 'e-circular-3'] }
+        ];
+        const STEP_MS = 5000;
 
         // Custom Node Component
         const TierNode = ({ data, selected }) => {
@@ -610,6 +673,51 @@
             const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
             const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
+            // Walkthrough state: step -1 = idle (full map), 0..n = playing/paused on that step.
+            const [step, setStep] = useState(-1);
+            const [playing, setPlaying] = useState(false);
+            const { fitView } = useReactFlow();
+            const started = useRef(false);
+            const current = step >= 0 ? STEPS[step] : null;
+            const revealed = useMemo(() => new Set(STEPS.slice(0, step + 1).flatMap(s => s.nodes)), [step]);
+            const revealedEdges = useMemo(() => new Set(STEPS.slice(0, step + 1).flatMap(s => s.edges)), [step]);
+            const shownNodes = useMemo(() => !current ? nodes : nodes.map(n => ({
+                ...n,
+                style: current.nodes.includes(n.id)
+                    ? { outline: '4px solid #667eea', outlineOffset: 2, borderRadius: 8 }
+                    : revealed.has(n.id) ? {} : { opacity: 0.12, pointerEvents: 'none' }
+            })), [nodes, step]);
+            const shownEdges = useMemo(() => !current ? edges : edges.map(e => ({
+                ...e,
+                hidden: !revealedEdges.has(e.id),
+                animated: current.edges.includes(e.id)
+            })), [edges, step]);
+
+            useEffect(() => {
+                if (!current) {
+                    if (started.current) fitView({ duration: 600 });
+                    return;
+                }
+                started.current = true;
+                fitView({ nodes: [...revealed].map(id => ({ id })), duration: 600, padding: 0.25, maxZoom: 1.1 });
+            }, [step]);
+
+            useEffect(() => {
+                if (!playing) return;
+                if (step >= STEPS.length - 1) { setPlaying(false); return; }
+                const t = setTimeout(() => setStep(s => s + 1), STEP_MS);
+                return () => clearTimeout(t);
+            }, [playing, step]);
+
+            const play = () => {
+                if (step < 0 || step >= STEPS.length - 1) setStep(0);
+                setPlaying(true);
+            };
+            const jump = (delta) => {
+                setPlaying(false);
+                setStep(s => Math.min(STEPS.length - 1, Math.max(0, s + delta)));
+            };
+
             const onNodeClick = useCallback((event, node) => {
                 alert(`
                     ${node.data.label}
@@ -635,8 +743,8 @@
 
                     <div className="flow-container">
                         <ReactFlow
-                            nodes={nodes}
-                            edges={edges}
+                            nodes={shownNodes}
+                            edges={shownEdges}
                             onNodesChange={onNodesChange}
                             onEdgesChange={onEdgesChange}
                             onNodeClick={onNodeClick}
@@ -656,6 +764,26 @@
                                 style={{ height: 120 }}
                             />
                         </ReactFlow>
+                    </div>
+
+                    <div className="caption">
+                        {current ? (
+                            <div>
+                                <div className="caption-title">
+                                    {current.title}
+                                    <span className="caption-step">{step + 1} / {STEPS.length}</span>
+                                </div>
+                                <div>{current.text}</div>
+                            </div>
+                        ) : (
+                            <div>Press Play to follow a car from raw materials to the road, one tier at a time.</div>
+                        )}
+                        <div className="caption-controls">
+                            <button onClick={() => jump(-1)} disabled={step <= 0}>← Back</button>
+                            <button className="primary" onClick={playing ? () => setPlaying(false) : play}>{playing ? 'Pause' : 'Play'}</button>
+                            <button onClick={() => jump(1)} disabled={step >= STEPS.length - 1}>Next →</button>
+                            <button onClick={() => { setPlaying(false); setStep(-1); }} disabled={step < 0}>Reset</button>
+                        </div>
                     </div>
 
                     <div className="stats">
@@ -694,7 +822,7 @@
 
         // Render the app
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        root.render(<ReactFlowProvider><App /></ReactFlowProvider>);
     </script>
     <script src="https://unpkg.com/@babel/standalone@7.28.4/babel.min.js"></script>
 <a data-gct-licence href="https://github.com/GoCarbonTracker/go-carbon-tracker/blob/main/LICENSE" style="position:fixed;left:8px;bottom:4px;z-index:2147483647;font:11px/1.4 system-ui,sans-serif;color:#64748b;text-decoration:none;opacity:.8;background:rgba(255,255,255,.6);padding:1px 6px;border-radius:3px">GoCarbonTracker · CC BY 4.0</a>
