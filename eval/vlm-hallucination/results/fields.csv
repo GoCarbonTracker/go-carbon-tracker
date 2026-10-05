@@ -65,46 +65,72 @@ granite-docling-258m,nox_mt,fy25,192,correct,nox mt 192 160*
 granite-docling-258m,nox_mt,fy24,160,correct,nox mt 192 160*
 granite-docling-258m,particulate_mt,fy25,519,correct,particulate matter (pm) mt 519 679*
 granite-docling-258m,particulate_mt,fy24,679,correct,particulate matter (pm) mt 519 679*
-granite-docling-258m,scope1_tco2e,fy25,43754,correct,"total scope 1 emissions # tco$_{2}$e 43,754 48,736*"
-granite-docling-258m,scope1_tco2e,fy24,48736,correct,"total scope 1 emissions # tco$_{2}$e 43,754 48,736*"
-granite-docling-258m,scope2_tco2,fy25,131407,correct,"total scope 2 emissions ## tco$_{2}$ 1,31,407 1,72,409*"
-granite-docling-258m,scope2_tco2,fy24,172409,correct,"total scope 2 emissions ## tco$_{2}$ 1,31,407 1,72,409*"
-granite-docling-258m,s1s2_per_vehicle,fy25,0.462,correct,total scope 1 and scope 2 emission intensity in terms of physical output tco$_{2}$/ vehicles produced 0.462 0.552*
-granite-docling-258m,s1s2_per_vehicle,fy24,0.552,correct,total scope 1 and scope 2 emission intensity in terms of physical output tco$_{2}$/ vehicles produced 0.462 0.552*
+granite-docling-258m,scope1_tco2e,fy25,43754,correct,"total scope 1 emissions # tco e 43,754 48,736*"
+granite-docling-258m,scope1_tco2e,fy24,48736,correct,"total scope 1 emissions # tco e 43,754 48,736*"
+granite-docling-258m,scope2_tco2,fy25,131407,correct,"total scope 2 emissions ## tco 1,31,407 1,72,409*"
+granite-docling-258m,scope2_tco2,fy24,172409,correct,"total scope 2 emissions ## tco 1,31,407 1,72,409*"
+granite-docling-258m,s1s2_per_vehicle,fy25,0.462,correct,total scope 1 and scope 2 emission intensity in terms of physical output tco / vehicles produced 0.462 0.552*
+granite-docling-258m,s1s2_per_vehicle,fy24,0.552,correct,total scope 1 and scope 2 emission intensity in terms of physical output tco / vehicles produced 0.462 0.552*
 granite-docling-258m,waste_recycled_mt,fy25,73673,correct,"(i) recycled 73,673***"
 granite-docling-258m,waste_recycled_mt,fy24,53728,missing,"(i) recycled 73,673***"
 granite-docling-258m,waste_landfilled_mt,fy25,24133,correct,"(ii) landfilling 24,133"
 granite-docling-258m,waste_landfilled_mt,fy24,31527,missing,"(ii) landfilling 24,133"
 granite-docling-258m,waste_per_vehicle,fy25,0.271,wrong_value,waste intensity in terms of physical output (mt/vehicles produced) 0.2171 0.227
 granite-docling-258m,waste_per_vehicle,fy24,0.227,correct,waste intensity in terms of physical output (mt/vehicles produced) 0.2171 0.227
-granite-docling-258m,scope3_cat1_tco2e,fy25,5228249,correct,"category 1 : purchased goods and services$^{1}$ tco$_{2}$e 52,28,249 61,09,148*"
-granite-docling-258m,scope3_cat1_tco2e,fy24,6109148,correct,"category 1 : purchased goods and services$^{1}$ tco$_{2}$e 52,28,249 61,09,148*"
-granite-docling-258m,scope3_cat6_tco2,fy25,6755,correct,"category 6 : business travel tco$_{2}$ 6,755 7,006"
-granite-docling-258m,scope3_cat6_tco2,fy24,7006,correct,"category 6 : business travel tco$_{2}$ 6,755 7,006"
-granite-docling-258m,scope3_cat11_tco2,fy25,139571557,correct,"category 11 : use of sold products tco$_{2}$ 13,95,71,557 15,86,21,101"
-granite-docling-258m,scope3_cat11_tco2,fy24,158621101,correct,"category 11 : use of sold products tco$_{2}$ 13,95,71,557 15,86,21,101"
-granite-docling-258m,scope3_cat14_tco2,fy25,82335,correct,"category 14 : franchises$^{4}$ tco$_{2}$ 82,335 82,854"
-granite-docling-258m,scope3_cat14_tco2,fy24,82854,correct,"category 14 : franchises$^{4}$ tco$_{2}$ 82,335 82,854"
+granite-docling-258m,scope3_cat1_tco2e,fy25,5228249,correct,"category 1 : purchased goods and services tco e 52,28,249 61,09,148*"
+granite-docling-258m,scope3_cat1_tco2e,fy24,6109148,correct,"category 1 : purchased goods and services tco e 52,28,249 61,09,148*"
+granite-docling-258m,scope3_cat6_tco2,fy25,6755,correct,"category 6 : business travel tco 6,755 7,006"
+granite-docling-258m,scope3_cat6_tco2,fy24,7006,correct,"category 6 : business travel tco 6,755 7,006"
+granite-docling-258m,scope3_cat11_tco2,fy25,139571557,correct,"category 11 : use of sold products tco 13,95,71,557 15,86,21,101"
+granite-docling-258m,scope3_cat11_tco2,fy24,158621101,correct,"category 11 : use of sold products tco 13,95,71,557 15,86,21,101"
+granite-docling-258m,scope3_cat14_tco2,fy25,82335,correct,"category 14 : franchises tco 82,335 82,854"
+granite-docling-258m,scope3_cat14_tco2,fy24,82854,correct,"category 14 : franchises tco 82,335 82,854"
 granite-docling-258m,scope3_total_tco2,fy25,144944801,correct,2. please provide details of total scope 3 emissions and its intensity:
 granite-docling-258m,scope3_total_tco2,fy24,164885353,correct,2. please provide details of total scope 3 emissions and its intensity:
-lightonocr-2-1b,total_energy_gj,fy25,1787238,missing,
-lightonocr-2-1b,total_energy_gj,fy24,1920470,missing,
-lightonocr-2-1b,renewable_electricity_gj,fy25,532976,missing,
-lightonocr-2-1b,renewable_electricity_gj,fy24,372058,missing,
-lightonocr-2-1b,nonrenewable_energy_gj,fy25,1254262,missing,
-lightonocr-2-1b,nonrenewable_energy_gj,fy24,1548412,missing,
-lightonocr-2-1b,energy_intensity_per_vehicle,fy25,4.72,missing,
-lightonocr-2-1b,energy_intensity_per_vehicle,fy24,4.80,missing,
-lightonocr-2-1b,surface_water_kl,fy25,157280,missing,
-lightonocr-2-1b,surface_water_kl,fy24,169577,missing,
-lightonocr-2-1b,third_party_water_kl,fy25,2022267,missing,
-lightonocr-2-1b,third_party_water_kl,fy24,2342418,missing,
-lightonocr-2-1b,groundwater_kl,fy25,667560,missing,
-lightonocr-2-1b,groundwater_kl,fy24,571963,missing,
-lightonocr-2-1b,water_withdrawal_kl,fy25,2847107,missing,
-lightonocr-2-1b,water_withdrawal_kl,fy24,3083958,missing,
-lightonocr-2-1b,water_consumption_kl,fy25,2661542,missing,
-lightonocr-2-1b,water_consumption_kl,fy24,2979832,missing,
+lightonocr-2-1b,total_energy_gj,fy25,1787238,correct,"total energy consumed (a+b+c+d+e+f) (in gj) 17,87,238 19,20,470*"
+lightonocr-2-1b,total_energy_gj,fy24,1920470,correct,"total energy consumed (a+b+c+d+e+f) (in gj) 17,87,238 19,20,470*"
+lightonocr-2-1b,renewable_electricity_gj,fy25,532976,correct,"total electricity consumption (a) (in gj) 5,32,976 3,72,058*"
+lightonocr-2-1b,renewable_electricity_gj,fy24,372058,correct,"total electricity consumption (a) (in gj) 5,32,976 3,72,058*"
+lightonocr-2-1b,nonrenewable_energy_gj,fy25,1254262,correct,"total energy consumed from non-renewable sources (d+e+f) (in gj) 12,54,262 15,48,412*"
+lightonocr-2-1b,nonrenewable_energy_gj,fy24,1548412,correct,"total energy consumed from non-renewable sources (d+e+f) (in gj) 12,54,262 15,48,412*"
+lightonocr-2-1b,energy_intensity_per_vehicle,fy25,4.72,correct,energy intensity per rupee of turnover adjusted for purchasing power parity (ppp)** (gj/ $) | 0.00005428 | 0.00005459* | | (total energy consumed / revenue from
+lightonocr-2-1b,energy_intensity_per_vehicle,fy24,4.80,correct,energy intensity per rupee of turnover adjusted for purchasing power parity (ppp)** (gj/ $) | 0.00005428 | 0.00005459* | | (total energy consumed / revenue from
+lightonocr-2-1b,surface_water_kl,fy25,157280,correct,energy intensity per rupee of turnover adjusted for purchasing power parity (ppp)** (gj/ $) | 0.00005428 | 0.00005459* | | (total energy consumed / revenue from
+lightonocr-2-1b,surface_water_kl,fy24,169577,correct,energy intensity per rupee of turnover adjusted for purchasing power parity (ppp)** (gj/ $) | 0.00005428 | 0.00005459* | | (total energy consumed / revenue from
+lightonocr-2-1b,third_party_water_kl,fy25,2022267,correct,energy intensity per rupee of turnover adjusted for purchasing power parity (ppp)** (gj/ $) | 0.00005428 | 0.00005459* | | (total energy consumed / revenue from
+lightonocr-2-1b,third_party_water_kl,fy24,2342418,correct,energy intensity per rupee of turnover adjusted for purchasing power parity (ppp)** (gj/ $) | 0.00005428 | 0.00005459* | | (total energy consumed / revenue from
+lightonocr-2-1b,groundwater_kl,fy25,667560,correct,energy intensity per rupee of turnover adjusted for purchasing power parity (ppp)** (gj/ $) | 0.00005428 | 0.00005459* | | (total energy consumed / revenue from
+lightonocr-2-1b,groundwater_kl,fy24,571963,correct,energy intensity per rupee of turnover adjusted for purchasing power parity (ppp)** (gj/ $) | 0.00005428 | 0.00005459* | | (total energy consumed / revenue from
+lightonocr-2-1b,water_withdrawal_kl,fy25,2847107,correct,energy intensity per rupee of turnover adjusted for purchasing power parity (ppp)** (gj/ $) | 0.00005428 | 0.00005459* | | (total energy consumed / revenue from
+lightonocr-2-1b,water_withdrawal_kl,fy24,3083958,correct,energy intensity per rupee of turnover adjusted for purchasing power parity (ppp)** (gj/ $) | 0.00005428 | 0.00005459* | | (total energy consumed / revenue from
+lightonocr-2-1b,water_consumption_kl,fy25,2661542,correct,energy intensity per rupee of turnover adjusted for purchasing power parity (ppp)** (gj/ $) | 0.00005428 | 0.00005459* | | (total energy consumed / revenue from
+lightonocr-2-1b,water_consumption_kl,fy24,2979832,correct,energy intensity per rupee of turnover adjusted for purchasing power parity (ppp)** (gj/ $) | 0.00005428 | 0.00005459* | | (total energy consumed / revenue from
+lightonocr-2-1b,nox_mt,fy25,192,correct,nox mt 192 160*
+lightonocr-2-1b,nox_mt,fy24,160,correct,nox mt 192 160*
+lightonocr-2-1b,particulate_mt,fy25,519,correct,particulate matter (pm) mt 519 679*
+lightonocr-2-1b,particulate_mt,fy24,679,correct,particulate matter (pm) mt 519 679*
+lightonocr-2-1b,scope1_tco2e,fy25,43754,correct,"total scope 1 emissions # tco₂e 43,754 48,736*"
+lightonocr-2-1b,scope1_tco2e,fy24,48736,correct,"total scope 1 emissions # tco₂e 43,754 48,736*"
+lightonocr-2-1b,scope2_tco2,fy25,131407,correct,"total scope 2 emissions ## tco₂ 1,31,407 1,72,409*"
+lightonocr-2-1b,scope2_tco2,fy24,172409,correct,"total scope 2 emissions ## tco₂ 1,31,407 1,72,409*"
+lightonocr-2-1b,s1s2_per_vehicle,fy25,0.462,correct,total scope 1 and scope 2 emission intensity in terms of physical output tco₂/ vehicles produced 0.462 0.552*
+lightonocr-2-1b,s1s2_per_vehicle,fy24,0.552,correct,total scope 1 and scope 2 emission intensity in terms of physical output tco₂/ vehicles produced 0.462 0.552*
+lightonocr-2-1b,waste_recycled_mt,fy25,73673,correct,"(i) recycled 73,673*** 53,728***"
+lightonocr-2-1b,waste_recycled_mt,fy24,53728,correct,"(i) recycled 73,673*** 53,728***"
+lightonocr-2-1b,waste_landfilled_mt,fy25,24133,correct,"(ii) landfilling 24,133 31,527"
+lightonocr-2-1b,waste_landfilled_mt,fy24,31527,correct,"(ii) landfilling 24,133 31,527"
+lightonocr-2-1b,waste_per_vehicle,fy25,0.271,correct,waste intensity in terms of physical output (mt/vehicles produced) 0.271 0.227
+lightonocr-2-1b,waste_per_vehicle,fy24,0.227,correct,waste intensity in terms of physical output (mt/vehicles produced) 0.271 0.227
+lightonocr-2-1b,scope3_cat1_tco2e,fy25,5228249,correct,"category 1 : purchased goods and services tco e 52,28,249 61,09,148*"
+lightonocr-2-1b,scope3_cat1_tco2e,fy24,6109148,correct,"category 1 : purchased goods and services tco e 52,28,249 61,09,148*"
+lightonocr-2-1b,scope3_cat6_tco2,fy25,6755,correct,"category 6 : business travel tco 6,755 7,006"
+lightonocr-2-1b,scope3_cat6_tco2,fy24,7006,correct,"category 6 : business travel tco 6,755 7,006"
+lightonocr-2-1b,scope3_cat11_tco2,fy25,139571557,correct,"category 11 : use of sold products tco 13,95,71,557 15,86,21,101"
+lightonocr-2-1b,scope3_cat11_tco2,fy24,158621101,correct,"category 11 : use of sold products tco 13,95,71,557 15,86,21,101"
+lightonocr-2-1b,scope3_cat14_tco2,fy25,82335,correct,"category 14 : franchises tco 82,335 82,854"
+lightonocr-2-1b,scope3_cat14_tco2,fy24,82854,correct,"category 14 : franchises tco 82,335 82,854"
+lightonocr-2-1b,scope3_total_tco2,fy25,144944801,correct,### 2. please provide details of total scope 3 emissions and its intensity:
+lightonocr-2-1b,scope3_total_tco2,fy24,164885353,correct,### 2. please provide details of total scope 3 emissions and its intensity:
 paddleocr-vl-1.6,total_energy_gj,fy25,1787238,correct,"total energy consumed (a+b+c+d+e+f) (in gj) 17,87,238 19,20,470*"
 paddleocr-vl-1.6,total_energy_gj,fy24,1920470,correct,"total energy consumed (a+b+c+d+e+f) (in gj) 17,87,238 19,20,470*"
 paddleocr-vl-1.6,renewable_electricity_gj,fy25,532976,correct,"total electricity consumption (a) (in gj) 5,32,976 3,72,058*"

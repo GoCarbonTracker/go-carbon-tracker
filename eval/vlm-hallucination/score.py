@@ -13,6 +13,7 @@ Every ledger line is one bookmark a reviewer can open, check against the page,
 and mark confirmed or false_alarm.
 """
 import csv
+import html
 import json
 import pathlib
 import re
@@ -30,7 +31,9 @@ GOLD_FIELDS = json.loads((HERE / "gold" / "fields.json").read_text())
 def clean(text: str) -> str:
     """Strip markup that carries numbers which are not page content:
     DocTags <loc_N> boxes, HTML attributes, grounding coordinates."""
+    text = html.unescape(text)  # LightOnOCR escapes inline tags: &lt;sup&gt;
     text = re.sub(r"<loc_\d+>", " ", text)
+    text = re.sub(r"<(sup|sub)>[^<]*</(sup|sub)>|\$[\^_]\{?\w+\}?\$", " ", text)  # footnote marks, CO<sub>2</sub>, LaTeX sub/superscripts
     text = re.sub(r"\(cid:\d+\)", "�", text)  # pdfplumber glyph ids for unmapped characters
     text = re.sub(r"\[\[[\d,\s]+\]\]", " ", text)
     text = re.sub(r"<(/?)([a-z_]+)[^>]*>", r" <\1\2> ", text)
@@ -39,6 +42,8 @@ def clean(text: str) -> str:
 
 
 def rows(text: str) -> list[str]:
+    # HTML tables may put each cell on its own line; a <tr> is one row regardless
+    text = re.sub(r"<tr>.*?</tr>", lambda m: " ".join(m.group(0).split()), text, flags=re.S)
     text = re.sub(r"<(/tr|nl|br)>", "\n", text)
     return [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", r)).lower().strip() for r in text.split("\n")]
 
@@ -46,7 +51,7 @@ def rows(text: str) -> list[str]:
 def row_values(row: str) -> set[str]:
     """Numbers in a row, plus a standalone 0: a row reading '0 0' where the page
     prints 20,22,267 is a wrong value, not a missing one."""
-    vals = set(numbers(row))
+    vals = set(numbers(re.sub(r"category \d+|scope \d", " ", row)))  # label digits are not values
     if re.search(r"(?<![\d.,])0(?![\d.,])", row):
         vals.add("0")
     return vals
@@ -136,10 +141,12 @@ def main():
                     tot["field_" + status] += 1
                     field_rows.append({"model": model, "field": fld["id"], "year": year, "gold": want,
                                        "status": status, "row": cands[0][:160] if cands else ""})
-                    if status == "wrong_value":
-                        ledger.append({"model": model, "page": page, "kind": "wrong_field_value",
+                    if status != "correct":
+                        kind = {"wrong_value": "wrong_field_value", "missing": "missing_field",
+                                "value_without_label": "unlabelled_value"}[status]
+                        ledger.append({"model": model, "page": page, "kind": kind,
                                        "field": fld["id"], "year": year, "gold": want,
-                                       "row": cands[0][:200], "review": "open"})
+                                       "row": cands[0][:200] if cands else "", "review": "open"})
         if not tot["pages"]:
             continue
         unsupported = tot["misread_number"] + tot["fabricated_number"]

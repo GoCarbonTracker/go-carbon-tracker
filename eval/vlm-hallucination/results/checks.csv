@@ -23,12 +23,18 @@ granite-docling-258m,waste_disposed,fy25,pass,"parts sum 24,232 vs total 24,232"
 granite-docling-258m,waste_disposed,fy24,not_evaluable,a row has no value for this year
 granite-docling-258m,scope3_total,fy25,pass,parts sum 1.44945e+08 vs total 1.44945e+08
 granite-docling-258m,scope3_total,fy24,pass,parts sum 1.64885e+08 vs total 1.64885e+08
-lightonocr-2-1b,water_withdrawal,fy25,not_evaluable,part or total row not found
-lightonocr-2-1b,water_withdrawal,fy24,not_evaluable,part or total row not found
-lightonocr-2-1b,energy_renewable,fy25,not_evaluable,part or total row not found
-lightonocr-2-1b,energy_renewable,fy24,not_evaluable,part or total row not found
-lightonocr-2-1b,energy_nonrenewable,fy25,not_evaluable,part or total row not found
-lightonocr-2-1b,energy_nonrenewable,fy24,not_evaluable,part or total row not found
+lightonocr-2-1b,water_withdrawal,fy25,pass,parts sum 0.0002714 vs total 5.428e-05
+lightonocr-2-1b,water_withdrawal,fy24,pass,parts sum 0.00027295 vs total 5.459e-05
+lightonocr-2-1b,energy_renewable,fy25,pass,"parts sum 532,976 vs total 532,976"
+lightonocr-2-1b,energy_renewable,fy24,pass,"parts sum 372,058 vs total 372,058"
+lightonocr-2-1b,energy_nonrenewable,fy25,pass,parts sum 1.25426e+06 vs total 1.25426e+06
+lightonocr-2-1b,energy_nonrenewable,fy24,pass,parts sum 1.54841e+06 vs total 1.54841e+06
+lightonocr-2-1b,waste_recovered,fy25,pass,"parts sum 78,369 vs total 78,369"
+lightonocr-2-1b,waste_recovered,fy24,pass,"parts sum 58,978 vs total 58,978"
+lightonocr-2-1b,waste_disposed,fy25,pass,"parts sum 24,232 vs total 24,232"
+lightonocr-2-1b,waste_disposed,fy24,pass,"parts sum 31,969 vs total 31,969"
+lightonocr-2-1b,scope3_total,fy25,pass,parts sum 1.44945e+08 vs total 1.44945e+08
+lightonocr-2-1b,scope3_total,fy24,pass,parts sum 1.64885e+08 vs total 1.64885e+08
 paddleocr-vl-1.6,water_withdrawal,fy25,fail,parts sum 2.68983e+06 vs total 2.84711e+06
 paddleocr-vl-1.6,water_withdrawal,fy24,fail,parts sum 2.91438e+06 vs total 3.08396e+06
 paddleocr-vl-1.6,energy_renewable,fy25,pass,"parts sum 532,976 vs total 532,976"

@@ -1,7 +1,14 @@
+{"model": "glm-ocr-0.9b", "page": 49, "kind": "unlabelled_value", "field": "waste_per_vehicle", "year": "fy25", "gold": "0.271", "row": "waste intensity in terms of physical output (mt/vehicles produced)", "review": "open"}
+{"model": "glm-ocr-0.9b", "page": 49, "kind": "unlabelled_value", "field": "waste_per_vehicle", "year": "fy24", "gold": "0.227", "row": "waste intensity in terms of physical output (mt/vehicles produced)", "review": "open"}
 {"model": "granite-docling-258m", "page": 45, "kind": "misread_number", "value": "603531", "nearest_gold": "603551", "context": "<fcel> 866904* <nl> <fcel> Total fuel consumption (E) (in GJ) <fcel> 603531 <fcel> 681508* <nl> <fcel> Energy consumption through other sources ", "review": "open"}
 {"model": "granite-docling-258m", "page": 45, "kind": "misread_number", "value": "0.0000084", "nearest_gold": "0.00008084", "context": "er adjusted for Purchasing Power Parity (PPP)* (Kilolitres/ $) <fcel> 0.0000084 <fcel> 0.00008470 <nl> <fcel> (Total water consumption / Revenue fro", "review": "open"}
+{"model": "granite-docling-258m", "page": 45, "kind": "missing_field", "field": "surface_water_kl", "year": "fy24", "gold": "169577", "row": "(i) surface water 1,57,280", "review": "open"}
+{"model": "granite-docling-258m", "page": 45, "kind": "missing_field", "field": "third_party_water_kl", "year": "fy24", "gold": "2342418", "row": "(iii) third party water 20,22,267", "review": "open"}
+{"model": "granite-docling-258m", "page": 45, "kind": "missing_field", "field": "groundwater_kl", "year": "fy24", "gold": "571963", "row": "(ii) groundwater 6,67,560", "review": "open"}
 {"model": "granite-docling-258m", "page": 47, "kind": "misread_number", "value": "0.000050320", "nearest_gold": "0.000005320", "context": "ided limited assurance on data reported under this indicator. <fcel> 0.000050320 <fcel> 0.000006286* <nl> </otsl> <unordered_list> <list_item> ", "review": "open"}
 {"model": "granite-docling-258m", "page": 49, "kind": "misread_number", "value": "0.2171", "nearest_gold": "0.271", "context": "e intensity in terms of physical output (MT/Vehicles Produced) <fcel> 0.2171 <fcel> 0.227 <nl> </otsl> <text> For each category of waste ge", "review": "open"}
+{"model": "granite-docling-258m", "page": 49, "kind": "missing_field", "field": "waste_recycled_mt", "year": "fy24", "gold": "53728", "row": "(i) recycled 73,673***", "review": "open"}
+{"model": "granite-docling-258m", "page": 49, "kind": "missing_field", "field": "waste_landfilled_mt", "year": "fy24", "gold": "31527", "row": "(ii) landfilling 24,133", "review": "open"}
 {"model": "granite-docling-258m", "page": 49, "kind": "wrong_field_value", "field": "waste_per_vehicle", "year": "fy25", "gold": "0.271", "row": "waste intensity in terms of physical output (mt/vehicles produced) 0.2171 0.227", "review": "open"}
 {"model": "paddleocr-vl-1.6", "page": 45, "kind": "wrong_field_value", "field": "surface_water_kl", "year": "fy25", "gold": "157280", "row": "(i) surface water 6,67,560 5,71,963", "review": "open"}
 {"model": "paddleocr-vl-1.6", "page": 45, "kind": "wrong_field_value", "field": "surface_water_kl", "year": "fy24", "gold": "169577", "row": "(i) surface water 6,67,560 5,71,963", "review": "open"}
@@ -9,6 +16,49 @@
 {"model": "paddleocr-vl-1.6", "page": 45, "kind": "wrong_field_value", "field": "third_party_water_kl", "year": "fy24", "gold": "2342418", "row": "(iii) third party water 0 0", "review": "open"}
 {"model": "paddleocr-vl-1.6", "page": 45, "kind": "wrong_field_value", "field": "groundwater_kl", "year": "fy25", "gold": "667560", "row": "(ii) groundwater 20,22,267 23,42,418", "review": "open"}
 {"model": "paddleocr-vl-1.6", "page": 45, "kind": "wrong_field_value", "field": "groundwater_kl", "year": "fy24", "gold": "571963", "row": "(ii) groundwater 20,22,267 23,42,418", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "total_energy_gj", "year": "fy25", "gold": "1787238", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "total_energy_gj", "year": "fy24", "gold": "1920470", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "renewable_electricity_gj", "year": "fy25", "gold": "532976", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "renewable_electricity_gj", "year": "fy24", "gold": "372058", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "unlabelled_value", "field": "nonrenewable_energy_gj", "year": "fy25", "gold": "1254262", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "unlabelled_value", "field": "nonrenewable_energy_gj", "year": "fy24", "gold": "1548412", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "energy_intensity_per_vehicle", "year": "fy25", "gold": "4.72", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "unlabelled_value", "field": "energy_intensity_per_vehicle", "year": "fy24", "gold": "4.80", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "surface_water_kl", "year": "fy25", "gold": "157280", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "surface_water_kl", "year": "fy24", "gold": "169577", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "third_party_water_kl", "year": "fy25", "gold": "2022267", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "third_party_water_kl", "year": "fy24", "gold": "2342418", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "groundwater_kl", "year": "fy25", "gold": "667560", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "groundwater_kl", "year": "fy24", "gold": "571963", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "water_withdrawal_kl", "year": "fy25", "gold": "2847107", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "water_withdrawal_kl", "year": "fy24", "gold": "3083958", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "water_consumption_kl", "year": "fy25", "gold": "2661542", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 45, "kind": "missing_field", "field": "water_consumption_kl", "year": "fy24", "gold": "2979832", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 47, "kind": "unlabelled_value", "field": "nox_mt", "year": "fy25", "gold": "192", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 47, "kind": "unlabelled_value", "field": "nox_mt", "year": "fy24", "gold": "160", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 47, "kind": "missing_field", "field": "particulate_mt", "year": "fy24", "gold": "679", "row": "particulate matter (pm) mt 519 \ufffd\ufffd\ufffd\ufffd", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 47, "kind": "missing_field", "field": "scope1_tco2e", "year": "fy25", "gold": "43754", "row": "total scope 1 emissions # \ufffd\ufffd\ufffde \ufffd\ufffd\ufffd\ufffd\ufffd\ufffd \ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 47, "kind": "missing_field", "field": "scope1_tco2e", "year": "fy24", "gold": "48736", "row": "total scope 1 emissions # \ufffd\ufffd\ufffde \ufffd\ufffd\ufffd\ufffd\ufffd\ufffd \ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 47, "kind": "missing_field", "field": "scope2_tco2", "year": "fy25", "gold": "131407", "row": "total scope 2 emissions ## \ufffd\ufffd\ufffd \ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd \ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 47, "kind": "missing_field", "field": "scope2_tco2", "year": "fy24", "gold": "172409", "row": "total scope 2 emissions ## \ufffd\ufffd\ufffd \ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd \ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 47, "kind": "unlabelled_value", "field": "s1s2_per_vehicle", "year": "fy25", "gold": "0.462", "row": "physical output vehicles produced", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 47, "kind": "unlabelled_value", "field": "s1s2_per_vehicle", "year": "fy24", "gold": "0.552", "row": "physical output vehicles produced", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 49, "kind": "missing_field", "field": "waste_recycled_mt", "year": "fy25", "gold": "73673", "row": "(i) recycled \ufffd\ufffd\ufffd\ufffd\ufffd\ufffd*** \ufffd\ufffd\ufffd\ufffd\ufffd\ufffd***", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 49, "kind": "missing_field", "field": "waste_recycled_mt", "year": "fy24", "gold": "53728", "row": "(i) recycled \ufffd\ufffd\ufffd\ufffd\ufffd\ufffd*** \ufffd\ufffd\ufffd\ufffd\ufffd\ufffd***", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 49, "kind": "missing_field", "field": "waste_landfilled_mt", "year": "fy25", "gold": "24133", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 49, "kind": "missing_field", "field": "waste_landfilled_mt", "year": "fy24", "gold": "31527", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 49, "kind": "missing_field", "field": "waste_per_vehicle", "year": "fy25", "gold": "0.271", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 49, "kind": "missing_field", "field": "waste_per_vehicle", "year": "fy24", "gold": "0.227", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 52, "kind": "unlabelled_value", "field": "scope3_cat1_tco2e", "year": "fy25", "gold": "5228249", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 52, "kind": "unlabelled_value", "field": "scope3_cat1_tco2e", "year": "fy24", "gold": "6109148", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 52, "kind": "missing_field", "field": "scope3_cat6_tco2", "year": "fy25", "gold": "6755", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 52, "kind": "missing_field", "field": "scope3_cat6_tco2", "year": "fy24", "gold": "7006", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 52, "kind": "missing_field", "field": "scope3_cat11_tco2", "year": "fy25", "gold": "139571557", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 52, "kind": "unlabelled_value", "field": "scope3_cat11_tco2", "year": "fy24", "gold": "158621101", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 52, "kind": "missing_field", "field": "scope3_cat14_tco2", "year": "fy25", "gold": "82335", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 52, "kind": "unlabelled_value", "field": "scope3_cat14_tco2", "year": "fy24", "gold": "82854", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 52, "kind": "unlabelled_value", "field": "scope3_total_tco2", "year": "fy25", "gold": "144944801", "row": "", "review": "open"}
+{"model": "pdfplumber-text-layer", "page": 52, "kind": "missing_field", "field": "scope3_total_tco2", "year": "fy24", "gold": "164885353", "row": "", "review": "open"}
 {"model": "granite-docling-258m", "page": 45, "kind": "arithmetic_fail", "rule": "energy_nonrenewable", "year": "fy25", "detail": "parts sum 1.25424e+06 vs total 1.25426e+06", "review": "open"}
 {"model": "paddleocr-vl-1.6", "page": 45, "kind": "arithmetic_fail", "rule": "water_withdrawal", "year": "fy25", "detail": "parts sum 2.68983e+06 vs total 2.84711e+06", "review": "open"}
 {"model": "paddleocr-vl-1.6", "page": 45, "kind": "arithmetic_fail", "rule": "water_withdrawal", "year": "fy24", "detail": "parts sum 2.91438e+06 vs total 3.08396e+06", "review": "open"}
