@@ -3,7 +3,7 @@
 Two levels:
   page level   every number (2+ digits) a model writes is checked against the
                numbers printed on that page. Numbers not on the page are
-               unsupported: either a misread (one digit edit away from a real
+               unsupported: either a misread (within two digit edits of a real
                number) or a fabrication (no close match).
   field level  20 ESG fields x FY25/FY24. The model's row for the field label is
                found and its value compared with the printed value.
@@ -43,13 +43,20 @@ def rows(text: str) -> list[str]:
     return [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", r)).lower().strip() for r in text.split("\n")]
 
 
-def one_edit(a: str, b: str) -> bool:
-    if abs(len(a) - len(b)) > 1:
-        return False
-    if len(a) == len(b):
-        return sum(x != y for x, y in zip(a, b)) == 1
-    s, l = sorted((a, b), key=len)
-    return any(l[:i] + l[i + 1:] == s for i in range(len(l)))
+def edits(a: str, b: str) -> int:
+    prev = list(range(len(b) + 1))
+    for i, x in enumerate(a, 1):
+        cur = [i]
+        for j, y in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x != y)))
+        prev = cur
+    return prev[-1]
+
+
+def nearest(n: str, gold: set[str]) -> str | None:
+    """Closest printed number within two digit edits (0.000005320 -> 0.000050320 is two)."""
+    best = min(gold, key=lambda g: edits(n, g), default=None)
+    return best if best is not None and edits(n, best) <= 2 else None
 
 
 def looped(text: str) -> bool:
@@ -91,7 +98,7 @@ def main():
             for n in out_nums:
                 if n in gold_set:
                     continue
-                near = next((g for g in gold_set if one_edit(n, g)), None)
+                near = nearest(n, gold_set)
                 kind = "misread_number" if near else "fabricated_number"
                 tot[kind] += 1
                 ledger.append({"model": model, "page": page, "kind": kind, "value": n, "nearest_gold": near,
