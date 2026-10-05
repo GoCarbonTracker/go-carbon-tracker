@@ -52,7 +52,8 @@ def main():
         inputs.pop("token_type_ids", None)
         start = time.time()
         with torch.inference_mode():
-            gen = model.generate(**inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False)
+            # use_cache: granite-docling ships use_cache=false, which makes CPU decoding ~20x slower
+            gen = model.generate(**inputs, max_new_tokens=MAX_NEW_TOKENS, do_sample=False, use_cache=True)
         new = gen[0, inputs["input_ids"].shape[1]:]
         # Keep special tokens: DocTags live in them for granite-docling.
         text = processor.decode(new, skip_special_tokens=False)
