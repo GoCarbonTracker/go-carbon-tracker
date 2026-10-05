@@ -1,0 +1,22 @@
+[
+ {"id": "total_energy_gj", "page": 45, "row_has": ["total energy consumed (a+b+c+d+e+f)"], "fy25": "1787238", "fy24": "1920470"},
+ {"id": "renewable_electricity_gj", "page": 45, "row_has": ["total electricity consumption (a)"], "fy25": "532976", "fy24": "372058"},
+ {"id": "nonrenewable_energy_gj", "page": 45, "row_has": ["non-renewable", "total energy consumed"], "fy25": "1254262", "fy24": "1548412"},
+ {"id": "energy_intensity_per_vehicle", "page": 45, "row_has": ["energy intensity", "physical output"], "fy25": "4.72", "fy24": "4.80"},
+ {"id": "groundwater_kl", "page": 45, "row_has": ["groundwater"], "fy25": "667560", "fy24": "571963"},
+ {"id": "water_withdrawal_kl", "page": 45, "row_has": ["total volume of water withdrawal"], "fy25": "2847107", "fy24": "3083958"},
+ {"id": "water_consumption_kl", "page": 45, "row_has": ["total volume of water consumption"], "fy25": "2661542", "fy24": "2979832"},
+ {"id": "nox_mt", "page": 47, "row_has": ["nox"], "fy25": "192", "fy24": "160"},
+ {"id": "particulate_mt", "page": 47, "row_has": ["particulate"], "fy25": "519", "fy24": "679"},
+ {"id": "scope1_tco2e", "page": 47, "row_has": ["total scope 1 emissions"], "fy25": "43754", "fy24": "48736"},
+ {"id": "scope2_tco2", "page": 47, "row_has": ["total scope 2 emissions"], "fy25": "131407", "fy24": "172409"},
+ {"id": "s1s2_per_vehicle", "page": 47, "row_has": ["physical output"], "fy25": "0.462", "fy24": "0.552"},
+ {"id": "waste_recycled_mt", "page": 49, "row_has": ["recycled"], "fy25": "73673", "fy24": "53728"},
+ {"id": "waste_landfilled_mt", "page": 49, "row_has": ["landfill"], "fy25": "24133", "fy24": "31527"},
+ {"id": "waste_per_vehicle", "page": 49, "row_has": ["physical output"], "fy25": "0.271", "fy24": "0.227"},
+ {"id": "scope3_cat1_tco2e", "page": 52, "row_has": ["purchased goods"], "fy25": "5228249", "fy24": "6109148"},
+ {"id": "scope3_cat6_tco2", "page": 52, "row_has": ["business travel"], "fy25": "6755", "fy24": "7006"},
+ {"id": "scope3_cat11_tco2", "page": 52, "row_has": ["use of sold products"], "fy25": "139571557", "fy24": "158621101"},
+ {"id": "scope3_cat14_tco2", "page": 52, "row_has": ["franchises"], "fy25": "82335", "fy24": "82854"},
+ {"id": "scope3_total_tco2", "page": 52, "row_has": ["total scope 3 emissions"], "row_not": ["rupee", "turnover"], "fy25": "144944801", "fy24": "164885353"}
+]
