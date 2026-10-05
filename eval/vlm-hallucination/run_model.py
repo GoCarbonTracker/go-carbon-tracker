@@ -11,7 +11,8 @@ import time
 
 import torch
 from PIL import Image
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import (AutoModelForImageTextToText, AutoProcessor, LightOnOcrForConditionalGeneration,
+                          LightOnOcrProcessor)
 
 HERE = pathlib.Path(__file__).parent
 WORK = HERE / "work"
@@ -37,8 +38,12 @@ def main():
     key, pages = sys.argv[1], [int(p) for p in sys.argv[2:]] or [45, 47, 49, 52]
     hub_id, prompt, longest = MODELS[key]
     torch.set_num_threads(4)
-    processor = AutoProcessor.from_pretrained(hub_id)
-    model = AutoModelForImageTextToText.from_pretrained(hub_id, dtype=torch.float32).eval()
+    # LightOnOCR's checkpoint config says mistral3; the Auto classes then load a model that
+    # ignores the image and prints the same table for every page. Use its own classes.
+    model_cls, proc_cls = ((LightOnOcrForConditionalGeneration, LightOnOcrProcessor) if key.startswith("lightonocr")
+                           else (AutoModelForImageTextToText, AutoProcessor))
+    processor = proc_cls.from_pretrained(hub_id)
+    model = model_cls.from_pretrained(hub_id, dtype=torch.float32).eval()
     out_dir = WORK / "out" / key
     out_dir.mkdir(parents=True, exist_ok=True)
     for page in pages:
