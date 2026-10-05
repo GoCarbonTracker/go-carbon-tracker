@@ -1,0 +1,2 @@
+model,pages,sec_per_page_cpu,numbers_written,unsupported_rate,misread,fabricated,number_recall,field_accuracy,field_wrong_value,field_value_without_label,field_missing,loop_or_truncation_pages
+pdfplumber-text-layer,4,0,55,0.0,0,0,0.42,0.025,1,12,26,0
