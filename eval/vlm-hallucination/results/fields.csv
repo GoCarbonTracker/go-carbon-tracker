@@ -7,6 +7,10 @@ glm-ocr-0.9b,nonrenewable_energy_gj,fy25,1254262,correct,"| total energy consume
 glm-ocr-0.9b,nonrenewable_energy_gj,fy24,1548412,correct,"| total energy consumed from non-renewable sources (d+e+f) (in gj) | 12,54,262 | 15,48,412* |"
 glm-ocr-0.9b,energy_intensity_per_vehicle,fy25,4.72,correct,| energy intensity in terms of physical output (gj/vehicle produced) | 4.72 | 4.80* |
 glm-ocr-0.9b,energy_intensity_per_vehicle,fy24,4.80,correct,| energy intensity in terms of physical output (gj/vehicle produced) | 4.72 | 4.80* |
+glm-ocr-0.9b,surface_water_kl,fy25,157280,correct,"| (i) surface water | 1,57,280 | 1,69,577 |"
+glm-ocr-0.9b,surface_water_kl,fy24,169577,correct,"| (i) surface water | 1,57,280 | 1,69,577 |"
+glm-ocr-0.9b,third_party_water_kl,fy25,2022267,correct,"| (iii) third party water | 20,22,267 | 23,42,418 |"
+glm-ocr-0.9b,third_party_water_kl,fy24,2342418,correct,"| (iii) third party water | 20,22,267 | 23,42,418 |"
 glm-ocr-0.9b,groundwater_kl,fy25,667560,correct,"| (ii) groundwater | 6,67,560 | 5,71,963 |"
 glm-ocr-0.9b,groundwater_kl,fy24,571963,correct,"| (ii) groundwater | 6,67,560 | 5,71,963 |"
 glm-ocr-0.9b,water_withdrawal_kl,fy25,2847107,correct,"| total volume of water withdrawal (in kilolitres) (i + ii + iii + iv + v) | 28,47,107 | 30,83,958 |"
@@ -47,6 +51,10 @@ granite-docling-258m,nonrenewable_energy_gj,fy25,1254262,correct,"total energy c
 granite-docling-258m,nonrenewable_energy_gj,fy24,1548412,correct,"total energy consumed from non-renewable sources (d+e+f) (in gj) 12,54,262 15,48,412*"
 granite-docling-258m,energy_intensity_per_vehicle,fy25,4.72,correct,energy intensity in terms of physical output (gj/vehicle produced) 4.72 4.80*
 granite-docling-258m,energy_intensity_per_vehicle,fy24,4.80,correct,energy intensity in terms of physical output (gj/vehicle produced) 4.72 4.80*
+granite-docling-258m,surface_water_kl,fy25,157280,correct,"(i) surface water 1,57,280"
+granite-docling-258m,surface_water_kl,fy24,169577,missing,"(i) surface water 1,57,280"
+granite-docling-258m,third_party_water_kl,fy25,2022267,correct,"(iii) third party water 20,22,267"
+granite-docling-258m,third_party_water_kl,fy24,2342418,missing,"(iii) third party water 20,22,267"
 granite-docling-258m,groundwater_kl,fy25,667560,correct,"(ii) groundwater 6,67,560"
 granite-docling-258m,groundwater_kl,fy24,571963,missing,"(ii) groundwater 6,67,560"
 granite-docling-258m,water_withdrawal_kl,fy25,2847107,correct,"total volume of water withdrawal (in kilolitres) (i + ii + iii + iv + v) 28,47,107 30,83,958"
@@ -79,6 +87,68 @@ granite-docling-258m,scope3_cat14_tco2,fy25,82335,correct,"category 14 : franchi
 granite-docling-258m,scope3_cat14_tco2,fy24,82854,correct,"category 14 : franchises$^{4}$ tco$_{2}$ 82,335 82,854"
 granite-docling-258m,scope3_total_tco2,fy25,144944801,correct,2. please provide details of total scope 3 emissions and its intensity:
 granite-docling-258m,scope3_total_tco2,fy24,164885353,correct,2. please provide details of total scope 3 emissions and its intensity:
+lightonocr-2-1b,total_energy_gj,fy25,1787238,missing,
+lightonocr-2-1b,total_energy_gj,fy24,1920470,missing,
+lightonocr-2-1b,renewable_electricity_gj,fy25,532976,missing,
+lightonocr-2-1b,renewable_electricity_gj,fy24,372058,missing,
+lightonocr-2-1b,nonrenewable_energy_gj,fy25,1254262,missing,
+lightonocr-2-1b,nonrenewable_energy_gj,fy24,1548412,missing,
+lightonocr-2-1b,energy_intensity_per_vehicle,fy25,4.72,missing,
+lightonocr-2-1b,energy_intensity_per_vehicle,fy24,4.80,missing,
+lightonocr-2-1b,surface_water_kl,fy25,157280,missing,
+lightonocr-2-1b,surface_water_kl,fy24,169577,missing,
+lightonocr-2-1b,third_party_water_kl,fy25,2022267,missing,
+lightonocr-2-1b,third_party_water_kl,fy24,2342418,missing,
+lightonocr-2-1b,groundwater_kl,fy25,667560,missing,
+lightonocr-2-1b,groundwater_kl,fy24,571963,missing,
+lightonocr-2-1b,water_withdrawal_kl,fy25,2847107,missing,
+lightonocr-2-1b,water_withdrawal_kl,fy24,3083958,missing,
+lightonocr-2-1b,water_consumption_kl,fy25,2661542,missing,
+lightonocr-2-1b,water_consumption_kl,fy24,2979832,missing,
+paddleocr-vl-1.6,total_energy_gj,fy25,1787238,correct,"total energy consumed (a+b+c+d+e+f) (in gj) 17,87,238 19,20,470*"
+paddleocr-vl-1.6,total_energy_gj,fy24,1920470,correct,"total energy consumed (a+b+c+d+e+f) (in gj) 17,87,238 19,20,470*"
+paddleocr-vl-1.6,renewable_electricity_gj,fy25,532976,correct,"total electricity consumption (a) (in gj) 5,32,976 3,72,058*"
+paddleocr-vl-1.6,renewable_electricity_gj,fy24,372058,correct,"total electricity consumption (a) (in gj) 5,32,976 3,72,058*"
+paddleocr-vl-1.6,nonrenewable_energy_gj,fy25,1254262,correct,"total energy consumed from non-renewable source (d+e+f) (in gj) 12,54,262 15,48,412*"
+paddleocr-vl-1.6,nonrenewable_energy_gj,fy24,1548412,correct,"total energy consumed from non-renewable source (d+e+f) (in gj) 12,54,262 15,48,412*"
+paddleocr-vl-1.6,energy_intensity_per_vehicle,fy25,4.72,correct,energy intensity in terms of physical output (gj/vehicle produced) 4.72 4.80*
+paddleocr-vl-1.6,energy_intensity_per_vehicle,fy24,4.80,correct,energy intensity in terms of physical output (gj/vehicle produced) 4.72 4.80*
+paddleocr-vl-1.6,surface_water_kl,fy25,157280,wrong_value,"(i) surface water 6,67,560 5,71,963"
+paddleocr-vl-1.6,surface_water_kl,fy24,169577,wrong_value,"(i) surface water 6,67,560 5,71,963"
+paddleocr-vl-1.6,third_party_water_kl,fy25,2022267,wrong_value,(iii) third party water 0 0
+paddleocr-vl-1.6,third_party_water_kl,fy24,2342418,wrong_value,(iii) third party water 0 0
+paddleocr-vl-1.6,groundwater_kl,fy25,667560,wrong_value,"(ii) groundwater 20,22,267 23,42,418"
+paddleocr-vl-1.6,groundwater_kl,fy24,571963,wrong_value,"(ii) groundwater 20,22,267 23,42,418"
+paddleocr-vl-1.6,water_withdrawal_kl,fy25,2847107,correct,"total volume of water withdrawal (in kilolitres) (i + ii + iii + iv + v) 28,47,107 30,83,958"
+paddleocr-vl-1.6,water_withdrawal_kl,fy24,3083958,correct,"total volume of water withdrawal (in kilolitres) (i + ii + iii + iv + v) 28,47,107 30,83,958"
+paddleocr-vl-1.6,water_consumption_kl,fy25,2661542,correct,"total volume of water consumption (in kilolitres) 26,61,542 29,79,832"
+paddleocr-vl-1.6,water_consumption_kl,fy24,2979832,correct,"total volume of water consumption (in kilolitres) 26,61,542 29,79,832"
+paddleocr-vl-1.6,nox_mt,fy25,192,correct,| nox | mt | 192 | 160* |
+paddleocr-vl-1.6,nox_mt,fy24,160,correct,| nox | mt | 192 | 160* |
+paddleocr-vl-1.6,particulate_mt,fy25,519,correct,| particulate matter (pm) | mt | 519 | 679* |
+paddleocr-vl-1.6,particulate_mt,fy24,679,correct,| particulate matter (pm) | mt | 519 | 679* |
+paddleocr-vl-1.6,scope1_tco2e,fy25,43754,correct,"| total scope 1 emissions # | tco₂e | 43,754 | 48,736* |"
+paddleocr-vl-1.6,scope1_tco2e,fy24,48736,correct,"| total scope 1 emissions # | tco₂e | 43,754 | 48,736* |"
+paddleocr-vl-1.6,scope2_tco2,fy25,131407,correct,"| total scope 2 emissions # | tco₂ | 1,31,407 | 1,72,409* |"
+paddleocr-vl-1.6,scope2_tco2,fy24,172409,correct,"| total scope 2 emissions # | tco₂ | 1,31,407 | 1,72,409* |"
+paddleocr-vl-1.6,s1s2_per_vehicle,fy25,0.462,correct,total scope 1 and scope 2 emission intensity in terms of physical output | tco₂/v | 0.462 | 0.552* |
+paddleocr-vl-1.6,s1s2_per_vehicle,fy24,0.552,correct,total scope 1 and scope 2 emission intensity in terms of physical output | tco₂/v | 0.462 | 0.552* |
+paddleocr-vl-1.6,waste_recycled_mt,fy25,73673,correct,"(i) recycled 73,673*** 53,728***"
+paddleocr-vl-1.6,waste_recycled_mt,fy24,53728,correct,"(i) recycled 73,673*** 53,728***"
+paddleocr-vl-1.6,waste_landfilled_mt,fy25,24133,correct,"(ii) landfilling 24,133 31,527"
+paddleocr-vl-1.6,waste_landfilled_mt,fy24,31527,correct,"(ii) landfilling 24,133 31,527"
+paddleocr-vl-1.6,waste_per_vehicle,fy25,0.271,correct,waste intensity in terms of physical output (mt/vehicles produced) 0.271 0.227
+paddleocr-vl-1.6,waste_per_vehicle,fy24,0.227,correct,waste intensity in terms of physical output (mt/vehicles produced) 0.271 0.227
+paddleocr-vl-1.6,scope3_cat1_tco2e,fy25,5228249,correct,"category 1: purchased goods and services¹ tco₂e 52,28,249 61,09,148*"
+paddleocr-vl-1.6,scope3_cat1_tco2e,fy24,6109148,correct,"category 1: purchased goods and services¹ tco₂e 52,28,249 61,09,148*"
+paddleocr-vl-1.6,scope3_cat6_tco2,fy25,6755,correct,"category 6: business travel tco₂ 6,755 7,006"
+paddleocr-vl-1.6,scope3_cat6_tco2,fy24,7006,correct,"category 6: business travel tco₂ 6,755 7,006"
+paddleocr-vl-1.6,scope3_cat11_tco2,fy25,139571557,correct,"category 11: use of sold products tco₂e 13,95,71,557 15,86,21,101"
+paddleocr-vl-1.6,scope3_cat11_tco2,fy24,158621101,correct,"category 11: use of sold products tco₂e 13,95,71,557 15,86,21,101"
+paddleocr-vl-1.6,scope3_cat14_tco2,fy25,82335,correct,"category 14: franchises⁴ tco₂e 82,335 82,854"
+paddleocr-vl-1.6,scope3_cat14_tco2,fy24,82854,correct,"category 14: franchises⁴ tco₂e 82,335 82,854"
+paddleocr-vl-1.6,scope3_total_tco2,fy25,144944801,correct,2. please provide details of total scope 3 emissions and its intensity:
+paddleocr-vl-1.6,scope3_total_tco2,fy24,164885353,correct,2. please provide details of total scope 3 emissions and its intensity:
 pdfplumber-text-layer,total_energy_gj,fy25,1787238,missing,
 pdfplumber-text-layer,total_energy_gj,fy24,1920470,missing,
 pdfplumber-text-layer,renewable_electricity_gj,fy25,532976,missing,
@@ -87,6 +157,10 @@ pdfplumber-text-layer,nonrenewable_energy_gj,fy25,1254262,value_without_label,
 pdfplumber-text-layer,nonrenewable_energy_gj,fy24,1548412,value_without_label,
 pdfplumber-text-layer,energy_intensity_per_vehicle,fy25,4.72,missing,
 pdfplumber-text-layer,energy_intensity_per_vehicle,fy24,4.80,value_without_label,
+pdfplumber-text-layer,surface_water_kl,fy25,157280,missing,
+pdfplumber-text-layer,surface_water_kl,fy24,169577,missing,
+pdfplumber-text-layer,third_party_water_kl,fy25,2022267,missing,
+pdfplumber-text-layer,third_party_water_kl,fy24,2342418,missing,
 pdfplumber-text-layer,groundwater_kl,fy25,667560,missing,
 pdfplumber-text-layer,groundwater_kl,fy24,571963,missing,
 pdfplumber-text-layer,water_withdrawal_kl,fy25,2847107,missing,

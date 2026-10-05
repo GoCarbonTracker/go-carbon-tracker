@@ -43,6 +43,15 @@ def rows(text: str) -> list[str]:
     return [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", r)).lower().strip() for r in text.split("\n")]
 
 
+def row_values(row: str) -> set[str]:
+    """Numbers in a row, plus a standalone 0: a row reading '0 0' where the page
+    prints 20,22,267 is a wrong value, not a missing one."""
+    vals = set(numbers(row))
+    if re.search(r"(?<![\d.,])0(?![\d.,])", row):
+        vals.add("0")
+    return vals
+
+
 def edits(a: str, b: str) -> int:
     prev = list(range(len(b) + 1))
     for i, x in enumerate(a, 1):
@@ -95,6 +104,11 @@ def main():
                 tot["loops"] += 1
                 ledger.append({"model": model, "page": page, "kind": "loop_or_truncation",
                                "detail": f"new_tokens={meta.get('new_tokens')}", "review": "open"})
+            if len(re.sub(r"<[^>]+>", "", raw).strip()) < 20:
+                # a blank answer for a full page looks like an empty page downstream, not an error
+                tot["empty"] += 1
+                ledger.append({"model": model, "page": page, "kind": "empty_output",
+                               "detail": f"new_tokens={meta.get('new_tokens')}", "review": "open"})
             for n in out_nums:
                 if n in gold_set:
                     continue
@@ -112,7 +126,7 @@ def main():
                     want = fld[year]
                     if any(want in numbers(r) for r in cands):
                         status = "correct"
-                    elif cands and any(set(numbers(r)) - {fld["fy25"], fld["fy24"]} for r in cands):
+                    elif cands and any(row_values(r) - {fld["fy25"], fld["fy24"]} for r in cands):
                         # the labelled row carries a number that is neither year's printed value
                         status = "wrong_value"
                     elif want in out_nums:
@@ -142,6 +156,7 @@ def main():
             "field_value_without_label": tot["field_value_without_label"],
             "field_missing": tot["field_missing"],
             "loop_or_truncation_pages": tot["loops"],
+            "empty_pages": tot["empty"],
         })
     with open(RES / "summary.csv", "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=list(summary[0]))

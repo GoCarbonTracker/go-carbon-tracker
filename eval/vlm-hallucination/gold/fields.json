@@ -3,6 +3,8 @@
  {"id": "renewable_electricity_gj", "page": 45, "row_has": ["total electricity consumption (a)"], "fy25": "532976", "fy24": "372058"},
  {"id": "nonrenewable_energy_gj", "page": 45, "row_has": ["non-renewable", "total energy consumed"], "fy25": "1254262", "fy24": "1548412"},
  {"id": "energy_intensity_per_vehicle", "page": 45, "row_has": ["energy intensity", "physical output"], "fy25": "4.72", "fy24": "4.80"},
+ {"id": "surface_water_kl", "page": 45, "row_has": ["surface water"], "fy25": "157280", "fy24": "169577"},
+ {"id": "third_party_water_kl", "page": 45, "row_has": ["third party water"], "fy25": "2022267", "fy24": "2342418"},
  {"id": "groundwater_kl", "page": 45, "row_has": ["groundwater"], "fy25": "667560", "fy24": "571963"},
  {"id": "water_withdrawal_kl", "page": 45, "row_has": ["total volume of water withdrawal"], "fy25": "2847107", "fy24": "3083958"},
  {"id": "water_consumption_kl", "page": 45, "row_has": ["total volume of water consumption"], "fy25": "2661542", "fy24": "2979832"},
