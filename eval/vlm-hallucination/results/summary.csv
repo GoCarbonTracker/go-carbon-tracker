@@ -1,3 +1,4 @@
 model,pages,sec_per_page_cpu,numbers_written,unsupported_rate,misread,fabricated,number_recall,field_accuracy,field_wrong_value,field_value_without_label,field_missing,loop_or_truncation_pages
+glm-ocr-0.9b,4,216,131,0.0,0,0,0.878,0.95,0,2,0,0
 granite-docling-258m,4,80,135,0.03,4,0,0.847,0.9,1,0,3,0
 pdfplumber-text-layer,4,0,55,0.0,0,0,0.42,0.025,0,12,27,0

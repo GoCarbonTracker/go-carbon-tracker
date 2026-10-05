@@ -1,4 +1,44 @@
 model,field,year,gold,status,row
+glm-ocr-0.9b,total_energy_gj,fy25,1787238,correct,"| total energy consumed (a+b+c+d+e+f) (in gj) | 17,87,238 | 19,20,470* |"
+glm-ocr-0.9b,total_energy_gj,fy24,1920470,correct,"| total energy consumed (a+b+c+d+e+f) (in gj) | 17,87,238 | 19,20,470* |"
+glm-ocr-0.9b,renewable_electricity_gj,fy25,532976,correct,"| total electricity consumption (a) (in gj) | 5,32,976 | 3,72,058* |"
+glm-ocr-0.9b,renewable_electricity_gj,fy24,372058,correct,"| total electricity consumption (a) (in gj) | 5,32,976 | 3,72,058* |"
+glm-ocr-0.9b,nonrenewable_energy_gj,fy25,1254262,correct,"| total energy consumed from non-renewable sources (d+e+f) (in gj) | 12,54,262 | 15,48,412* |"
+glm-ocr-0.9b,nonrenewable_energy_gj,fy24,1548412,correct,"| total energy consumed from non-renewable sources (d+e+f) (in gj) | 12,54,262 | 15,48,412* |"
+glm-ocr-0.9b,energy_intensity_per_vehicle,fy25,4.72,correct,| energy intensity in terms of physical output (gj/vehicle produced) | 4.72 | 4.80* |
+glm-ocr-0.9b,energy_intensity_per_vehicle,fy24,4.80,correct,| energy intensity in terms of physical output (gj/vehicle produced) | 4.72 | 4.80* |
+glm-ocr-0.9b,groundwater_kl,fy25,667560,correct,"| (ii) groundwater | 6,67,560 | 5,71,963 |"
+glm-ocr-0.9b,groundwater_kl,fy24,571963,correct,"| (ii) groundwater | 6,67,560 | 5,71,963 |"
+glm-ocr-0.9b,water_withdrawal_kl,fy25,2847107,correct,"| total volume of water withdrawal (in kilolitres) (i + ii + iii + iv + v) | 28,47,107 | 30,83,958 |"
+glm-ocr-0.9b,water_withdrawal_kl,fy24,3083958,correct,"| total volume of water withdrawal (in kilolitres) (i + ii + iii + iv + v) | 28,47,107 | 30,83,958 |"
+glm-ocr-0.9b,water_consumption_kl,fy25,2661542,correct,"| total volume of water consumption (in kilolitres) | 26,61,542 | 29,79,832 |"
+glm-ocr-0.9b,water_consumption_kl,fy24,2979832,correct,"| total volume of water consumption (in kilolitres) | 26,61,542 | 29,79,832 |"
+glm-ocr-0.9b,nox_mt,fy25,192,correct,| nox | mt | 192 | 160* |
+glm-ocr-0.9b,nox_mt,fy24,160,correct,| nox | mt | 192 | 160* |
+glm-ocr-0.9b,particulate_mt,fy25,519,correct,| particulate matter (pm) | mt | 519 | 679* |
+glm-ocr-0.9b,particulate_mt,fy24,679,correct,| particulate matter (pm) | mt | 519 | 679* |
+glm-ocr-0.9b,scope1_tco2e,fy25,43754,correct,"| total scope 1 emissions # | tco₂e | 43,754 | 48,736* |"
+glm-ocr-0.9b,scope1_tco2e,fy24,48736,correct,"| total scope 1 emissions # | tco₂e | 43,754 | 48,736* |"
+glm-ocr-0.9b,scope2_tco2,fy25,131407,correct,"| total scope 2 emissions ## | tco₂ | 1,31,407 | 1,72,409* |"
+glm-ocr-0.9b,scope2_tco2,fy24,172409,correct,"| total scope 2 emissions ## | tco₂ | 1,31,407 | 1,72,409* |"
+glm-ocr-0.9b,s1s2_per_vehicle,fy25,0.462,correct,| total scope 1 and scope 2 emission intensity in terms of physical output | tco₂/ vehicles produced | 0.462 | 0.552* |
+glm-ocr-0.9b,s1s2_per_vehicle,fy24,0.552,correct,| total scope 1 and scope 2 emission intensity in terms of physical output | tco₂/ vehicles produced | 0.462 | 0.552* |
+glm-ocr-0.9b,waste_recycled_mt,fy25,73673,correct,"(i) recycled 73,673*** 53,728***"
+glm-ocr-0.9b,waste_recycled_mt,fy24,53728,correct,"(i) recycled 73,673*** 53,728***"
+glm-ocr-0.9b,waste_landfilled_mt,fy25,24133,correct,"(ii) landfilling 24,133 31,527"
+glm-ocr-0.9b,waste_landfilled_mt,fy24,31527,correct,"(ii) landfilling 24,133 31,527"
+glm-ocr-0.9b,waste_per_vehicle,fy25,0.271,value_without_label,waste intensity in terms of physical output (mt/vehicles produced)
+glm-ocr-0.9b,waste_per_vehicle,fy24,0.227,value_without_label,waste intensity in terms of physical output (mt/vehicles produced)
+glm-ocr-0.9b,scope3_cat1_tco2e,fy25,5228249,correct,"| category 1: purchased goods and services¹ | tco₂e | 52,28,249 | 61,09,148* |"
+glm-ocr-0.9b,scope3_cat1_tco2e,fy24,6109148,correct,"| category 1: purchased goods and services¹ | tco₂e | 52,28,249 | 61,09,148* |"
+glm-ocr-0.9b,scope3_cat6_tco2,fy25,6755,correct,"| category 6: business travel | tco₂ | 6,755 | 7,006 |"
+glm-ocr-0.9b,scope3_cat6_tco2,fy24,7006,correct,"| category 6: business travel | tco₂ | 6,755 | 7,006 |"
+glm-ocr-0.9b,scope3_cat11_tco2,fy25,139571557,correct,"| category 11: use of sold products | tco₂ | 13,95,71,557 | 15,86,21,101 |"
+glm-ocr-0.9b,scope3_cat11_tco2,fy24,158621101,correct,"| category 11: use of sold products | tco₂ | 13,95,71,557 | 15,86,21,101 |"
+glm-ocr-0.9b,scope3_cat14_tco2,fy25,82335,correct,"| category 14: franchises⁴ | tco₂ | 82,335 | 82,854 |"
+glm-ocr-0.9b,scope3_cat14_tco2,fy24,82854,correct,"| category 14: franchises⁴ | tco₂ | 82,335 | 82,854 |"
+glm-ocr-0.9b,scope3_total_tco2,fy25,144944801,correct,2. please provide details of total scope 3 emissions and its intensity:
+glm-ocr-0.9b,scope3_total_tco2,fy24,164885353,correct,2. please provide details of total scope 3 emissions and its intensity:
 granite-docling-258m,total_energy_gj,fy25,1787238,correct,"total energy consumed (a+b+c+d+e+f) (in gj) 17,87,238 19,20,470*"
 granite-docling-258m,total_energy_gj,fy24,1920470,correct,"total energy consumed (a+b+c+d+e+f) (in gj) 17,87,238 19,20,470*"
 granite-docling-258m,renewable_electricity_gj,fy25,532976,correct,"total electricity consumption (a) (in gj) 5,32,976 3,72,058*"
