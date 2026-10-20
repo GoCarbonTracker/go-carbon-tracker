@@ -1,0 +1,203 @@
+import hashlib
+import os
+import re
+import sqlite3
+import tempfile
+import zipfile
+from pathlib import Path
+
+from gct.workspace import store
+from gct.workspace.layout import NOT_FOUND, REFUSED, USAGE, GctError
+
+DELIMITERS = ",;\t|"
+XLSX_PARTS = {"[Content_Types].xml", "xl/workbook.xml"}
+
+DOCUMENT_SQL = """
+SELECT d.id, c.name AS company, d.logical_name, d.version, d.sha256, d.kind, d.file_type,
+       d.privacy, d.size_bytes, d.source, d.created_at,
+       (SELECT s.state FROM document_state s WHERE s.document_id = d.id
+        ORDER BY s.id DESC LIMIT 1) AS state
+FROM document d JOIN company c ON c.id = d.company_id
+"""
+
+
+def _company(row: sqlite3.Row) -> dict:
+    return {k: row[k] for k in ("id", "name", "sector_ref", "sector_version", "created_at")}
+
+
+def _find_company(conn: sqlite3.Connection, name: str) -> sqlite3.Row:
+    wanted = name.strip().casefold()
+    for row in conn.execute("SELECT * FROM company ORDER BY id"):
+        if row["name"].strip().casefold() == wanted:
+            return row
+    raise GctError(
+        NOT_FOUND,
+        f"There is no company named '{name.strip()}'.",
+        'Add it first with: gct company add "NAME"',
+    )
+
+
+def add_company(conn, name, sector_ref=None, sector_version=None) -> tuple[str, dict]:
+    clean = name.strip()
+    if not clean:
+        raise GctError(USAGE, "The company name is empty.", 'Give a name, for example: gct company add "Acme Ltd"')
+    try:
+        return "exists", _company(_find_company(conn, clean))
+    except GctError:
+        pass
+    cur = conn.execute(
+        "INSERT INTO company (name, sector_ref, sector_version, created_at) VALUES (?, ?, ?, ?)",
+        (clean, sector_ref, sector_version, store.now()),
+    )
+    return "ok", _company(conn.execute("SELECT * FROM company WHERE id = ?", (cur.lastrowid,)).fetchone())
+
+
+def list_companies(conn) -> list[dict]:
+    return [_company(r) for r in conn.execute("SELECT * FROM company ORDER BY id")]
+
+
+def logical_name(source: str | os.PathLike) -> str:
+    """Base name of a path written for any operating system (never splits on os.sep)."""
+    return re.split(r"[\\/]", os.fspath(source))[-1]
+
+
+def _is_csv(path: Path) -> bool:
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            found = False
+            while chunk := f.read(1 << 20):
+                found = found or any(c in chunk for c in DELIMITERS)
+            return found
+    except UnicodeDecodeError:
+        return False
+
+
+def detect_file_type(path: Path) -> str | None:
+    """Recognise pdf, xlsx or csv from content. None when it is none of them."""
+    with open(path, "rb") as f:
+        if f.read(4) == b"%PDF":
+            return "pdf"
+    if zipfile.is_zipfile(path):
+        try:
+            with zipfile.ZipFile(path) as z:
+                return "xlsx" if XLSX_PARTS <= set(z.namelist()) else None
+        except zipfile.BadZipFile:
+            return None
+    if path.suffix.lower() == ".csv" and _is_csv(path):
+        return "csv"
+    return None
+
+
+def _hash_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def stored_path(root: Path, digest: str) -> Path:
+    return root / "files" / digest[:2] / digest
+
+
+def _store_file(root: Path, src: Path) -> tuple[str, int]:
+    """Copy src into files/<xx>/<sha256>, hashing while copying, then re-hash the stored copy."""
+    files_dir = root / "files"
+    files_dir.mkdir(exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=files_dir, prefix=".incoming-")
+    h = hashlib.sha256()
+    size = 0
+    try:
+        with os.fdopen(fd, "wb") as out, open(src, "rb") as inp:
+            while chunk := inp.read(1 << 20):
+                h.update(chunk)
+                out.write(chunk)
+                size += len(chunk)
+        digest = h.hexdigest()
+        dest = stored_path(root, digest)
+        if dest.exists():
+            return digest, size
+        dest.parent.mkdir(exist_ok=True)
+        os.replace(tmp, dest)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+    if _hash_file(dest) != digest:
+        dest.unlink()
+        raise GctError(
+            REFUSED,
+            "The copy stored in the workspace did not match the original file.",
+            "Check the disk for errors and add the file again.",
+        )
+    return digest, size
+
+
+def get_document(conn, doc_id: int) -> dict | None:
+    row = conn.execute(DOCUMENT_SQL + " WHERE d.id = ?", (doc_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def show_document(conn, doc_id: int) -> dict:
+    doc = get_document(conn, doc_id)
+    if doc is None:
+        raise GctError(NOT_FOUND, f"There is no document with id {doc_id}.", "List documents with: gct doc list")
+    return doc
+
+
+def list_documents(conn, company: str | None = None) -> list[dict]:
+    if company is None:
+        rows = conn.execute(DOCUMENT_SQL + " ORDER BY d.id")
+    else:
+        rows = conn.execute(DOCUMENT_SQL + " WHERE d.company_id = ? ORDER BY d.id", (_find_company(conn, company)["id"],))
+    return [dict(r) for r in rows]
+
+
+def add_document(conn, root, file, company, kind="report", privacy="private", name=None, source=None):
+    """Register a file. Returns (status, document) with status 'ok' or 'duplicate'."""
+    co = _find_company(conn, company)
+    src = Path(file)
+    if not src.is_file():
+        raise GctError(NOT_FOUND, f"The file {file} does not exist.", "Check the path and try again.")
+    file_type = detect_file_type(src)
+    if file_type is None:
+        raise GctError(
+            REFUSED,
+            "This file is not a PDF, XLSX or CSV file. Only those three types are accepted.",
+            "Convert it to one of those types, or check that the file is not damaged.",
+        )
+    digest, size = _store_file(Path(root), src)
+    logical = name or logical_name(file)
+    with store.transaction(conn):
+        dup = conn.execute(
+            "SELECT id FROM document WHERE company_id = ? AND sha256 = ? ORDER BY id LIMIT 1",
+            (co["id"], digest),
+        ).fetchone()
+        if dup:
+            return "duplicate", get_document(conn, dup["id"])
+        last = conn.execute(
+            "SELECT MAX(version) FROM document WHERE company_id = ? AND logical_name = ?",
+            (co["id"], logical),
+        ).fetchone()[0]
+        stamp = store.now()
+        cur = conn.execute(
+            "INSERT INTO document (company_id, logical_name, version, sha256, kind, file_type,"
+            " privacy, size_bytes, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (co["id"], logical, (last or 0) + 1, digest, kind, file_type, privacy, size, source, stamp),
+        )
+        conn.execute(
+            "INSERT INTO document_state (document_id, state, at) VALUES (?, 'registered', ?)",
+            (cur.lastrowid, stamp),
+        )
+        doc_id = cur.lastrowid
+    return "ok", get_document(conn, doc_id)
+
+
+def verify(conn, root) -> list[dict]:
+    """Re-hash every stored original. Returns one entry per document that is missing or altered."""
+    problems = []
+    for row in conn.execute("SELECT id, sha256 FROM document ORDER BY id"):
+        path = stored_path(Path(root), row["sha256"])
+        if not path.is_file():
+            problems.append({"document_id": row["id"], "sha256": row["sha256"], "problem": "missing"})
+        elif _hash_file(path) != row["sha256"]:
+            problems.append({"document_id": row["id"], "sha256": row["sha256"], "problem": "mismatch"})
+    return problems

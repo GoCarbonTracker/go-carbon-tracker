@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gct"
+version = "0.0.1"
+description = "GoCarbonTracker: a workspace folder for company documents, kept as an append-only history."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+gct = "gct.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["gct*"]
+
+[tool.setuptools.package-data]
+"gct.workspace" = ["migrations/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
