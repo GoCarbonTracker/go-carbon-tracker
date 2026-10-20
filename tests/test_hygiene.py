@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import tomllib
@@ -31,7 +32,8 @@ for mod in pkgutil.walk_packages(gct.__path__, "gct."):
 from gct import cli
 for argv in (["workspace", "init", sys.argv[1]], ["company", "add", "Acme", "--workspace", sys.argv[1]],
              ["doc", "add", sys.argv[2], "--company", "Acme", "--workspace", sys.argv[1]],
-             ["read", "--workspace", sys.argv[1]]):
+             ["read", "--workspace", sys.argv[1]], ["model", "list"],
+             ["approve", "spend", "1", "--workspace", sys.argv[1]]):
     assert cli.main(argv) == 0
 """
 
@@ -39,7 +41,7 @@ for argv in (["workspace", "init", sys.argv[1]], ["company", "add", "Acme", "--w
 def test_no_network(tmp_path, make_file):
     r = subprocess.run(
         [sys.executable, "-c", NO_NETWORK_SCRIPT, str(tmp_path / "ws"), str(make_file("a.pdf", make_pdf([{"text": [(72, 72, "Scope 1")]}])))],
-        cwd=ROOT, capture_output=True, text=True,
+        cwd=ROOT, capture_output=True, text=True, env={**os.environ, "GCT_MODELS": str(tmp_path / "no-models.toml")},
     )
     assert r.returncode == 0, r.stderr
 

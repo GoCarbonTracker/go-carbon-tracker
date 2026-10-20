@@ -19,3 +19,4 @@ append-only.
 | 3 | M1-1.3 | `run`, `run_event` (the run log) |
 | 4 | M1-2.1 | `attempt` (stage attempts and the result cache) |
 | 5 | M1-2.3 | `artifact`, `page` (page readings and the files that hold them) |
+| 6 | M1-2.4 | `approval` (spend cap, run allowances and data-transfer approvals) |

@@ -68,6 +68,24 @@ def test_every_command_matches_the_documented_keys(tmp_path, gct, make_file):
     check("error", gct("doc", "show", 99, *w, "--json").data)
 
 
+def test_approve_and_model_match_the_documented_keys(tmp_path, gct, monkeypatch):
+    from gct.models import redact
+
+    models = tmp_path / "models.toml"
+    models.write_text('[adapters.ollama]\nprovider = "openai_chat"\nbase_url = "http://127.0.0.1:11434/v1"\n'
+                      'model = "qwen2.5vl:7b"\nexternal = false\npaid = false\n')
+    monkeypatch.setenv("GCT_MODELS", str(models))
+    redact._names.cache_clear()
+    ws = tmp_path / "ws"
+    gct("workspace", "init", ws)
+    w = ("--workspace", ws)
+    check("approve list", gct("approve", "list", *w, "--json").data)
+    check("approve spend", gct("approve", "spend", "50", *w, "--json").data)
+    check("approve transfer", gct("approve", "transfer", "ollama", *w, "--json").data)
+    check("approve list", gct("approve", "list", *w, "--json").data)
+    check("model list", gct("model", "list", "--json").data)
+
+
 def test_serve_matches_the_documented_keys(tmp_path, gct, monkeypatch):
     from gct.api import server
 
@@ -84,6 +102,8 @@ def test_empty_lists_still_match(tmp_path, gct):
     check("doc list", gct("doc", "list", "--workspace", ws, "--json").data)
     check("run list", gct("run", "list", "--workspace", ws, "--json").data)
     check("workspace status", gct("workspace", "status", "--workspace", ws, "--json").data)
+    check("approve list", gct("approve", "list", "--workspace", ws, "--json").data)
+    check("model list", gct("model", "list", "--json").data)
 
 
 def test_every_command_has_a_documented_section():
@@ -91,4 +111,5 @@ def test_every_command_has_a_documented_section():
         "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc pages", "read",
         "publish build", "publish restore", "publish status",
         "workspace status", "run list", "run show", "serve", "error",
+        "approve spend", "approve transfer", "approve list", "model list",
     }

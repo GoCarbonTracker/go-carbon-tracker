@@ -1,11 +1,14 @@
 import argparse
 import json
+import math
+import os
 import sys
 import webbrowser
 from collections import Counter
 
 from gct import __version__
 from gct.api import server
+from gct.models import adapters, policy
 from gct.stages import read
 from gct.workspace import intake, layout, published, registry, runs, store
 from gct.workspace.layout import GctError
@@ -211,6 +214,66 @@ def cmd_run_show(args) -> None:
     _print(args, {"status": "ok", **r}, "\n".join(lines))
 
 
+def cmd_approve_spend(args) -> None:
+    conn = _open(args)
+    policy.set_cap(conn, args.amount)
+    spent = policy.spent(conn)
+    _print(args, {"status": "ok", "cap": args.amount, "spent": spent},
+           f"Estimated spending limit set to {policy.money(args.amount)} (estimated spend so far {policy.money(spent)}).")
+
+
+def cmd_approve_transfer(args) -> None:
+    conn = _open(args)
+    adapter = adapters.get(args.name)
+    granted = not args.revoke
+    policy.set_transfer(conn, adapter, granted)
+    may = "may" if granted else "may no longer"
+    _print(args, {"status": "ok", "provider": args.name, "granted": granted}, f"{args.name} {may} receive private content.")
+
+
+def cmd_approve_list(args) -> None:
+    conn = _open(args)
+    cap, spent = policy.cap(conn), policy.spent(conn)
+    states = {a.name: (a, policy.transfer_state(conn, a)) for a in adapters.load().values()}
+    rows = [{"name": a.name, "external": a.external, "paid": a.paid, "transfer_granted": st == "granted"}
+            for a, st in states.values()]
+    head = ("No estimated spending limit. Paid work is off." if cap is None
+            else f"Estimated spending limit {policy.money(cap)}, estimated spend {policy.money(spent)}")
+    lines = [f"{r['name']}  {'external' if r['external'] else 'local'}  {'paid' if r['paid'] else 'free'}  "
+             f"transfer {TRANSFER[states[r['name']][1]]}" for r in rows]
+    _print(args, {"status": "ok", "cap": cap, "spent": spent, "adapters": rows}, "\n".join([head, *lines]))
+
+
+def cmd_model_list(args) -> None:
+    path = adapters.path()
+    rows = [{"name": a.name, "provider": a.provider, "model": a.model, "base_url": a.base_url, "external": a.external,
+             "paid": a.paid, "price_in": a.price_in, "price_out": a.price_out, "api_key_env": a.api_key_env,
+             "key_set": bool(a.api_key_env and os.environ.get(a.api_key_env))} for a in adapters.load().values()]
+
+    def key(r):
+        return f"key {r['api_key_env']} {'set' if r['key_set'] else 'not set'}" if r["api_key_env"] else "no key"
+
+    text = "\n".join(
+        f"{r['name']}  {r['provider']}  {r['model']}  {r['base_url']}  {'external' if r['external'] else 'local'}  "
+        f"{'paid' if r['paid'] else 'free'}  {key(r)}" for r in rows
+    ) or f"No model adapters configured (looked for {path}). Rung 1 reading needs none."
+    _print(args, {"status": "ok", "path": str(path), "adapters": rows}, text)
+
+
+TRANSFER = {"granted": "granted", "not granted": "not granted",
+            "elsewhere": "granted for a different endpoint or model, approve it again"}
+
+
+def money(value: str) -> float:
+    try:
+        amount = float(value)
+    except ValueError:
+        amount = -1.0
+    if not math.isfinite(amount) or amount < 0:
+        raise argparse.ArgumentTypeError(f"{value} is not an amount in USD of 0 or more")
+    return amount
+
+
 def cmd_workspace_status(args) -> None:
     conn = _open(args)
     current = published.current_version(conn, args.root)
@@ -259,7 +322,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,publish,run,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,publish,run,approve,model,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -313,6 +376,19 @@ def build_parser() -> argparse.ArgumentParser:
     show = run.add_parser("show", parents=[common], help="show one run with its totals and events")
     show.add_argument("id", type=int)
     show.set_defaults(func=cmd_run_show)
+
+    approve = group("approve", "spend and data-transfer approvals")
+    spend = approve.add_parser("spend", parents=[common], help="set the workspace spend cap in USD (0: no paid work)")
+    spend.add_argument("amount", type=money, metavar="AMOUNT")
+    spend.set_defaults(func=cmd_approve_spend)
+    transfer = approve.add_parser("transfer", parents=[common], help="let an external model adapter receive private content")
+    transfer.add_argument("name", metavar="NAME")
+    transfer.add_argument("--revoke", action="store_true", help="withdraw the approval")
+    transfer.set_defaults(func=cmd_approve_transfer)
+    approve.add_parser("list", parents=[common], help="show the spend cap, spent so far and each adapter's approval").set_defaults(func=cmd_approve_list)
+
+    model = group("model", "model adapters (configured in models.toml)")
+    model.add_parser("list", parents=[json_flag], help="list the configured model adapters").set_defaults(func=cmd_model_list)
 
     serve = top.add_parser("serve", parents=[common], help="start the local service and open it in the browser")
     serve.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (default: 8765)")

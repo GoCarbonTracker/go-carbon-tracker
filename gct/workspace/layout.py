@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from gct import __version__
+from gct.models.redact import scrub
 from gct.workspace import store
 
 DB_NAME = "workspace.db"
@@ -30,7 +31,7 @@ def write_error_log(root: Path | None) -> Path | None:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     path = Path(root) / "logs" / f"error-{stamp}.log"
     path.parent.mkdir(exist_ok=True)
-    path.write_text(traceback.format_exc(), encoding="utf-8")
+    path.write_text(scrub(traceback.format_exc()), encoding="utf-8")
     return path
 
 

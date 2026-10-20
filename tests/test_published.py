@@ -44,13 +44,13 @@ def test_migration_applies_to_a_story_1_1_workspace(tmp_path):
     conn.executescript(sql + "INSERT INTO schema_version VALUES (1, 't');")
     conn.execute("INSERT INTO company (name, created_at) VALUES ('Acme', 't')")
     store.migrate(conn)
-    assert [r[0] for r in conn.execute("SELECT version FROM schema_version ORDER BY version")] == [1, 2, 3, 4, 5]
+    assert [r[0] for r in conn.execute("SELECT version FROM schema_version ORDER BY version")] == [1, 2, 3, 4, 5, 6]
     assert conn.execute("SELECT name FROM company").fetchall()[0][0] == "Acme"
     conn.close()
 
 
 def test_fresh_workspace_has_both_migrations(db):
-    assert [r[0] for r in db.execute("SELECT version FROM schema_version ORDER BY version")] == [1, 2, 3, 4, 5]
+    assert [r[0] for r in db.execute("SELECT version FROM schema_version ORDER BY version")] == [1, 2, 3, 4, 5, 6]
 
 
 @pytest.mark.parametrize("table", ["published_version", "published_pointer", "published_purge"])

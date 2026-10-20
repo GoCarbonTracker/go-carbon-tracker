@@ -2,6 +2,7 @@ import sqlite3
 from contextlib import contextmanager
 
 from gct import __version__
+from gct.models.redact import scrub
 from gct.workspace import store
 from gct.workspace.layout import NOT_FOUND, GctError
 
@@ -29,7 +30,7 @@ def event(conn, run_id, kind, *, stage=None, item=None, method=None, outcome=Non
     return conn.execute(
         "INSERT INTO run_event (run_id, at, kind, stage, item, method, outcome, cost_estimated, cost_confirmed, message)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (run_id, store.now(), kind, stage, item, method, outcome, cost_estimated, cost_confirmed, message),
+        (run_id, store.now(), kind, stage, item, method, outcome, cost_estimated, cost_confirmed, scrub(message)),
     ).lastrowid
 
 

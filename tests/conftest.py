@@ -10,6 +10,15 @@ from gct import cli
 PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\n%%EOF\n"
 
 
+@pytest.fixture(autouse=True)
+def no_models_file(tmp_path, monkeypatch):
+    """A real ~/.config/gct/models.toml never reaches a test: GCT_MODELS points at a file that does not exist."""
+    from gct.models import redact
+
+    monkeypatch.setenv("GCT_MODELS", str(tmp_path / "no-models.toml"))
+    redact._names.cache_clear()
+
+
 @pytest.fixture
 def gct(capsys):
     """Run the CLI in-process. Returns an object with code, out, err and (for --json) data."""

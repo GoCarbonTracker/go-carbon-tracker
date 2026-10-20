@@ -15,6 +15,7 @@ def test_every_table_is_append_only(ws, db, gct, make_file):
     gct("read")
     for _ in range(3):  # three builds, so published_purge also holds a row
         gct("publish", "build")
+    gct("approve", "spend", "1")
     conn = store.connect(ws / "workspace.db")
     with runs.run(conn, "test stage") as rid:
         run_stage(conn, rid, Stage("tiny", "c1", lambda item, conn: item, lambda item: "v1"), ["a"])

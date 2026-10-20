@@ -29,10 +29,13 @@ EXPECTED_COLUMNS = {
         "id", "document_id", "page_number", "rung", "method", "config_version", "width", "height", "words", "tables",
         "flags", "artifact_id", "created_at",
     ],
+    "approval": ["id", "kind", "provider", "destination", "run_id", "amount", "granted", "created_at"],
 }
 NULLABLE = {("company", "sector_ref"), ("company", "sector_version"), ("document", "source"), ("document_state", "note")} | {
     ("run_event", c) for c in ("stage", "item", "method", "outcome", "cost_estimated", "cost_confirmed", "message")
-} | {("attempt", c) for c in ("method", "rung", "output", "error", "cost_estimated", "cost_confirmed")}
+} | {("attempt", c) for c in ("method", "rung", "output", "error", "cost_estimated", "cost_confirmed")} | {
+    ("approval", c) for c in ("provider", "destination", "run_id", "amount")
+}
 
 
 def test_init_creates_exact_layout(ws):
@@ -55,7 +58,7 @@ def test_tables_and_columns(db):
 
 
 def test_schema_version_row_and_workspace_row(db):
-    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4, 5]
+    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4, 5, 6]
     row = db.execute("SELECT * FROM workspace").fetchone()
     assert row["id"] == 1 and row["gct_version"]
 

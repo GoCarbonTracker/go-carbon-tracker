@@ -5,14 +5,23 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from gct.models.redact import scrub
 from gct.workspace import runs, store
-from gct.workspace.layout import GctError
+from gct.workspace.layout import REFUSED, GctError
 
 KEY = "stage = ? AND item = ? AND input_version = ? AND config_version = ?"
 
 
 def version_of(*parts) -> str:
     return hashlib.sha256("\x00".join(map(str, parts)).encode("utf-8")).hexdigest()
+
+
+class SentFailure(GctError):
+    """A call that failed after it was sent: its estimated cost still counts as spent."""
+
+    def __init__(self, cause: str, next_action: str, *, cost_estimated: float):
+        super().__init__(REFUSED, cause, next_action)
+        self.cost_estimated = cost_estimated
 
 
 @dataclass
@@ -42,7 +51,7 @@ def _attempt(conn, run_id, key, outcome, r: Result, output, error) -> None:
     conn.execute(
         "INSERT INTO attempt (run_id, stage, item, input_version, config_version, method, rung, outcome, output, error,"
         " cost_estimated, cost_confirmed, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (run_id, *key, r.method, r.rung, outcome, output, error, r.cost_estimated, r.cost_confirmed, store.now()),
+        (run_id, *key, r.method, r.rung, outcome, output, scrub(error), r.cost_estimated, r.cost_confirmed, store.now()),
     )
 
 
@@ -68,7 +77,7 @@ def run_stage(conn, run_id: int, stage: Stage, items, *, only_failed: bool = Fal
         except Exception as e:
             error = e.cause if isinstance(e, GctError) else type(e).__name__
             with store.transaction(conn):
-                _attempt(conn, run_id, key, "failed", Result(), None, error)
+                _attempt(conn, run_id, key, "failed", Result(cost_estimated=getattr(e, "cost_estimated", None)), None, error)
                 runs.event(conn, run_id, "failure", stage=stage.name, item=name, message=error)
             counts["failed"] += 1
             continue

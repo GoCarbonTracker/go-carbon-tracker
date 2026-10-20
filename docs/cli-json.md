@@ -61,6 +61,26 @@ One record per page number, from its newest reading. `document` is the id. `flag
 - top: status, id, started_at, finished_at, command, gct_version, outcome, events, methods, failures, retries, cost_estimated, cost_confirmed, outputs
 - events: id, at, kind, stage, item, method, outcome, cost_estimated, cost_confirmed, message
 
+## approve spend
+- top: status, cap, spent
+
+Amounts are USD. `spent` is the cost of every attempt so far: the cost the provider returned where there is one (confirmed), otherwise gct's estimate (usage times the configured prices, or the pre-call estimate).
+
+## approve transfer
+- top: status, provider, granted
+
+## approve list
+- top: status, cap, spent, adapters
+- adapters: name, external, paid, transfer_granted
+
+`cap` is null when no spend cap was ever set. `transfer_granted` is true only when the newest transfer approval for that adapter was given for its current address and model. `adapters` lists every adapter in the configuration file (empty without one).
+
+## model list
+- top: status, path, adapters
+- adapters: name, provider, model, base_url, external, paid, price_in, price_out, api_key_env, key_set
+
+`path` is the configuration file looked for (`$GCT_MODELS`, else `~/.config/gct/models.toml`). `api_key_env` is the name of the environment variable that holds the key (null for none); `key_set` says whether it is set. The key itself is never printed.
+
 ## serve
 - top: status, url, port
 
