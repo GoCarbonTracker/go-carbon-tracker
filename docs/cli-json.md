@@ -32,6 +32,18 @@ nested record (or of each record in the nested list) under that key.
 - top: status, document
 - document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state
 
+## doc pages
+- top: status, document, pages
+- pages: page_number, rung, method, width, height, words, tables, flags, artifact
+
+One record per page number, from its newest reading. `document` is the id. `flags` lists the quality codes (`no_text`, `fragmented_text`, `sparse_tables`). `artifact` is the SHA-256 of the reading file `artifacts/<first two characters>/<sha256>.json`. An unread document gives an empty `pages` list.
+
+## read
+- top: status, documents
+- documents: id, logical_name, pages, read, cached, flagged, failed, flags, action, cause, next_action
+
+`status` is `ok` when no document and no page failed (flags are not failures; exit 0), else `partial` (exit 4), which adds `cause` and `next_action` at the top. `action` is `read`, `skipped` (not a PDF) or `failed` (the PDF could not be opened). `read` counts pages read by this command, `cached` pages already read under the same document bytes and reader settings, `failed` pages that raised. `flags` maps each quality code to its number of pages. `cause` is set for `skipped`; `cause` and `next_action` for `failed` and for a `read` document with failed pages; null otherwise. Nothing to read gives `{"status": "ok", "documents": []}`.
+
 ## publish build
 - top: status, version, built_at, history_mark, companies, documents
 

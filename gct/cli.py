@@ -6,6 +6,7 @@ from collections import Counter
 
 from gct import __version__
 from gct.api import server
+from gct.stages import read
 from gct.workspace import intake, layout, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -89,6 +90,58 @@ def cmd_doc_list(args) -> None:
 def cmd_doc_show(args) -> None:
     doc = registry.show_document(_open(args), args.id)
     _print(args, {"status": "ok", "document": doc}, "\n".join(f"{k}: {v}" for k, v in doc.items()))
+
+
+def _counts(flags: dict) -> str:
+    return ", ".join(f"{code} {n}" for code, n in sorted(flags.items())) or "none"
+
+
+def _read_line(d: dict) -> str:
+    if d["action"] != "read":
+        return f"{d['action']} {d['id']}: {d['logical_name']}: {d['cause']}"
+    flagged = f"{d['flagged']} flagged" + (f" ({_counts(d['flags'])})" if d["flags"] else "")
+    return (f"read {d['id']}: {d['logical_name']}: {d['pages']} pages, {d['read']} read, {d['cached']} cached, "
+            f"{flagged}, {d['failed']} failed")
+
+
+def cmd_read(args) -> int:
+    docs = read.read(_open(args), args.root, args.ids, args.company)
+    if not docs:
+        _print(args, {"status": "ok", "documents": []}, "Nothing to read.")
+        return 0
+    total = {k: sum(d[k] for d in docs) for k in ("pages", "read", "cached", "flagged", "failed")}
+    flags = sum((Counter(d["flags"]) for d in docs), Counter())
+    text = "\n".join([
+        *map(_read_line, docs),
+        f"Total: {len(docs)} documents, {total['pages']} pages, {total['read']} read, {total['cached']} cached, "
+        f"{total['flagged']} flagged, {total['failed']} failed",
+        f"Flagged pages: {_counts(flags)}",
+        f"{flags['no_text']} pages without text",
+    ])
+    bad = [d for d in docs if d["action"] == "failed" or d["failed"]]
+    if not bad:
+        _print(args, {"status": "ok", "documents": docs}, text)
+        return 0
+    cause = f"{len(bad)} of {len(docs)} documents were not fully read: " + ", ".join(str(d["id"]) for d in bad)
+    _print(args, {"status": "partial", "cause": cause, "next_action": read.RETRY, "documents": docs}, text)
+    if not args.json:
+        print(f"error: {cause}\nnext: {read.RETRY}", file=sys.stderr)
+    return layout.REFUSED
+
+
+def cmd_doc_pages(args) -> None:
+    ps = read.pages(_open(args), args.id)
+    if not ps:
+        _print(args, {"status": "ok", "document": args.id, "pages": []}, f"No pages read yet. Run: gct read {args.id}")
+        return
+    flags = Counter(f for p in ps for f in p["flags"])
+    lines = [
+        f"p{p['page_number']}  rung {p['rung']}  {p['method']}  words {p['words']}  tables {p['tables']}  "
+        f"flags {', '.join(p['flags']) or 'none'}"
+        for p in ps
+    ]
+    text = "\n".join([*lines, f"Flagged pages: {_counts(flags)}", f"{flags['no_text']} pages without text"])
+    _print(args, {"status": "ok", "document": args.id, "pages": ps}, text)
 
 
 def _version_line(v: dict) -> str:
@@ -206,7 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,publish,run,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,publish,run,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -241,6 +294,14 @@ def build_parser() -> argparse.ArgumentParser:
     show = doc.add_parser("show", parents=[common], help="show one document")
     show.add_argument("id", type=int)
     show.set_defaults(func=cmd_doc_show)
+    pages = doc.add_parser("pages", parents=[common], help="show how each page of one document was read")
+    pages.add_argument("id", type=int)
+    pages.set_defaults(func=cmd_doc_pages)
+
+    rd = top.add_parser("read", parents=[common], help="read every page of PDF documents (text, words, tables)")
+    rd.add_argument("ids", nargs="*", type=int, metavar="ID", help="documents to read (default: every active document)")
+    rd.add_argument("--company", help="only this company's documents")
+    rd.set_defaults(func=cmd_read)
 
     publish = group("publish", "published data versions")
     publish.add_parser("build", parents=[common], help="build the next version and make it current").set_defaults(func=cmd_publish_build)

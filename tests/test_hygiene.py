@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import PDF
+from conftest import make_pdf
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -30,22 +30,34 @@ for mod in pkgutil.walk_packages(gct.__path__, "gct."):
         importlib.import_module(mod.name)
 from gct import cli
 for argv in (["workspace", "init", sys.argv[1]], ["company", "add", "Acme", "--workspace", sys.argv[1]],
-             ["doc", "add", sys.argv[2], "--company", "Acme", "--workspace", sys.argv[1]]):
+             ["doc", "add", sys.argv[2], "--company", "Acme", "--workspace", sys.argv[1]],
+             ["read", "--workspace", sys.argv[1]]):
     assert cli.main(argv) == 0
 """
 
 
 def test_no_network(tmp_path, make_file):
     r = subprocess.run(
-        [sys.executable, "-c", NO_NETWORK_SCRIPT, str(tmp_path / "ws"), str(make_file("a.pdf", PDF))],
+        [sys.executable, "-c", NO_NETWORK_SCRIPT, str(tmp_path / "ws"), str(make_file("a.pdf", make_pdf([{"text": [(72, 72, "Scope 1")]}])))],
         cwd=ROOT, capture_output=True, text=True,
     )
     assert r.returncode == 0, r.stderr
 
 
+def test_company_list_does_not_import_pdfplumber(tmp_path):
+    script = (
+        "import sys\nfrom gct import cli\n"
+        "assert cli.main(['workspace', 'init', sys.argv[1]]) == 0\n"
+        "assert cli.main(['company', 'list', '--workspace', sys.argv[1]]) == 0\n"
+        "assert 'pdfplumber' not in sys.modules\n"
+    )
+    r = subprocess.run([sys.executable, "-c", script, str(tmp_path / "ws")], cwd=ROOT, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+
+
 def test_no_runtime_dependencies():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
-    assert project["dependencies"] == ["fastapi>=0.115", "uvicorn>=0.30"]
+    assert project["dependencies"] == ["fastapi>=0.115", "uvicorn>=0.30", "pdfplumber>=0.11"]
     assert project["requires-python"] == ">=3.11"
     assert project["optional-dependencies"]["dev"] == ["pytest"]
 

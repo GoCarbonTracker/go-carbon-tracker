@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 
-from conftest import PDF
+from conftest import PDF, make_pdf
 
 DOC = Path(__file__).resolve().parent.parent / "docs" / "cli-json.md"
 
@@ -48,6 +48,15 @@ def test_every_command_matches_the_documented_keys(tmp_path, gct, make_file):
     check("doc add", dup)
     check("doc list", gct("doc", "list", *w, "--json").data)
     check("doc show", gct("doc", "show", 1, *w, "--json").data)
+    check("doc pages", gct("doc", "pages", 1, *w, "--json").data)
+    gct("doc", "add", make_file("b.pdf", make_pdf([{"text": [(72, 72, "Scope 1")]}, {}])), "--company", "Acme", *w)
+    partial = gct("read", *w, "--json").data
+    assert partial["status"] == "partial" and {"cause", "next_action"} <= set(partial)
+    check("read", {k: v for k, v in partial.items() if k not in ("cause", "next_action")})
+    ok = gct("read", 2, *w, "--json").data
+    assert ok["status"] == "ok"
+    check("read", ok)
+    check("doc pages", gct("doc", "pages", 2, *w, "--json").data)
     check("publish status", gct("publish", "status", *w, "--json").data)
     check("publish build", gct("publish", "build", *w, "--json").data)
     check("publish build", gct("publish", "build", *w, "--json").data)
@@ -79,7 +88,7 @@ def test_empty_lists_still_match(tmp_path, gct):
 
 def test_every_command_has_a_documented_section():
     assert set(spec()) == {
-        "workspace init", "company add", "company list", "doc add", "doc list", "doc show",
+        "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc pages", "read",
         "publish build", "publish restore", "publish status",
         "workspace status", "run list", "run show", "serve", "error",
     }

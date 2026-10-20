@@ -15,12 +15,14 @@ A workspace folder for company documents, kept as an append-only history. Early 
 - A workspace made by an older gct is upgraded automatically the first time a newer gct opens it, and the upgrade is recorded as a run. A workspace made by a newer gct is refused. See `docs/migrations.md`.
 - `gct serve` starts a local service and opens it in your browser. It prints an address with a one-time session key (`http://127.0.0.1:8765/?token=...`); only that address lets a browser in, and the service listens on this computer only, with no setting to change that. `--port N` picks another port, `--no-open` skips the browser. For now it shows a placeholder page and `/api/health`.
 - A stage contract and result cache exist for the processing stages, so an unchanged result is reused, only failed items are retried and a result from an older input or setting is never served. Downloading a link is the first stage that runs through it.
+- `gct read [ID ...] [--company NAME]` reads every page of PDF documents with pdfplumber: text, words with their positions, and ruled tables. Without IDs it reads every active document. Each reading is a JSON file under `artifacts/`, stored once by SHA-256. A page already read with the same file and the same reader settings is never read again; a changed setting reads it again. Each page gets three checks: no text (a scanned picture), fragmented text, and tables that are mostly empty cells. Flagged pages are counted and the number of pages without text is always printed. Nothing is sent anywhere and no model is used. A damaged PDF or a page that fails is reported, the rest is read, and the command exits 4; running it again reads only what is missing.
+- `gct doc pages ID` shows, per page, how it was read: rung, method, words, tables and quality flags.
 - `--json` on every command. Key names are in `docs/cli-json.md`.
 - Every table except `schema_version` rejects updates and deletes.
 
 ## What does not exist yet
 
-Reading document contents, extraction, review, reports, a viewer, archive and delete.
+OCR for scanned pages, model-based rungs, extraction, review, reports, a viewer, archive and delete.
 
 ## Setup
 

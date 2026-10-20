@@ -18,3 +18,4 @@ append-only.
 | 2 | M1-1.2 | `published_version`, `published_pointer`, `published_purge` (published data versions) |
 | 3 | M1-1.3 | `run`, `run_event` (the run log) |
 | 4 | M1-2.1 | `attempt` (stage attempts and the result cache) |
+| 5 | M1-2.3 | `artifact`, `page` (page readings and the files that hold them) |

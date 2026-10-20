@@ -24,6 +24,11 @@ EXPECTED_COLUMNS = {
         "id", "run_id", "stage", "item", "input_version", "config_version", "method", "rung", "outcome", "output",
         "error", "cost_estimated", "cost_confirmed", "at",
     ],
+    "artifact": ["id", "sha256", "kind", "document_id", "path", "size_bytes", "created_at"],
+    "page": [
+        "id", "document_id", "page_number", "rung", "method", "config_version", "width", "height", "words", "tables",
+        "flags", "artifact_id", "created_at",
+    ],
 }
 NULLABLE = {("company", "sector_ref"), ("company", "sector_version"), ("document", "source"), ("document_state", "note")} | {
     ("run_event", c) for c in ("stage", "item", "method", "outcome", "cost_estimated", "cost_confirmed", "message")
@@ -50,7 +55,7 @@ def test_tables_and_columns(db):
 
 
 def test_schema_version_row_and_workspace_row(db):
-    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4]
+    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4, 5]
     row = db.execute("SELECT * FROM workspace").fetchone()
     assert row["id"] == 1 and row["gct_version"]
 

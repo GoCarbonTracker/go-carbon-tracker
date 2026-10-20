@@ -2,6 +2,7 @@ import sqlite3
 
 import pytest
 
+from conftest import make_pdf
 from gct.stages import Stage, run_stage
 from gct.workspace import runs, store
 
@@ -10,6 +11,8 @@ def test_every_table_is_append_only(ws, db, gct, make_file):
     # Put a row in every table so the UPDATE and DELETE actually fire their triggers.
     gct("company", "add", "Acme")
     gct("doc", "add", make_file("a.pdf"), "--company", "Acme")
+    gct("doc", "add", make_file("b.pdf", make_pdf([{"text": [(72, 72, "Scope 1")]}])), "--company", "Acme")
+    gct("read")
     for _ in range(3):  # three builds, so published_purge also holds a row
         gct("publish", "build")
     conn = store.connect(ws / "workspace.db")
