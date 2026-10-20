@@ -8,6 +8,9 @@ nested record (or of each record in the nested list) under that key.
 ## workspace init
 - top: status, path
 
+## workspace status
+- top: status, schema_version, gct_version, companies, documents, published_version, runs, latest_run_outcome
+
 ## company add
 - top: status, id, name, sector_ref, sector_version, created_at
 
@@ -35,6 +38,14 @@ nested record (or of each record in the nested list) under that key.
 
 ## publish status
 - top: status, current_version, built_at, history_mark, companies, documents, previous_version, stale, files
+
+## run list
+- top: status, runs
+- runs: id, started_at, finished_at, command, gct_version, outcome, events
+
+## run show
+- top: status, id, started_at, finished_at, command, gct_version, outcome, events, methods, failures, retries, cost_estimated, cost_confirmed, outputs
+- events: id, at, kind, stage, item, method, outcome, cost_estimated, cost_confirmed, message
 
 ## error
 - top: status, cause, next_action

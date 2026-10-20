@@ -5,7 +5,8 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-from gct.workspace import layout, published, registry, store
+from gct import __version__
+from gct.workspace import layout, published, registry, runs, store
 from gct.workspace.layout import GctError
 
 
@@ -15,7 +16,13 @@ def _print(args, payload: dict, text: str) -> None:
 
 def _open(args):
     args.root = layout.locate(args.workspace)
-    return store.connect(args.root / layout.DB_NAME)
+    conn = store.connect(args.root / layout.DB_NAME)
+    applied = store.migrate(conn)
+    if applied:
+        with runs.run(conn, "workspace upgrade") as run_id:
+            for version in applied:
+                runs.event(conn, run_id, "note", message=f"applied migration {version}")
+    return conn
 
 
 def _doc_line(d: dict) -> str:
@@ -67,13 +74,21 @@ def _version_line(v: dict) -> str:
     return f"version {v['version']} ({v['companies']} companies, {v['documents']} documents, built {v['built_at']})"
 
 
+def _publish(args, command: str, action) -> dict:
+    conn = _open(args)
+    with runs.run(conn, command) as run_id:
+        v = action(conn, args.root)
+        runs.event(conn, run_id, "output", stage="publish", item=str(v["version"]))
+    return v
+
+
 def cmd_publish_build(args) -> None:
-    v = published.build(_open(args), args.root)
+    v = _publish(args, "publish build", published.build)
     _print(args, {"status": "ok", **v}, f"Built {_version_line(v)}. It is now current.")
 
 
 def cmd_publish_restore(args) -> None:
-    v = published.restore(_open(args), args.root)
+    v = _publish(args, "publish restore", published.restore)
     _print(args, {"status": "ok", **v}, f"Went back to {_version_line(v)}. It is now current.")
 
 
@@ -92,6 +107,61 @@ def cmd_publish_status(args) -> None:
     _print(args, {"status": "ok", **st}, text)
 
 
+def _run_line(r: dict) -> str:
+    return f"{r['id']}  {r['started_at']}  {r['command']}  {r['outcome']}"
+
+
+def cmd_run_list(args) -> None:
+    rs = runs.list_runs(_open(args))
+    _print(args, {"status": "ok", "runs": rs}, "\n".join(_run_line(r) for r in rs) or "No runs yet.")
+
+
+def cmd_run_show(args) -> None:
+    r = runs.show_run(_open(args), args.id)
+    lines = [
+        f"Run {r['id']}: {r['command']} (gct {r['gct_version']})",
+        f"Started: {r['started_at']}",
+        f"Finished: {r['finished_at'] or 'not finished'}",
+        f"Outcome: {r['outcome']}",
+        f"Methods: {', '.join(r['methods']) or 'none'}",
+        f"Failures: {r['failures']}",
+        f"Retries: {r['retries']}",
+        f"Estimated cost: {r['cost_estimated']}",
+        f"Confirmed cost: {r['cost_confirmed']}",
+        f"Outputs: {', '.join(r['outputs']) or 'none'}",
+        "Events:",
+    ]
+    for e in r["events"]:
+        detail = "  ".join(f"{k.replace('_', ' ')}: {e[k]}" for k in runs.EVENT_COLUMNS[3:] if e[k] is not None)
+        lines.append(f"  {e['at']}  {e['kind']}  {detail}".rstrip())
+    _print(args, {"status": "ok", **r}, "\n".join(lines))
+
+
+def cmd_workspace_status(args) -> None:
+    conn = _open(args)
+    current = published.current_version(conn, args.root)
+    rs = runs.list_runs(conn)
+    st = {
+        "schema_version": conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0],
+        "gct_version": __version__,
+        "companies": len(registry.list_companies(conn)),
+        "documents": len(registry.list_documents(conn)),
+        "published_version": current[0] if current else None,
+        "runs": len(rs),
+        "latest_run_outcome": rs[0]["outcome"] if rs else None,
+    }
+    text = (
+        f"Schema version: {st['schema_version']}\n"
+        f"gct version: {st['gct_version']}\n"
+        f"Companies: {st['companies']}\n"
+        f"Documents: {st['documents']}\n"
+        f"Published version: {st['published_version'] or 'none'}\n"
+        f"Runs: {st['runs']}\n"
+        f"Latest run: {st['latest_run_outcome'] or 'none'}"
+    )
+    _print(args, {"status": "ok", **st}, text)
+
+
 def build_parser() -> argparse.ArgumentParser:
     json_flag = argparse.ArgumentParser(add_help=False)
     json_flag.add_argument("--json", action="store_true", help="print one JSON object")
@@ -99,14 +169,16 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,publish}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,publish,run}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
 
-    init = group("workspace", "create a workspace").add_parser("init", parents=[json_flag], help="create a workspace folder")
+    workspace = group("workspace", "the workspace folder")
+    init = workspace.add_parser("init", parents=[json_flag], help="create a workspace folder")
     init.add_argument("path")
     init.set_defaults(func=cmd_init)
+    workspace.add_parser("status", parents=[common], help="show what the workspace holds").set_defaults(func=cmd_workspace_status)
 
     company = group("company", "companies")
     add = company.add_parser("add", parents=[common], help="add a company")
@@ -136,6 +208,12 @@ def build_parser() -> argparse.ArgumentParser:
     publish.add_parser("build", parents=[common], help="build the next version and make it current").set_defaults(func=cmd_publish_build)
     publish.add_parser("restore", parents=[common], help="make the previous version current again").set_defaults(func=cmd_publish_restore)
     publish.add_parser("status", parents=[common], help="show the current version").set_defaults(func=cmd_publish_status)
+
+    run = group("run", "the run log")
+    run.add_parser("list", parents=[common], help="list runs, newest first").set_defaults(func=cmd_run_list)
+    show = run.add_parser("show", parents=[common], help="show one run with its totals and events")
+    show.add_argument("id", type=int)
+    show.set_defaults(func=cmd_run_show)
     return parser
 
 

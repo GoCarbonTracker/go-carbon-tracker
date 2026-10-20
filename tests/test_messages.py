@@ -39,6 +39,7 @@ def refusals(ws, tmp_path, make_file):
         (["company", "add", "  ", "--workspace", ws], 2),
         (["publish", "restore", "--workspace", ws], 4),
         (["publish", "build", "--workspace", tmp_path / "nowhere"], 3),
+        (["run", "show", "99", "--workspace", ws], 3),
     ]
 
 

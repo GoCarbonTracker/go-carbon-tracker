@@ -10,12 +10,15 @@ A workspace folder for company documents, kept as an append-only history. Early 
 - `gct doc list` and `gct doc show ID`.
 - Documents default to the `private` label.
 - `gct publish build` writes the next numbered, read-only data version (`published/vN.db`, companies and active documents) and makes it current. `gct publish restore` makes the previous version current again without rebuilding. `gct publish status` shows the current version and whether new history has arrived since. Only the current and previous files are kept; history is never touched.
+- `gct publish build` and `gct publish restore` each leave a run record. `gct run list` shows the runs, newest first, with their outcome (`ok`, `failed`, or `interrupted` when the process stopped before finishing). `gct run show ID` shows one run: methods used, failures, retries, estimated and confirmed cost on separate lines, outputs, and every event.
+- `gct workspace status` shows the schema version, the gct version, the number of companies and documents, the current published version, the number of runs and how the latest one ended.
+- A workspace made by an older gct is upgraded automatically the first time a newer gct opens it, and the upgrade is recorded as a run. A workspace made by a newer gct is refused. See `docs/migrations.md`.
 - `--json` on every command. Key names are in `docs/cli-json.md`.
 - Every table except `schema_version` rejects updates and deletes.
 
 ## What does not exist yet
 
-Reading document contents, extraction, review, reports, a viewer, a local service, archive and delete, a run log.
+Reading document contents, extraction, review, reports, a viewer, a local service, archive and delete.
 
 ## Setup
 

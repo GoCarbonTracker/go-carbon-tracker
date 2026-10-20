@@ -29,8 +29,10 @@ def transaction(conn: sqlite3.Connection):
     conn.execute("COMMIT")
 
 
-def migrate(conn: sqlite3.Connection) -> None:
-    """Apply every migration file newer than the recorded schema version."""
+def migrate(conn: sqlite3.Connection, up_to: int | None = None) -> list[int]:
+    """Apply every migration file newer than the recorded schema version. Returns the versions applied."""
+    from gct.workspace.layout import REFUSED, GctError  # layout imports this module
+
     has_table = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE name = 'schema_version'"
     ).fetchone()
@@ -38,11 +40,19 @@ def migrate(conn: sqlite3.Connection) -> None:
     if has_table:
         current = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] or 0
     migrations = resources.files("gct.workspace") / "migrations"
-    for item in sorted(migrations.iterdir(), key=lambda p: p.name):
-        if not item.name.endswith(".sql"):
-            continue
-        version = int(item.name.split("_")[0])
-        if version <= current:
+    files = sorted(
+        ((int(p.name.split("_")[0]), p) for p in migrations.iterdir() if p.name.endswith(".sql")),
+        key=lambda vp: vp[0],
+    )
+    if current > files[-1][0]:
+        raise GctError(
+            REFUSED,
+            "This workspace was made by a newer version of gct than the one installed.",
+            "Install the newer version of gct, then run the command again.",
+        )
+    applied = []
+    for version, item in files:
+        if version <= current or (up_to is not None and version > up_to):
             continue
         script = (
             "BEGIN;\n"
@@ -56,3 +66,5 @@ def migrate(conn: sqlite3.Connection) -> None:
             if conn.in_transaction:
                 conn.execute("ROLLBACK")
             raise
+        applied.append(version)
+    return applied

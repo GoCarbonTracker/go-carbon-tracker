@@ -53,6 +53,9 @@ def test_every_command_matches_the_documented_keys(tmp_path, gct, make_file):
     check("publish build", gct("publish", "build", *w, "--json").data)
     check("publish restore", gct("publish", "restore", *w, "--json").data)
     check("publish status", gct("publish", "status", *w, "--json").data)
+    check("workspace status", gct("workspace", "status", *w, "--json").data)
+    check("run list", gct("run", "list", *w, "--json").data)
+    check("run show", gct("run", "show", 1, *w, "--json").data)
     check("error", gct("doc", "show", 99, *w, "--json").data)
 
 
@@ -61,10 +64,13 @@ def test_empty_lists_still_match(tmp_path, gct):
     gct("workspace", "init", ws)
     check("company list", gct("company", "list", "--workspace", ws, "--json").data)
     check("doc list", gct("doc", "list", "--workspace", ws, "--json").data)
+    check("run list", gct("run", "list", "--workspace", ws, "--json").data)
+    check("workspace status", gct("workspace", "status", "--workspace", ws, "--json").data)
 
 
 def test_every_command_has_a_documented_section():
     assert set(spec()) == {
         "workspace init", "company add", "company list", "doc add", "doc list", "doc show",
-        "publish build", "publish restore", "publish status", "error",
+        "publish build", "publish restore", "publish status",
+        "workspace status", "run list", "run show", "error",
     }
