@@ -14,6 +14,7 @@ A workspace folder for company documents, kept as an append-only history. Early 
 - `gct workspace status` shows the schema version, the gct version, the number of companies and documents, the current published version, the number of runs and how the latest one ended.
 - A workspace made by an older gct is upgraded automatically the first time a newer gct opens it, and the upgrade is recorded as a run. A workspace made by a newer gct is refused. See `docs/migrations.md`.
 - `gct serve` starts a local service and opens it in your browser. It prints an address with a one-time session key (`http://127.0.0.1:8765/?token=...`); only that address lets a browser in, and the service listens on this computer only, with no setting to change that. `--port N` picks another port, `--no-open` skips the browser. For now it shows a placeholder page and `/api/health`.
+- A stage contract and result cache exist for the processing stages that come next, so an unchanged result is reused, only failed items are retried and a result from an older input or setting is never served; nothing runs through it yet.
 - `--json` on every command. Key names are in `docs/cli-json.md`.
 - Every table except `schema_version` rejects updates and deletes.
 

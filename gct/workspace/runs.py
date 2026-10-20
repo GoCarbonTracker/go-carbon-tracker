@@ -14,6 +14,7 @@ SELECT r.id, r.started_at, f.at AS finished_at, r.command, r.gct_version,
        COALESCE(f.outcome, 'interrupted') AS outcome,
        (SELECT COUNT(*) FROM run_event e WHERE e.run_id = r.id) AS events
 FROM run r LEFT JOIN run_event f ON f.run_id = r.id AND f.kind = 'finished'
+    AND f.id = (SELECT MIN(id) FROM run_event WHERE run_id = r.id AND kind = 'finished')
 """
 
 

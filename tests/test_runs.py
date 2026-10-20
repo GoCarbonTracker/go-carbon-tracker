@@ -34,15 +34,15 @@ def old_ws(tmp_path):
 
 def test_migration_3_applies_to_a_story_1_2_workspace(old_ws):
     conn = store.connect(old_ws / layout.DB_NAME)
-    assert store.migrate(conn) == [3]
-    assert [r[0] for r in conn.execute("SELECT version FROM schema_version ORDER BY version")] == [1, 2, 3]
+    assert store.migrate(conn) == [3, 4]
+    assert [r[0] for r in conn.execute("SELECT version FROM schema_version ORDER BY version")] == [1, 2, 3, 4]
     assert [tuple(r) for r in conn.execute("SELECT name, created_at FROM company")] == [("Acme", "t")]
     assert store.migrate(conn) == []
     conn.close()
 
 
 def test_fresh_workspace_has_three_migrations(db):
-    assert [r[0] for r in db.execute("SELECT version FROM schema_version ORDER BY version")] == [1, 2, 3]
+    assert [r[0] for r in db.execute("SELECT version FROM schema_version ORDER BY version")] == [1, 2, 3, 4]
 
 
 def test_upgrade_on_open_is_recorded_once(old_ws, gct):
@@ -52,7 +52,7 @@ def test_upgrade_on_open_is_recorded_once(old_ws, gct):
     (run,) = runs.list_runs(conn)
     assert run["command"] == "workspace upgrade" and run["outcome"] == "ok"
     notes = [e for e in runs.show_run(conn, run["id"])["events"] if e["kind"] == "note"]
-    assert [e["message"] for e in notes] == ["applied migration 3"]
+    assert [e["message"] for e in notes] == ["applied migration 3", "applied migration 4"]
     assert gct("company", "list", "--workspace", old_ws).code == 0
     assert len(runs.list_runs(conn)) == 1
     conn.close()
@@ -115,6 +115,18 @@ def test_interrupted_run(ws, gct):
         assert r["outcome"] == "interrupted" and r["finished_at"] is None
     assert "interrupted" in gct("run", "list").out
     assert "Outcome: interrupted" in gct("run", "show", run_id).out
+
+
+def test_two_finished_events_list_the_run_once(ws):
+    conn = store.connect(ws / "workspace.db")
+    rid = runs.start(conn, "publish build")
+    runs.finish(conn, rid, "failed", "first")
+    runs.finish(conn, rid, "ok")
+    (row,) = runs.list_runs(conn)
+    first = runs.show_run(conn, rid)["events"][0]
+    assert (row["outcome"], row["finished_at"]) == ("failed", first["at"]) and row["events"] == 2
+    assert runs.show_run(conn, rid)["outcome"] == "failed"
+    conn.close()
 
 
 def test_totals(ws, gct):
@@ -181,7 +193,7 @@ def test_context_manager_failures_keep_events_and_hide_secrets(ws, gct, monkeypa
 
 def test_workspace_status(ws, gct, make_file):
     fresh = gct("workspace", "status", "--json").data
-    assert (fresh["schema_version"], fresh["companies"], fresh["documents"]) == (3, 0, 0)
+    assert (fresh["schema_version"], fresh["companies"], fresh["documents"]) == (4, 0, 0)
     assert fresh["published_version"] is None and fresh["runs"] == 0 and fresh["latest_run_outcome"] is None
     assert "Published version: none" in gct("workspace", "status").out
     gct("company", "add", "Acme")
@@ -189,7 +201,7 @@ def test_workspace_status(ws, gct, make_file):
     gct("doc", "add", make_file("b.pdf", PDF + b"b"), "--company", "Acme")
     gct("publish", "build")
     st = gct("workspace", "status", "--json").data
-    assert st["gct_version"] and (st["schema_version"], st["companies"], st["documents"]) == (3, 1, 2)
+    assert st["gct_version"] and (st["schema_version"], st["companies"], st["documents"]) == (4, 1, 2)
     assert (st["published_version"], st["runs"], st["latest_run_outcome"]) == (1, 1, "ok")
 
 

@@ -2,6 +2,9 @@ import sqlite3
 
 import pytest
 
+from gct.stages import Stage, run_stage
+from gct.workspace import runs, store
+
 
 def test_every_table_is_append_only(ws, db, gct, make_file):
     # Put a row in every table so the UPDATE and DELETE actually fire their triggers.
@@ -9,6 +12,10 @@ def test_every_table_is_append_only(ws, db, gct, make_file):
     gct("doc", "add", make_file("a.pdf"), "--company", "Acme")
     for _ in range(3):  # three builds, so published_purge also holds a row
         gct("publish", "build")
+    conn = store.connect(ws / "workspace.db")
+    with runs.run(conn, "test stage") as rid:
+        run_stage(conn, rid, Stage("tiny", "c1", lambda item, conn: item, lambda item: "v1"), ["a"])
+    conn.close()
     tables = [
         r["name"]
         for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name <> 'schema_version'")
