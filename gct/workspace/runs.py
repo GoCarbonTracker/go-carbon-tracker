@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from contextlib import contextmanager
 
@@ -6,6 +7,7 @@ from gct.models.redact import scrub
 from gct.workspace import store
 from gct.workspace.layout import NOT_FOUND, GctError
 
+SELECTION = "selection: "
 EVENT_COLUMNS = ("id", "at", "kind", "stage", "item", "method", "outcome", "cost_estimated", "cost_confirmed", "message")
 
 # Every insert below is a single statement on an autocommit connection, so it commits on its own:
@@ -32,6 +34,21 @@ def event(conn, run_id, kind, *, stage=None, item=None, method=None, outcome=Non
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (run_id, store.now(), kind, stage, item, method, outcome, cost_estimated, cost_confirmed, scrub(message)),
     ).lastrowid
+
+
+def record(conn, run_id: int, given: dict, notes=()) -> None:
+    """Note why the run exists, then exactly what it was given, so gct run resume can replay it."""
+    for message in notes:
+        event(conn, run_id, "note", message=message)
+    event(conn, run_id, "note", message=SELECTION + json.dumps(given, separators=(",", ":")))
+
+
+def selection(conn, run_id: int) -> dict | None:
+    row = conn.execute(
+        "SELECT message FROM run_event WHERE run_id = ? AND kind = 'note' AND message LIKE ? ORDER BY id LIMIT 1",
+        (run_id, SELECTION + "%"),
+    ).fetchone()
+    return None if row is None else json.loads(row[0][len(SELECTION):])
 
 
 def finish(conn: sqlite3.Connection, run_id: int, outcome: str, message: str | None = None) -> None:

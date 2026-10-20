@@ -29,10 +29,8 @@ def transaction(conn: sqlite3.Connection):
     conn.execute("COMMIT")
 
 
-def migrate(conn: sqlite3.Connection, up_to: int | None = None) -> list[int]:
-    """Apply every migration file newer than the recorded schema version. Returns the versions applied."""
-    from gct.workspace.layout import REFUSED, GctError  # layout imports this module
-
+def _versions(conn: sqlite3.Connection) -> tuple[int, list]:
+    """The recorded schema version and the migration files as sorted (version, file)."""
     has_table = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE name = 'schema_version'"
     ).fetchone()
@@ -44,6 +42,19 @@ def migrate(conn: sqlite3.Connection, up_to: int | None = None) -> list[int]:
         ((int(p.name.split("_")[0]), p) for p in migrations.iterdir() if p.name.endswith(".sql")),
         key=lambda vp: vp[0],
     )
+    return current, files
+
+
+def pending(conn: sqlite3.Connection) -> bool:
+    current, files = _versions(conn)
+    return current < files[-1][0]
+
+
+def migrate(conn: sqlite3.Connection, up_to: int | None = None) -> list[int]:
+    """Apply every migration file newer than the recorded schema version. Returns the versions applied."""
+    from gct.workspace.layout import REFUSED, GctError  # layout imports this module
+
+    current, files = _versions(conn)
     if current > files[-1][0]:
         raise GctError(
             REFUSED,

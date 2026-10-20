@@ -106,10 +106,47 @@ def test_empty_lists_still_match(tmp_path, gct):
     check("model list", gct("model", "list", "--json").data)
 
 
+def test_resume_and_retry_match_the_documented_keys(tmp_path, gct, make_file, monkeypatch):
+    from gct.stages import read
+
+    ws = tmp_path / "ws"
+    gct("workspace", "init", ws)
+    w = ("--workspace", ws)
+    gct("company", "add", "Acme", *w)
+    gct("doc", "add", make_file("b.pdf", make_pdf([{}, {}, {}])), "--company", "Acme", *w)
+    real = read.read_page
+
+    def failing(number, error):
+        def flaky(page):
+            if page.page_number == number:
+                raise error
+            return real(page)
+        monkeypatch.setattr(read, "read_page", flaky)
+
+    failing(2, KeyboardInterrupt)
+    try:
+        gct("read", *w)
+    except KeyboardInterrupt:
+        pass
+    failing(3, ValueError)
+    partial = gct("run", "resume", 2, *w, "--json").data
+    assert partial["status"] == "partial"
+    check("run resume", {k: v for k, v in partial.items() if k not in ("cause", "next_action")})
+    monkeypatch.setattr(read, "read_page", real)
+    check("run retry", gct("run", "retry", 3, *w, "--json").data)
+    check("run retry", gct("run", "retry", 3, *w, "--json").data)
+    doc_add = spec()["doc add"]["top"] | {"run_id", "of_run"}
+    gone = tmp_path / "src" / "later.pdf"
+    gct("doc", "add", gone, "--company", "Acme", *w)
+    gone.write_bytes(PDF + b"later")
+    assert set(gct("run", "retry", 5, *w, "--json").data) == doc_add
+    assert set(gct("run", "retry", 5, *w, "--json").data) == {"status", "run_id", "of_run", "items"}
+
+
 def test_every_command_has_a_documented_section():
     assert set(spec()) == {
         "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc pages", "read",
         "publish build", "publish restore", "publish status",
-        "workspace status", "run list", "run show", "serve", "error",
+        "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",
         "approve spend", "approve transfer", "approve list", "model list",
     }

@@ -15,6 +15,13 @@ TIMEOUT = 60
 MAX_BYTES = 500 * 1024 * 1024
 FETCH_CONFIG = version_of("fetch", 1)
 RETRY = "Check the address, then run the same command again."
+FAILED_SQL = """
+SELECT e.item FROM run_event e
+WHERE e.run_id = ? AND e.kind = 'failure' AND e.stage IN ('fetch', 'register')
+  AND NOT EXISTS (SELECT 1 FROM run_event l WHERE l.kind = 'item' AND l.stage = 'register' AND l.item = e.item
+                  AND l.id > e.id)
+GROUP BY e.item ORDER BY MIN(e.id)
+"""
 
 
 class _Redirects(urllib.request.HTTPRedirectHandler):
@@ -122,13 +129,24 @@ def plan(conn, sources, company, name=None) -> list[dict]:
     return items
 
 
-def add(conn, root, sources, company, kind="report", privacy="private", name=None, source=None) -> list[dict]:
-    """Register every item in one run record. A bad item is reported and the batch keeps going."""
+def failed(conn, run_id: int) -> list[str]:
+    """The sources that failed to fetch or register in the run and were not registered (or found a duplicate) since."""
+    return [item for (item,) in conn.execute(FAILED_SQL, (run_id,))]
+
+
+def add(conn, root, sources, company, kind="report", privacy="private", name=None, source=None,
+        notes=()) -> tuple[int, list[dict]]:
+    """Register every item in one run record. A bad item is reported and the batch keeps going.
+    Returns the run id and one record per item."""
     co = registry._find_company(conn, company)
+    # Absolute, so a resume or retry from another folder replays the same files.
+    sources = [s if _is_url(s) else str(Path(s).resolve()) for s in map(str, sources)]
     entries = _entries(sources, name)
     stage = Stage("fetch", FETCH_CONFIG, lambda url, conn: _download(root, url), version_of)
     items = []
     with runs.run(conn, "doc add") as run_id:
+        runs.record(conn, run_id, {"sources": sources,"company": company, "kind": kind,
+                                   "privacy": privacy, "name": name, "source": source}, notes)
         for src, refusal in entries:
             cached = False
             try:
@@ -154,4 +172,4 @@ def add(conn, root, sources, company, kind="report", privacy="private", name=Non
             outcome = "ok" if status == "ok" else "duplicate"
             runs.event(conn, run_id, "item", stage="register", item=src, outcome=outcome)
             items.append(_item(src, co["name"], "registered" if status == "ok" else "duplicate", doc, cached=cached))
-    return items
+    return run_id, items

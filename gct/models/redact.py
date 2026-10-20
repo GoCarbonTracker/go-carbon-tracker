@@ -6,7 +6,7 @@ import os
 import re
 
 MARK = "[redacted]"
-PATTERNS = re.compile(r"sk-[A-Za-z0-9_-]{16,}|nvapi-[A-Za-z0-9_-]{16,}|Bearer\s+\S+")
+PATTERNS = re.compile(r'(?<![A-Za-z0-9])(?:sk|nvapi)-[A-Za-z0-9_-]{16,}|Bearer\s+[^\s"]+')
 
 
 @functools.lru_cache(maxsize=None)

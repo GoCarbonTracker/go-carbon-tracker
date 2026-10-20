@@ -15,6 +15,25 @@ NOT_OPENED = "The PDF could not be opened. It may be damaged or password protect
 NOT_OPENED_NEXT = "Check the file opens in a PDF viewer, then add a readable copy with gct doc add."
 RETRY = "Run gct read again. Pages already read are not read twice."
 KIND = "reading"
+ACTIVE = ("registered", "restored")
+NOT_ACTIVE = "the document is no longer active"
+
+# A page whose newest attempt in the run failed, with no ok attempt since.
+FAILED_PAGES_SQL = """
+SELECT a.item FROM attempt a
+WHERE a.run_id = ? AND a.stage = 'read' AND a.outcome = 'failed'
+  AND a.id = (SELECT MAX(b.id) FROM attempt b WHERE b.run_id = a.run_id AND b.stage = a.stage AND b.item = a.item)
+  AND NOT EXISTS (SELECT 1 FROM attempt c WHERE c.stage = a.stage AND c.item = a.item AND c.outcome = 'ok' AND c.id > a.id)
+ORDER BY a.id
+"""
+# A document that could not be opened in the run (a failure event, no attempt), with no page read ok in a later run.
+NOT_OPENED_SQL = """
+SELECT e.item FROM run_event e
+WHERE e.run_id = ? AND e.kind = 'failure' AND e.stage = 'read' AND instr(e.item, ':') = 0
+  AND NOT EXISTS (SELECT 1 FROM attempt a WHERE a.stage = 'read' AND a.item LIKE e.item || ':%'
+                  AND a.outcome = 'ok' AND a.run_id > e.run_id)
+GROUP BY e.item ORDER BY MIN(e.id)
+"""
 
 NEWEST_SQL = """
 SELECT p.*, a.sha256 FROM page p JOIN artifact a ON a.id = p.artifact_id
@@ -113,15 +132,12 @@ def select(conn, ids, company) -> list[dict]:
     if company is not None:
         registry._find_company(conn, company)
     if not ids:
-        return [d for d in registry.list_documents(conn, company) if d["state"] in ("registered", "restored")]
+        return [d for d in registry.list_documents(conn, company) if d["state"] in ACTIVE]
     return [registry.show_document(conn, i) for i in dict.fromkeys(ids)]
 
 
-def read(conn, root, ids=(), company=None) -> list[dict]:
-    """Read the selection in one run. A damaged document or a failing page is reported and the run keeps going."""
-    docs = select(conn, ids, company)
-    if not docs:
-        return []
+def _read(conn, root, run_id, docs, wanted=None) -> list[dict]:
+    """Read each document in the run. wanted maps a document id to the page numbers to retry (None: every page)."""
     import pdfplumber  # 0.8 s; only commands that read pay for it
 
     root = Path(root)
@@ -129,28 +145,66 @@ def read(conn, root, ids=(), company=None) -> list[dict]:
     stage = Stage("read", config, lambda item, conn: _work(root, config, item, conn),
                   lambda item: version_of(item.doc["sha256"], item.page.page_number))
     out = []
-    with runs.run(conn, "read") as run_id:
-        for d in docs:
-            if d["file_type"] != "pdf":
-                out.append(_doc(d, "skipped", "not a PDF"))
+    for d in docs:
+        if d["file_type"] != "pdf":
+            out.append(_doc(d, "skipped", "not a PDF"))
+            continue
+        only = (wanted or {}).get(d["id"])
+        with contextlib.ExitStack() as stack:
+            try:
+                pages = stack.enter_context(pdfplumber.open(registry.stored_path(root, d["sha256"]))).pages
+            except Exception:
+                runs.event(conn, run_id, "failure", stage="read", item=str(d["id"]), message=NOT_OPENED)
+                out.append(_doc(d, "failed", NOT_OPENED, NOT_OPENED_NEXT))
                 continue
-            with contextlib.ExitStack() as stack:
-                try:
-                    pages = stack.enter_context(pdfplumber.open(registry.stored_path(root, d["sha256"]))).pages
-                except Exception:
-                    runs.event(conn, run_id, "failure", stage="read", item=str(d["id"]), message=NOT_OPENED)
-                    out.append(_doc(d, "failed", NOT_OPENED, NOT_OPENED_NEXT))
-                    continue
-                counts = run_stage(conn, run_id, stage, [_Page(d, p) for p in pages])
-            rows = conn.execute(NEWEST_SQL, (config, config, d["id"])).fetchall()
-            flags = Counter(f for r in rows for f in json.loads(r["flags"]))
-            failed = counts["failed"]
-            out.append(_doc(
-                d, "read", f"{failed} of {len(pages)} pages could not be read." if failed else None,
-                RETRY if failed else None, pages=len(pages), read=counts["processed"], cached=counts["cached"],
-                flagged=sum(bool(json.loads(r["flags"])) for r in rows), failed=failed, flags=dict(sorted(flags.items())),
-            ))
+            items = [_Page(d, p) for p in pages if only is None or p.page_number in only]
+            # only_failed=False: retry's pages are already the failed set, and a changed config must still read them.
+            counts = run_stage(conn, run_id, stage, items)
+        rows = conn.execute(NEWEST_SQL, (config, config, d["id"])).fetchall()
+        flags = Counter(f for r in rows for f in json.loads(r["flags"]))
+        failed = counts["failed"]
+        out.append(_doc(
+            d, "read", f"{failed} of {len(pages)} pages could not be read." if failed else None,
+            RETRY if failed else None, pages=len(pages), read=counts["processed"], cached=counts["cached"],
+            flagged=sum(bool(json.loads(r["flags"])) for r in rows), failed=failed, flags=dict(sorted(flags.items())),
+        ))
     return out
+
+
+def read(conn, root, ids=(), company=None, notes=()) -> tuple[int | None, list[dict]]:
+    """Read the selection in one run. A damaged document or a failing page is reported and the run keeps going.
+    Returns the run id (None when there was nothing to read) and one record per document."""
+    docs = select(conn, ids, company)
+    if not docs:
+        return None, []
+    with runs.run(conn, "read") as run_id:
+        runs.record(conn, run_id, {"ids": list(ids), "company": company}, notes)
+        out = _read(conn, root, run_id, docs)
+    return run_id, out
+
+
+def failed(conn, run_id: int) -> dict:
+    """{document id: page numbers to retry, or None to read it again in full} for what failed in the run
+    and has not been read ok since."""
+    out = {}
+    for (item,) in conn.execute(NOT_OPENED_SQL, (run_id,)):
+        out[int(item)] = None
+    for (item,) in conn.execute(FAILED_PAGES_SQL, (run_id,)):
+        doc_id, number = map(int, item.split(":"))
+        if out.get(doc_id, set()) is not None:
+            out.setdefault(doc_id, set()).add(number)
+    return dict(sorted(out.items()))
+
+
+def retry(conn, root, wanted: dict, notes=()) -> tuple[int, list[dict]]:
+    """Read again exactly what failed (see failed) in a new run. A document no longer active is skipped."""
+    docs = [registry.show_document(conn, i) for i in wanted]
+    active = [d for d in docs if d["state"] in ACTIVE]
+    with runs.run(conn, "read") as run_id:
+        runs.record(conn, run_id, {"ids": [d["id"] for d in active], "company": None}, notes)
+        out = [_doc(d, "skipped", NOT_ACTIVE) for d in docs if d["state"] not in ACTIVE]
+        out += _read(conn, root, run_id, active, wanted)
+    return run_id, out
 
 
 def pages(conn, doc_id: int) -> list[dict]:

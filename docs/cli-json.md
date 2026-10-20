@@ -42,7 +42,7 @@ One record per page number, from its newest reading. `document` is the id. `flag
 - top: status, documents
 - documents: id, logical_name, pages, read, cached, flagged, failed, flags, action, cause, next_action
 
-`status` is `ok` when no document and no page failed (flags are not failures; exit 0), else `partial` (exit 4), which adds `cause` and `next_action` at the top. `action` is `read`, `skipped` (not a PDF) or `failed` (the PDF could not be opened). `read` counts pages read by this command, `cached` pages already read under the same document bytes and reader settings, `failed` pages that raised. `flags` maps each quality code to its number of pages. `cause` is set for `skipped`; `cause` and `next_action` for `failed` and for a `read` document with failed pages; null otherwise. Nothing to read gives `{"status": "ok", "documents": []}`.
+`status` is `ok` when no document and no page failed (flags are not failures; exit 0), else `partial` (exit 4), which adds `cause` and `next_action` at the top. `action` is `read`, `skipped` (not a PDF, or for `run retry` no longer active) or `failed` (the PDF could not be opened). `read` counts pages read by this command, `cached` pages already read under the same document bytes and reader settings, `failed` pages that raised. `flags` maps each quality code to its number of pages. `cause` is set for `skipped`; `cause` and `next_action` for `failed` and for a `read` document with failed pages; null otherwise. Nothing to read gives `{"status": "ok", "documents": []}`.
 
 ## publish build
 - top: status, version, built_at, history_mark, companies, documents
@@ -60,6 +60,18 @@ One record per page number, from its newest reading. `document` is the id. `flag
 ## run show
 - top: status, id, started_at, finished_at, command, gct_version, outcome, events, methods, failures, retries, cost_estimated, cost_confirmed, outputs
 - events: id, at, kind, stage, item, method, outcome, cost_estimated, cost_confirmed, message
+
+## run resume
+- top: status, run_id, of_run, documents
+- documents: id, logical_name, pages, read, cached, flagged, failed, flags, action, cause, next_action
+
+Resuming a `read` run gives the keys of `read` plus `run_id` (the new run, null when there was nothing to read) and `of_run` (the run resumed). Resuming a `doc add` run gives the keys of `doc add` (`items` in place of `documents`) plus the same two. `status`, `cause`, `next_action` and the exit codes are as for `read` and `doc add`.
+
+## run retry
+- top: status, run_id, of_run, documents
+- documents: id, logical_name, pages, read, cached, flagged, failed, flags, action, cause, next_action
+
+The same shapes as `run resume`. For a `read` run, `read` counts the failed pages read again and `pages` is still the document's page count; `action` `skipped` with a cause also marks a document no longer active. With nothing failed: `{"status": "ok", "run_id": null, "of_run": N, "documents": []}` (`items` for a `doc add` run), exit 0, and no new run.
 
 ## approve spend
 - top: status, cap, spent

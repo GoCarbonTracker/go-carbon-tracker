@@ -10,7 +10,7 @@ from gct import __version__
 from gct.api import server
 from gct.models import adapters, policy
 from gct.stages import read
-from gct.workspace import intake, layout, published, registry, runs, store
+from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
 
@@ -18,14 +18,21 @@ def _print(args, payload: dict, text: str) -> None:
     print(json.dumps(payload) if args.json else text)
 
 
-def _open(args):
+def _open(args, write=True):
+    """Locate and upgrade the workspace. A writing command holds the workspace lock until main() returns;
+    a read-only one takes it only for an upgrade."""
     args.root = layout.locate(args.workspace)
     conn = store.connect(args.root / layout.DB_NAME)
+    if write or store.pending(conn):
+        args.lock = lock.hold(args.root)
     applied = store.migrate(conn)
     if applied:
         with runs.run(conn, "workspace upgrade") as run_id:
             for version in applied:
                 runs.event(conn, run_id, "note", message=f"applied migration {version}")
+    if not write and getattr(args, "lock", None):
+        lock.release(args.lock)
+        args.lock = None
     return conn
 
 
@@ -47,7 +54,7 @@ def cmd_company_add(args) -> None:
 
 
 def cmd_company_list(args) -> None:
-    companies = registry.list_companies(_open(args))
+    companies = registry.list_companies(_open(args, write=False))
     text = "\n".join(f"{c['id']}  {c['name']}" for c in companies) or 'No companies yet. Add one with: gct company add "NAME"'
     _print(args, {"status": "ok", "companies": companies}, text)
 
@@ -64,34 +71,37 @@ def _item_line(i: dict) -> str:
 
 
 def cmd_doc_add(args) -> int:
-    conn = _open(args)
+    conn = _open(args, write=not args.plan)
     if args.plan:
-        items = intake.plan(conn, args.sources, args.company, args.name)
-    else:
-        items = intake.add(
-            conn, args.root, args.sources, args.company, args.kind, args.privacy, args.name, args.source
-        )
+        return _doc_add_out(args, intake.plan(conn, args.sources, args.company, args.name), plan=True)
+    _, items = intake.add(conn, args.root, args.sources, args.company, args.kind, args.privacy, args.name, args.source)
+    return _doc_add_out(args, items)
+
+
+def _doc_add_out(args, items, plan=False, head=None, extra=None) -> int:
+    """Print doc add items. head is a first text line and extra more top-level keys (resume and retry)."""
     summary = ", ".join(f"{n} {a}" for a, n in Counter(i["action"] for i in items).items())
-    text = "\n".join([*map(_item_line, items), f"{summary}. Nothing was stored." if args.plan else summary])
+    text = "\n".join([*([head] if head else []), *map(_item_line, items),
+                      f"{summary}. Nothing was stored." if plan else summary])
     bad = [i["source"] for i in items if i["action"] in ("refused", "failed")]
-    if args.plan or not bad:
-        _print(args, {"status": "ok", "items": items}, text)
+    if plan or not bad:
+        _print(args, {"status": "ok", **(extra or {}), "items": items}, text)
         return 0
     cause = f"{len(bad)} of {len(items)} items were not added."
     next_action = "Check these and add them again: " + ", ".join(bad)
-    _print(args, {"status": "partial", "cause": cause, "next_action": next_action, "items": items}, text)
+    _print(args, {"status": "partial", "cause": cause, "next_action": next_action, **(extra or {}), "items": items}, text)
     if not args.json:
         print(f"error: {cause}\nnext: {next_action}", file=sys.stderr)
     return layout.REFUSED
 
 
 def cmd_doc_list(args) -> None:
-    docs = registry.list_documents(_open(args), args.company)
+    docs = registry.list_documents(_open(args, write=False), args.company)
     _print(args, {"status": "ok", "documents": docs}, "\n".join(_doc_line(d) for d in docs) or "No documents yet.")
 
 
 def cmd_doc_show(args) -> None:
-    doc = registry.show_document(_open(args), args.id)
+    doc = registry.show_document(_open(args, write=False), args.id)
     _print(args, {"status": "ok", "document": doc}, "\n".join(f"{k}: {v}" for k, v in doc.items()))
 
 
@@ -108,13 +118,20 @@ def _read_line(d: dict) -> str:
 
 
 def cmd_read(args) -> int:
-    docs = read.read(_open(args), args.root, args.ids, args.company)
+    _, docs = read.read(_open(args), args.root, args.ids, args.company)
+    return _read_out(args, docs)
+
+
+def _read_out(args, docs, head=None, extra=None) -> int:
+    """Print read documents. head is a first text line and extra more top-level keys (resume and retry)."""
+    extra = extra or {}
     if not docs:
-        _print(args, {"status": "ok", "documents": []}, "Nothing to read.")
+        _print(args, {"status": "ok", **extra, "documents": []}, "Nothing to read.")
         return 0
     total = {k: sum(d[k] for d in docs) for k in ("pages", "read", "cached", "flagged", "failed")}
     flags = sum((Counter(d["flags"]) for d in docs), Counter())
     text = "\n".join([
+        *([head] if head else []),
         *map(_read_line, docs),
         f"Total: {len(docs)} documents, {total['pages']} pages, {total['read']} read, {total['cached']} cached, "
         f"{total['flagged']} flagged, {total['failed']} failed",
@@ -123,17 +140,17 @@ def cmd_read(args) -> int:
     ])
     bad = [d for d in docs if d["action"] == "failed" or d["failed"]]
     if not bad:
-        _print(args, {"status": "ok", "documents": docs}, text)
+        _print(args, {"status": "ok", **extra, "documents": docs}, text)
         return 0
     cause = f"{len(bad)} of {len(docs)} documents were not fully read: " + ", ".join(str(d["id"]) for d in bad)
-    _print(args, {"status": "partial", "cause": cause, "next_action": read.RETRY, "documents": docs}, text)
+    _print(args, {"status": "partial", "cause": cause, "next_action": read.RETRY, **extra, "documents": docs}, text)
     if not args.json:
         print(f"error: {cause}\nnext: {read.RETRY}", file=sys.stderr)
     return layout.REFUSED
 
 
 def cmd_doc_pages(args) -> None:
-    ps = read.pages(_open(args), args.id)
+    ps = read.pages(_open(args, write=False), args.id)
     if not ps:
         _print(args, {"status": "ok", "document": args.id, "pages": []}, f"No pages read yet. Run: gct read {args.id}")
         return
@@ -170,7 +187,7 @@ def cmd_publish_restore(args) -> None:
 
 
 def cmd_publish_status(args) -> None:
-    st = published.status(_open(args), args.root)
+    st = published.status(_open(args, write=False), args.root)
     if st["current_version"] is None:
         text = "No published version yet. Create one with: gct publish build"
     else:
@@ -189,12 +206,12 @@ def _run_line(r: dict) -> str:
 
 
 def cmd_run_list(args) -> None:
-    rs = runs.list_runs(_open(args))
+    rs = runs.list_runs(_open(args, write=False))
     _print(args, {"status": "ok", "runs": rs}, "\n".join(_run_line(r) for r in rs) or "No runs yet.")
 
 
 def cmd_run_show(args) -> None:
-    r = runs.show_run(_open(args), args.id)
+    r = runs.show_run(_open(args, write=False), args.id)
     lines = [
         f"Run {r['id']}: {r['command']} (gct {r['gct_version']})",
         f"Started: {r['started_at']}",
@@ -212,6 +229,60 @@ def cmd_run_show(args) -> None:
         detail = "  ".join(f"{k.replace('_', ' ')}: {e[k]}" for k in runs.EVENT_COLUMNS[3:] if e[k] is not None)
         lines.append(f"  {e['at']}  {e['kind']}  {detail}".rstrip())
     _print(args, {"status": "ok", **r}, "\n".join(lines))
+
+
+AGAIN = {"read": "Run gct read again with the same documents.",
+         "doc add": "Run gct doc add again with the same files."}
+
+
+def _of_run(conn, n: int, verb: str) -> dict:
+    """Run n, which must be a read or doc add run."""
+    r = runs.show_run(conn, n)
+    if r["command"] not in AGAIN:
+        raise GctError(layout.REFUSED, f"Run {n} was a {r['command']} run. Only read and doc add runs can be {verb}.",
+                       "See the runs with: gct run list")
+    return r
+
+
+def _selection(conn, r: dict) -> dict:
+    sel = runs.selection(conn, r["id"])
+    if sel is None:
+        raise GctError(layout.REFUSED, f"Run {r['id']} has no record of what it was given, so it cannot be replayed.",
+                       AGAIN[r["command"]])
+    return sel
+
+
+def _replay(args, conn, r: dict, sel: dict, note: str, head: str) -> int:
+    """Run the recorded selection of a read or doc add run again in a new run."""
+    if r["command"] == "read":
+        run_id, docs = read.read(conn, args.root, sel["ids"], sel["company"], [note])
+        return _read_out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": r["id"]})
+    run_id, items = intake.add(conn, args.root, notes=[note], **sel)
+    return _doc_add_out(args, items, head=head.format(run_id), extra={"run_id": run_id, "of_run": r["id"]})
+
+
+def cmd_run_resume(args) -> int:
+    conn = _open(args)
+    r = _of_run(conn, args.id, "resumed")
+    if r["outcome"] == "ok":
+        raise GctError(layout.REFUSED, f"Run {args.id} finished; nothing to resume.",
+                       f"Retry its failed items, if any, with: gct run retry {args.id}")
+    return _replay(args, conn, r, _selection(conn, r), f"resumes run {args.id}", f"Run {{}} resumes run {args.id}.")
+
+
+def cmd_run_retry(args) -> int:
+    conn = _open(args)
+    r = _of_run(conn, args.id, "retried")
+    note, head = f"retries failed items of run {args.id}", f"Run {{}} retries the failed items of run {args.id}."
+    wanted = read.failed(conn, args.id) if r["command"] == "read" else intake.failed(conn, args.id)
+    if not wanted:
+        key = "documents" if r["command"] == "read" else "items"
+        _print(args, {"status": "ok", "run_id": None, "of_run": args.id, key: []}, f"Run {args.id} has no failed items.")
+        return 0
+    if r["command"] == "read":
+        run_id, docs = read.retry(conn, args.root, wanted, [note])
+        return _read_out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": args.id})
+    return _replay(args, conn, r, {**_selection(conn, r), "sources": wanted}, note, head)
 
 
 def cmd_approve_spend(args) -> None:
@@ -232,7 +303,7 @@ def cmd_approve_transfer(args) -> None:
 
 
 def cmd_approve_list(args) -> None:
-    conn = _open(args)
+    conn = _open(args, write=False)
     cap, spent = policy.cap(conn), policy.spent(conn)
     states = {a.name: (a, policy.transfer_state(conn, a)) for a in adapters.load().values()}
     rows = [{"name": a.name, "external": a.external, "paid": a.paid, "transfer_granted": st == "granted"}
@@ -275,7 +346,7 @@ def money(value: str) -> float:
 
 
 def cmd_workspace_status(args) -> None:
-    conn = _open(args)
+    conn = _open(args, write=False)
     current = published.current_version(conn, args.root)
     rs = runs.list_runs(conn)
     st = {
@@ -300,7 +371,7 @@ def cmd_workspace_status(args) -> None:
 
 
 def cmd_serve(args) -> None:
-    _open(args).close()  # locate and upgrade the workspace like every other command
+    _open(args, write=False).close()  # locate and upgrade the workspace like every other command
     srv = server.serve(args.root, args.port)
     _print(args, {"status": "ok", "url": srv.url, "port": srv.port},
            f"Serving {args.root} at {srv.url}\nOnly this computer can reach it. Press Ctrl-C to stop.")
@@ -376,6 +447,12 @@ def build_parser() -> argparse.ArgumentParser:
     show = run.add_parser("show", parents=[common], help="show one run with its totals and events")
     show.add_argument("id", type=int)
     show.set_defaults(func=cmd_run_show)
+    resume = run.add_parser("resume", parents=[common], help="finish an interrupted or failed read or doc add run")
+    resume.add_argument("id", type=int)
+    resume.set_defaults(func=cmd_run_resume)
+    retry = run.add_parser("retry", parents=[common], help="process again only the items that failed in one run")
+    retry.add_argument("id", type=int)
+    retry.set_defaults(func=cmd_run_retry)
 
     approve = group("approve", "spend and data-transfer approvals")
     spend = approve.add_parser("spend", parents=[common], help="set the workspace spend cap in USD (0: no paid work)")
@@ -416,3 +493,6 @@ def main(argv: list[str] | None = None) -> int:
         where = f"Details were written to {log}." if log else "Run it again with --workspace PATH so a log file can be written."
         _fail(args, "Something unexpected went wrong.", where)
         return 1
+    finally:
+        if getattr(args, "lock", None):
+            lock.release(args.lock)

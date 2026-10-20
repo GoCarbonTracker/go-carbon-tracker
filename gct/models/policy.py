@@ -97,7 +97,7 @@ def call(conn, run_id: int, adapter: Adapter, request: Request, *, private: bool
                                     f"Approve it again with: {command}", command)
         raise GctError(REFUSED, f"{adapter.name} is an external service and this document is private. "
                                 f"Approve the transfer with: {command}", command)
-    # ponytail: single-process cap; a reservation row or the 2.9 workspace lock if calls ever run concurrently
+    # The cap holds across processes: every paid command holds the workspace lock, so no two reach this check at once.
     if adapter.paid:
         c = _cap_or_refuse(conn)
         a = allowance(conn, run_id)
