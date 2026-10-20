@@ -58,10 +58,16 @@ def test_console_script_help():
     assert r.returncode == 0 and "workspace" in r.stdout
 
 
-def test_no_remote_and_licence_files():
+PRIVATE_BACKUP = "github.com/gocarbontracker/gct-release"
+
+
+def test_licence_files_and_remotes_limited_to_private_backup():
     assert (ROOT / "LICENSE").read_text().startswith("MIT License")
     assert "GoCarbonTracker contributors" in (ROOT / "LICENSE").read_text()
     assert (ROOT / "ORIGINS.md").exists()
     if (ROOT / ".git").exists():
         r = subprocess.run(["git", "remote", "-v"], cwd=ROOT, capture_output=True, text=True)
-        assert r.stdout == ""
+        # Public publication stays blocked (gate G3): the only allowed remote is the private backup.
+        for line in r.stdout.splitlines():
+            url = line.split()[1].lower().removesuffix(".git")
+            assert url.endswith(PRIVATE_BACKUP), f"remote not allowed before gate G3: {line}"
