@@ -1,4 +1,6 @@
 import os
+import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 
 from gct import __version__
@@ -19,6 +21,17 @@ class GctError(Exception):
         self.code = code
         self.cause = cause
         self.next_action = next_action
+
+
+def write_error_log(root: Path | None) -> Path | None:
+    """Write the current exception's traceback to logs/error-*.log. Used by the CLI and the API."""
+    if root is None:
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = Path(root) / "logs" / f"error-{stamp}.log"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(traceback.format_exc(), encoding="utf-8")
+    return path
 
 
 def is_workspace(path: Path) -> bool:

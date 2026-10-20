@@ -47,5 +47,8 @@ nested record (or of each record in the nested list) under that key.
 - top: status, id, started_at, finished_at, command, gct_version, outcome, events, methods, failures, retries, cost_estimated, cost_confirmed, outputs
 - events: id, at, kind, stage, item, method, outcome, cost_estimated, cost_confirmed, message
 
+## serve
+- top: status, url, port
+
 ## error
 - top: status, cause, next_action

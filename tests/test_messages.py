@@ -1,4 +1,5 @@
 import json
+import socket
 import sqlite3
 
 import pytest
@@ -40,6 +41,7 @@ def refusals(ws, tmp_path, make_file):
         (["publish", "restore", "--workspace", ws], 4),
         (["publish", "build", "--workspace", tmp_path / "nowhere"], 3),
         (["run", "show", "99", "--workspace", ws], 3),
+        (["serve", "--no-open", "--workspace", tmp_path / "nowhere"], 3),
     ]
 
 
@@ -66,9 +68,33 @@ def test_no_workspace_refusal(tmp_path, gct, monkeypatch):
     monkeypatch.delenv("GCT_WORKSPACE", raising=False)
     r = gct("doc", "list", "--json")
     assert r.code == 3 and r.data["cause"] and r.data["next_action"]
+    r = gct("serve", "--no-open", "--json")
+    assert r.code == 3 and r.data["cause"] and r.data["next_action"]
 
 
-@pytest.mark.parametrize("argv", [[], ["doc"], ["doc", "add"], ["doc", "show", "abc"], ["nonsense"]])
+def test_serve_port_in_use_refusal(ws, gct):
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        port = taken.getsockname()[1]
+        human = gct("serve", "--port", port, "--no-open")
+        machine = gct("serve", "--port", port, "--no-open", "--json")
+    assert human.code == 4 and human.err.startswith("error: ") and "\nnext: " in human.err
+    assert "--port" in human.err and "Traceback" not in human.err
+    assert machine.code == 4 and str(port) in machine.data["cause"] and "--port" in machine.data["next_action"]
+
+
+def test_serve_port_held_on_all_interfaces_refusal(ws, gct):
+    with socket.socket() as taken:
+        taken.bind(("0.0.0.0", 0))
+        taken.listen()
+        port = taken.getsockname()[1]
+        r = gct("serve", "--port", port, "--no-open")
+    assert r.code == 4 and "--port" in r.err.split("\nnext: ", 1)[1]
+
+
+@pytest.mark.parametrize("argv", [[], ["doc"], ["doc", "add"], ["doc", "show", "abc"], ["nonsense"],
+                                  ["serve", "--host", "0.0.0.0"]])
 def test_usage_errors_exit_2_without_traceback(gct, argv):
     r = gct(*argv)
     assert r.code == 2 and "Traceback" not in r.err

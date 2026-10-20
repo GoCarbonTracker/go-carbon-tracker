@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = []
+dependencies = ["fastapi>=0.115", "uvicorn>=0.30"]
 
 [project.optional-dependencies]
 dev = ["pytest"]

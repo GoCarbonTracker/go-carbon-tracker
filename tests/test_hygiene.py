@@ -16,7 +16,12 @@ import importlib, pkgutil, socket, sys
 def refuse(*a, **k):
     raise AssertionError("network access attempted")
 
-for name in ("socket", "create_connection", "getaddrinfo", "gethostbyname"):
+class Refused(socket.socket):
+    def __init__(self, *a, **k):
+        refuse()
+
+socket.socket = Refused
+for name in ("create_connection", "getaddrinfo", "gethostbyname"):
     setattr(socket, name, refuse)
 
 import gct
@@ -40,7 +45,7 @@ def test_no_network(tmp_path, make_file):
 
 def test_no_runtime_dependencies():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
-    assert project["dependencies"] == []
+    assert project["dependencies"] == ["fastapi>=0.115", "uvicorn>=0.30"]
     assert project["requires-python"] == ">=3.11"
     assert project["optional-dependencies"]["dev"] == ["pytest"]
 

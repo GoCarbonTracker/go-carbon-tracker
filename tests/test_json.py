@@ -59,6 +59,15 @@ def test_every_command_matches_the_documented_keys(tmp_path, gct, make_file):
     check("error", gct("doc", "show", 99, *w, "--json").data)
 
 
+def test_serve_matches_the_documented_keys(tmp_path, gct, monkeypatch):
+    from gct.api import server
+
+    monkeypatch.setattr(server.Server, "wait", lambda self: None)
+    ws = tmp_path / "ws"
+    gct("workspace", "init", ws)
+    check("serve", gct("serve", "--port", 0, "--no-open", "--workspace", ws, "--json").data)
+
+
 def test_empty_lists_still_match(tmp_path, gct):
     ws = tmp_path / "ws"
     gct("workspace", "init", ws)
@@ -72,5 +81,5 @@ def test_every_command_has_a_documented_section():
     assert set(spec()) == {
         "workspace init", "company add", "company list", "doc add", "doc list", "doc show",
         "publish build", "publish restore", "publish status",
-        "workspace status", "run list", "run show", "error",
+        "workspace status", "run list", "run show", "serve", "error",
     }

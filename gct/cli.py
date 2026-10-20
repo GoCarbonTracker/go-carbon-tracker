@@ -1,11 +1,10 @@
 import argparse
 import json
 import sys
-import traceback
-from datetime import datetime, timezone
-from pathlib import Path
+import webbrowser
 
 from gct import __version__
+from gct.api import server
 from gct.workspace import layout, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -162,6 +161,22 @@ def cmd_workspace_status(args) -> None:
     _print(args, {"status": "ok", **st}, text)
 
 
+def cmd_serve(args) -> None:
+    _open(args).close()  # locate and upgrade the workspace like every other command
+    srv = server.serve(args.root, args.port)
+    _print(args, {"status": "ok", "url": srv.url, "port": srv.port},
+           f"Serving {args.root} at {srv.url}\nOnly this computer can reach it. Press Ctrl-C to stop.")
+    sys.stdout.flush()
+    if not args.no_open:
+        webbrowser.open(srv.url)
+    try:
+        srv.wait()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        srv.stop()
+
+
 def build_parser() -> argparse.ArgumentParser:
     json_flag = argparse.ArgumentParser(add_help=False)
     json_flag.add_argument("--json", action="store_true", help="print one JSON object")
@@ -169,7 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,publish,run}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,publish,run,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -214,6 +229,11 @@ def build_parser() -> argparse.ArgumentParser:
     show = run.add_parser("show", parents=[common], help="show one run with its totals and events")
     show.add_argument("id", type=int)
     show.set_defaults(func=cmd_run_show)
+
+    serve = top.add_parser("serve", parents=[common], help="start the local service and open it in the browser")
+    serve.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (default: 8765)")
+    serve.add_argument("--no-open", action="store_true", help="do not open the browser")
+    serve.set_defaults(func=cmd_serve)
     return parser
 
 
@@ -222,16 +242,6 @@ def _fail(args, cause: str, next_action: str) -> None:
         print(json.dumps({"status": "error", "cause": cause, "next_action": next_action}))
     else:
         print(f"error: {cause}\nnext: {next_action}", file=sys.stderr)
-
-
-def _write_log(root: Path | None) -> Path | None:
-    if root is None:
-        return None
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    path = root / "logs" / f"error-{stamp}.log"
-    path.parent.mkdir(exist_ok=True)
-    path.write_text(traceback.format_exc(), encoding="utf-8")
-    return path
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -243,7 +253,7 @@ def main(argv: list[str] | None = None) -> int:
         _fail(args, e.cause, e.next_action)
         return e.code
     except Exception:
-        log = _write_log(getattr(args, "root", None))
+        log = layout.write_error_log(getattr(args, "root", None))
         where = f"Details were written to {log}." if log else "Run it again with --workspace PATH so a log file can be written."
         _fail(args, "Something unexpected went wrong.", where)
         return 1
