@@ -5,7 +5,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-from gct.workspace import layout, registry, store
+from gct.workspace import layout, published, registry, store
 from gct.workspace.layout import GctError
 
 
@@ -63,6 +63,35 @@ def cmd_doc_show(args) -> None:
     _print(args, {"status": "ok", "document": doc}, "\n".join(f"{k}: {v}" for k, v in doc.items()))
 
 
+def _version_line(v: dict) -> str:
+    return f"version {v['version']} ({v['companies']} companies, {v['documents']} documents, built {v['built_at']})"
+
+
+def cmd_publish_build(args) -> None:
+    v = published.build(_open(args), args.root)
+    _print(args, {"status": "ok", **v}, f"Built {_version_line(v)}. It is now current.")
+
+
+def cmd_publish_restore(args) -> None:
+    v = published.restore(_open(args), args.root)
+    _print(args, {"status": "ok", **v}, f"Went back to {_version_line(v)}. It is now current.")
+
+
+def cmd_publish_status(args) -> None:
+    st = published.status(_open(args), args.root)
+    if st["current_version"] is None:
+        text = "No published version yet. Create one with: gct publish build"
+    else:
+        text = (
+            f"Current: version {st['current_version']} ({st['companies']} companies, {st['documents']} documents, "
+            f"built {st['built_at']}, history mark {st['history_mark']})\n"
+            f"Previous: {st['previous_version'] or 'none'}\n"
+            f"Out of date: {'yes, run gct publish build' if st['stale'] else 'no'}\n"
+            f"Versions on disk: {', '.join(map(str, st['files'])) or 'none'}"
+        )
+    _print(args, {"status": "ok", **st}, text)
+
+
 def build_parser() -> argparse.ArgumentParser:
     json_flag = argparse.ArgumentParser(add_help=False)
     json_flag.add_argument("--json", action="store_true", help="print one JSON object")
@@ -70,7 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,publish}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -102,6 +131,11 @@ def build_parser() -> argparse.ArgumentParser:
     show = doc.add_parser("show", parents=[common], help="show one document")
     show.add_argument("id", type=int)
     show.set_defaults(func=cmd_doc_show)
+
+    publish = group("publish", "published data versions")
+    publish.add_parser("build", parents=[common], help="build the next version and make it current").set_defaults(func=cmd_publish_build)
+    publish.add_parser("restore", parents=[common], help="make the previous version current again").set_defaults(func=cmd_publish_restore)
+    publish.add_parser("status", parents=[common], help="show the current version").set_defaults(func=cmd_publish_status)
     return parser
 
 

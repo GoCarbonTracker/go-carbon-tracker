@@ -27,5 +27,14 @@ nested record (or of each record in the nested list) under that key.
 - top: status, document
 - document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state
 
+## publish build
+- top: status, version, built_at, history_mark, companies, documents
+
+## publish restore
+- top: status, version, built_at, history_mark, companies, documents
+
+## publish status
+- top: status, current_version, built_at, history_mark, companies, documents, previous_version, stale, files
+
 ## error
 - top: status, cause, next_action

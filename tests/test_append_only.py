@@ -7,6 +7,8 @@ def test_every_table_is_append_only(ws, db, gct, make_file):
     # Put a row in every table so the UPDATE and DELETE actually fire their triggers.
     gct("company", "add", "Acme")
     gct("doc", "add", make_file("a.pdf"), "--company", "Acme")
+    for _ in range(3):  # three builds, so published_purge also holds a row
+        gct("publish", "build")
     tables = [
         r["name"]
         for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name <> 'schema_version'")

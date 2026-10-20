@@ -13,6 +13,9 @@ EXPECTED_COLUMNS = {
         "privacy", "size_bytes", "source", "created_at",
     ],
     "document_state": ["id", "document_id", "state", "note", "at"],
+    "published_version": ["id", "version", "built_at", "history_mark", "companies", "documents", "gct_version"],
+    "published_pointer": ["id", "version", "action", "at"],
+    "published_purge": ["id", "version", "reason", "at"],
 }
 NULLABLE = {("company", "sector_ref"), ("company", "sector_version"), ("document", "source"), ("document_state", "note")}
 
@@ -37,7 +40,7 @@ def test_tables_and_columns(db):
 
 
 def test_schema_version_row_and_workspace_row(db):
-    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1]
+    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2]
     row = db.execute("SELECT * FROM workspace").fetchone()
     assert row["id"] == 1 and row["gct_version"]
 

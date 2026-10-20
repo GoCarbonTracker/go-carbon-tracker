@@ -48,6 +48,11 @@ def test_every_command_matches_the_documented_keys(tmp_path, gct, make_file):
     check("doc add", dup)
     check("doc list", gct("doc", "list", *w, "--json").data)
     check("doc show", gct("doc", "show", 1, *w, "--json").data)
+    check("publish status", gct("publish", "status", *w, "--json").data)
+    check("publish build", gct("publish", "build", *w, "--json").data)
+    check("publish build", gct("publish", "build", *w, "--json").data)
+    check("publish restore", gct("publish", "restore", *w, "--json").data)
+    check("publish status", gct("publish", "status", *w, "--json").data)
     check("error", gct("doc", "show", 99, *w, "--json").data)
 
 
@@ -60,5 +65,6 @@ def test_empty_lists_still_match(tmp_path, gct):
 
 def test_every_command_has_a_documented_section():
     assert set(spec()) == {
-        "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "error",
+        "workspace init", "company add", "company list", "doc add", "doc list", "doc show",
+        "publish build", "publish restore", "publish status", "error",
     }
