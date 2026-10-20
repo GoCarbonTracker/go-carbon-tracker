@@ -36,8 +36,11 @@ def test_new_document(ws, gct, db, make_file):
     gct("company", "add", "Acme")
     f = make_file("report.pdf")
     r = gct("doc", "add", f, "--company", "Acme", "--json")
-    assert r.code == 0 and r.data["status"] == "ok"
-    d = r.data["document"]
+    assert r.code == 0 and r.data["status"] == "ok" and len(r.data["items"]) == 1
+    item = r.data["items"][0]
+    assert (item["source"], item["company"], item["action"], item["cached"]) == (str(f), "Acme", "registered", False)
+    d = item["document"]
+    assert d == gct("doc", "show", d["id"], "--json").data["document"]
     assert (d["logical_name"], d["version"], d["kind"], d["file_type"], d["privacy"], d["state"]) == (
         "report.pdf", 1, "report", "pdf", "private", "registered",
     )
@@ -56,7 +59,7 @@ def test_options_are_stored(ws, gct, make_file):
         "doc", "add", make_file("e.pdf"), "--company", "Acme", "--kind", "evidence",
         "--privacy", "shareable", "--name", "Annual 2024", "--source", "company website", "--json",
     )
-    d = r.data["document"]
+    d = r.data["items"][0]["document"]
     assert (d["kind"], d["privacy"], d["logical_name"], d["source"]) == (
         "evidence", "shareable", "Annual 2024", "company website",
     )
@@ -64,10 +67,10 @@ def test_options_are_stored(ws, gct, make_file):
 
 def test_duplicate_same_company_same_bytes(ws, gct, db, make_file):
     gct("company", "add", "Acme")
-    first = gct("doc", "add", make_file("a.pdf"), "--company", "Acme", "--json").data["document"]
+    first = gct("doc", "add", make_file("a.pdf"), "--company", "Acme", "--json").data["items"][0]["document"]
     second = gct("doc", "add", make_file("renamed.pdf"), "--company", "Acme", "--json")
-    assert second.code == 0 and second.data["status"] == "duplicate"
-    assert second.data["document"]["id"] == first["id"]
+    assert second.code == 0 and second.data["items"][0]["action"] == "duplicate"
+    assert second.data["items"][0]["document"]["id"] == first["id"]
     assert db.execute("SELECT COUNT(*) FROM document").fetchone()[0] == 1
     assert db.execute("SELECT COUNT(*) FROM document_state").fetchone()[0] == 1
     assert files_on_disk(ws) == [sha(PDF)]
@@ -78,7 +81,7 @@ def test_new_version_keeps_both(ws, gct, db, make_file):
     v2_bytes = PDF + b"changed"
     gct("doc", "add", make_file("r.pdf"), "--company", "Acme")
     r = gct("doc", "add", make_file("r.pdf", v2_bytes), "--company", "Acme", "--json")
-    assert r.data["status"] == "ok" and r.data["document"]["version"] == 2
+    assert r.data["items"][0]["action"] == "registered" and r.data["items"][0]["document"]["version"] == 2
     rows = db.execute("SELECT version, sha256 FROM document ORDER BY version").fetchall()
     assert [(x["version"], x["sha256"]) for x in rows] == [(1, sha(PDF)), (2, sha(v2_bytes))]
     assert stored(ws, PDF).exists() and stored(ws, v2_bytes).exists()
@@ -91,7 +94,7 @@ def test_other_company_same_bytes_registers_separately_stores_once(ws, gct, db, 
     gct("company", "add", "Beta")
     gct("doc", "add", make_file("a.pdf"), "--company", "Acme")
     r = gct("doc", "add", make_file("a.pdf"), "--company", "Beta", "--json")
-    assert r.data["status"] == "ok" and r.data["document"]["version"] == 1
+    assert r.data["items"][0]["action"] == "registered" and r.data["items"][0]["document"]["version"] == 1
     assert db.execute("SELECT COUNT(*) FROM document").fetchone()[0] == 2
     assert files_on_disk(ws) == [sha(PDF)]
 
@@ -117,7 +120,7 @@ def test_doc_list_filter_and_show(ws, gct, make_file):
 
 def test_verify_reports_corrupted_file(ws, gct, make_file):
     gct("company", "add", "Acme")
-    doc = gct("doc", "add", make_file("a.pdf"), "--company", "Acme", "--json").data["document"]
+    doc = gct("doc", "add", make_file("a.pdf"), "--company", "Acme", "--json").data["items"][0]["document"]
     conn = store.connect(ws / "workspace.db")
     assert registry.verify(conn, ws) == []
     stored(ws, PDF).write_bytes(b"tampered")

@@ -2,10 +2,11 @@ import argparse
 import json
 import sys
 import webbrowser
+from collections import Counter
 
 from gct import __version__
 from gct.api import server
-from gct.workspace import layout, published, registry, runs, store
+from gct.workspace import intake, layout, published, registry, runs, store
 from gct.workspace.layout import GctError
 
 
@@ -47,16 +48,37 @@ def cmd_company_list(args) -> None:
     _print(args, {"status": "ok", "companies": companies}, text)
 
 
-def cmd_doc_add(args) -> None:
+def _item_line(i: dict) -> str:
+    d = i["document"]
+    if i["action"] == "registered":
+        return f"registered {d['id']}: {d['logical_name']} (version {d['version']}, {d['privacy']})"
+    if i["action"] == "duplicate":
+        return f"duplicate of {d['id']}: {i['source']}" if d else f"duplicate: {i['source']}"
+    if i["cause"]:
+        return f"{i['action']}: {i['source']} — {i['cause']}"
+    return f"{i['action']}: {i['source']}"
+
+
+def cmd_doc_add(args) -> int:
     conn = _open(args)
-    status, doc = registry.add_document(
-        conn, args.root, args.file, args.company, args.kind, args.privacy, args.name, args.source
-    )
-    if status == "ok":
-        text = f"Registered document {doc['id']}: {doc['logical_name']} (version {doc['version']}, {doc['privacy']})."
+    if args.plan:
+        items = intake.plan(conn, args.sources, args.company, args.name)
     else:
-        text = f"Already registered as document {doc['id']}. Nothing new was added."
-    _print(args, {"status": status, "document": doc}, text)
+        items = intake.add(
+            conn, args.root, args.sources, args.company, args.kind, args.privacy, args.name, args.source
+        )
+    summary = ", ".join(f"{n} {a}" for a, n in Counter(i["action"] for i in items).items())
+    text = "\n".join([*map(_item_line, items), f"{summary}. Nothing was stored." if args.plan else summary])
+    bad = [i["source"] for i in items if i["action"] in ("refused", "failed")]
+    if args.plan or not bad:
+        _print(args, {"status": "ok", "items": items}, text)
+        return 0
+    cause = f"{len(bad)} of {len(items)} items were not added."
+    next_action = "Check these and add them again: " + ", ".join(bad)
+    _print(args, {"status": "partial", "cause": cause, "next_action": next_action, "items": items}, text)
+    if not args.json:
+        print(f"error: {cause}\nnext: {next_action}", file=sys.stderr)
+    return layout.REFUSED
 
 
 def cmd_doc_list(args) -> None:
@@ -204,13 +226,14 @@ def build_parser() -> argparse.ArgumentParser:
     company.add_parser("list", parents=[common], help="list companies").set_defaults(func=cmd_company_list)
 
     doc = group("doc", "documents")
-    add = doc.add_parser("add", parents=[common], help="register a document")
-    add.add_argument("file")
+    add = doc.add_parser("add", parents=[common], help="register documents from files, folders or URLs")
+    add.add_argument("sources", nargs="+", metavar="SOURCE", help="a file, a folder (its direct children) or an http(s) URL")
     add.add_argument("--company", required=True)
     add.add_argument("--kind", choices=("report", "evidence"), default="report")
     add.add_argument("--privacy", choices=("private", "shareable"), default="private")
     add.add_argument("--name", help="logical name (default: the file's base name)")
-    add.add_argument("--source", help="where the file came from, free text")
+    add.add_argument("--source", help="where the file came from, free text (a URL stores the URL)")
+    add.add_argument("--plan", action="store_true", help="show what would happen to each item and store nothing")
     add.set_defaults(func=cmd_doc_add)
     lst = doc.add_parser("list", parents=[common], help="list documents")
     lst.add_argument("--company")
@@ -247,8 +270,7 @@ def _fail(args, cause: str, next_action: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        args.func(args)
-        return 0
+        return args.func(args) or 0
     except GctError as e:
         _fail(args, e.cause, e.next_action)
         return e.code

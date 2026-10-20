@@ -19,7 +19,7 @@ def add(ws, gct, make_file):
 
 def test_pdf_renamed_txt_is_accepted(add):
     r = add("notes.txt", PDF)
-    assert r.code == 0 and r.data["document"]["file_type"] == "pdf"
+    assert r.code == 0 and r.data["items"][0]["document"]["file_type"] == "pdf"
 
 
 def test_text_renamed_pdf_is_refused(add):
@@ -28,14 +28,14 @@ def test_text_renamed_pdf_is_refused(add):
 
 def test_xlsx_accepted(add, tmp_path):
     r = add("book.xlsx", xlsx_bytes(tmp_path))
-    assert r.code == 0 and r.data["document"]["file_type"] == "xlsx"
+    assert r.code == 0 and r.data["items"][0]["document"]["file_type"] == "xlsx"
 
 
 def test_csv_with_and_without_bom(add):
     plain = add("a.csv", b"a,b\n1,2\n")
     bom = add("b.csv", b"\xef\xbb\xbfa;b\n1;2\n")
-    assert plain.data["document"]["file_type"] == "csv"
-    assert bom.data["document"]["file_type"] == "csv"
+    assert plain.data["items"][0]["document"]["file_type"] == "csv"
+    assert bom.data["items"][0]["document"]["file_type"] == "csv"
 
 
 def test_csv_must_decode_and_have_a_delimiter(add):
@@ -73,4 +73,4 @@ def test_windows_style_source_path_gives_base_name(ws, gct, tmp_path):
     odd.write_bytes(PDF)
     gct("company", "add", "Acme")
     r = gct("doc", "add", odd, "--company", "Acme", "--json")
-    assert r.data["document"]["logical_name"] == "2024.pdf"
+    assert r.data["items"][0]["document"]["logical_name"] == "2024.pdf"

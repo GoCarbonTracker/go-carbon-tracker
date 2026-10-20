@@ -202,7 +202,7 @@ def test_workspace_status(ws, gct, make_file):
     gct("publish", "build")
     st = gct("workspace", "status", "--json").data
     assert st["gct_version"] and (st["schema_version"], st["companies"], st["documents"]) == (4, 1, 2)
-    assert (st["published_version"], st["runs"], st["latest_run_outcome"]) == (1, 1, "ok")
+    assert (st["published_version"], st["runs"], st["latest_run_outcome"]) == (1, 3, "ok")
 
 
 def test_read_only_commands_write_no_run(ws, gct):

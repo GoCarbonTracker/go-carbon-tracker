@@ -44,7 +44,7 @@ def test_every_command_matches_the_documented_keys(tmp_path, gct, make_file):
     added = gct("doc", "add", f, "--company", "Acme", *w, "--json").data
     check("doc add", added)
     dup = gct("doc", "add", f, "--company", "Acme", *w, "--json").data
-    assert dup["status"] == "duplicate"
+    assert dup["status"] == "ok" and dup["items"][0]["action"] == "duplicate"
     check("doc add", dup)
     check("doc list", gct("doc", "list", *w, "--json").data)
     check("doc show", gct("doc", "show", 1, *w, "--json").data)

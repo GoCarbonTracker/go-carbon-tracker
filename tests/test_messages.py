@@ -24,17 +24,12 @@ def refusals(ws, tmp_path, make_file):
     """(argv, expected exit code) for every refusal path."""
     (tmp_path / "full").mkdir()
     (tmp_path / "full" / "x.txt").write_text("x")
-    bad = make_file("bad.pdf", b"not a pdf")
-    empty = make_file("empty.csv", b"")
     good = make_file("good.pdf", PDF)
     return [
         (["workspace", "init", tmp_path / "full"], 4),
         (["workspace", "init", good], 4),
         (["company", "list", "--workspace", tmp_path / "nowhere"], 3),
         (["doc", "add", good, "--company", "Nobody", "--workspace", ws], 3),
-        (["doc", "add", tmp_path / "missing.pdf", "--company", "Acme", "--workspace", ws], 3),
-        (["doc", "add", bad, "--company", "Acme", "--workspace", ws], 4),
-        (["doc", "add", empty, "--company", "Acme", "--workspace", ws], 4),
         (["doc", "show", "99", "--workspace", ws], 3),
         (["doc", "list", "--company", "Nobody", "--workspace", ws], 3),
         (["company", "add", "  ", "--workspace", ws], 2),
@@ -57,6 +52,28 @@ def test_every_refusal_has_cause_next_action_and_no_internals(ws, gct, tmp_path,
         assert machine.code == code and machine.data["status"] == "error"
         assert machine.data["cause"] and machine.data["next_action"]
         for text in (human.err, machine.out):
+            for word in INTERNAL_WORDS:
+                assert word not in text, (argv, word)
+            for name in names:
+                assert name not in text, (argv, name)
+
+
+def test_doc_add_item_refusals_have_cause_next_action_and_no_internals(ws, gct, tmp_path, make_file):
+    # A doc add batch reports a bad item and keeps going, so these are item refusals with exit 4, not command errors.
+    gct("company", "add", "Acme")
+    names = internal_names(ws)
+    for source in (tmp_path / "missing.pdf", make_file("bad.pdf", b"not a pdf"), make_file("empty.csv", b"")):
+        argv = ["doc", "add", source, "--company", "Acme", "--workspace", ws]
+        human = gct(*argv)
+        assert human.code == 4, argv
+        assert human.out.startswith(f"refused: {source} — ") and human.out.rstrip().endswith("1 refused"), human.out
+        assert human.err.startswith("error: ") and "\nnext: " in human.err and str(source) in human.err, human.err
+        machine = gct(*argv, "--json")
+        assert machine.code == 4 and machine.data["status"] == "partial"
+        assert machine.data["cause"] and str(source) in machine.data["next_action"]
+        (item,) = machine.data["items"]
+        assert item["action"] == "refused" and item["cause"] and item["next_action"] and item["document"] is None
+        for text in (human.out, human.err, machine.out):
             for word in INTERNAL_WORDS:
                 assert word not in text, (argv, word)
             for name in names:

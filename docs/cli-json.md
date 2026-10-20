@@ -1,7 +1,7 @@
 # CLI JSON output
 
 Every command prints one JSON object on stdout when `--json` is given. `status` is one of
-`ok`, `duplicate`, `exists`, `already_initialised`, `error`. The lines below are checked by
+`ok`, `partial`, `exists`, `already_initialised`, `error`. The lines below are checked by
 `tests/test_json.py`: `top` lists the keys of the object, any other name lists the keys of the
 nested record (or of each record in the nested list) under that key.
 
@@ -19,8 +19,10 @@ nested record (or of each record in the nested list) under that key.
 - companies: id, name, sector_ref, sector_version, created_at
 
 ## doc add
-- top: status, document
-- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state
+- top: status, items
+- items: source, company, action, document, cause, next_action, cached
+
+`status` is `ok` when every item was registered or a duplicate (and always with `--plan`), else `partial` (exit 4), which adds `cause` and `next_action` at the top; `next_action` names the sources that were not added. `action` is `registered`, `duplicate`, `refused` or `failed`; with `--plan` it is `would register`, `would fetch`, `duplicate` or `refused`. `document` has the keys of `doc show` for `registered` and `duplicate` (null for a duplicate of an earlier item in the same plan), null otherwise. `cause` and `next_action` are set only for `refused` and `failed`. `cached` is true when a URL was already fetched by an earlier command and was not downloaded again.
 
 ## doc list
 - top: status, documents

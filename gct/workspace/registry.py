@@ -72,8 +72,9 @@ def _is_csv(path: Path) -> bool:
         return False
 
 
-def detect_file_type(path: Path) -> str | None:
-    """Recognise pdf, xlsx or csv from content. None when it is none of them."""
+def detect_file_type(path: Path, name: str | None = None) -> str | None:
+    """Recognise pdf, xlsx or csv from content. None when it is none of them.
+    name stands in for the file name when path has none of its own (a download)."""
     with open(path, "rb") as f:
         if f.read(4) == b"%PDF":
             return "pdf"
@@ -83,7 +84,7 @@ def detect_file_type(path: Path) -> str | None:
                 return "xlsx" if XLSX_PARTS <= set(z.namelist()) else None
         except zipfile.BadZipFile:
             return None
-    if path.suffix.lower() == ".csv" and _is_csv(path):
+    if Path(name or path).suffix.lower() == ".csv" and _is_csv(path):
         return "csv"
     return None
 
@@ -151,28 +152,40 @@ def list_documents(conn, company: str | None = None) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def add_document(conn, root, file, company, kind="report", privacy="private", name=None, source=None):
-    """Register a file. Returns (status, document) with status 'ok' or 'duplicate'."""
-    co = _find_company(conn, company)
-    src = Path(file)
+def unreadable(src) -> GctError:
+    return GctError(REFUSED, f"The file {src} could not be read.",
+                    "Close any program that has it open, check its permissions, then add it again.")
+
+
+def checked_file_type(src: Path) -> str:
+    """The content type of an existing file, or the refusal the user sees."""
     if not src.is_file():
-        raise GctError(NOT_FOUND, f"The file {file} does not exist.", "Check the path and try again.")
-    file_type = detect_file_type(src)
+        raise GctError(NOT_FOUND, f"The file {src} does not exist.", "Check the path and try again.")
+    try:
+        file_type = detect_file_type(src)
+    except OSError:
+        raise unreadable(src) from None
     if file_type is None:
         raise GctError(
             REFUSED,
             "This file is not a PDF, XLSX or CSV file. Only those three types are accepted.",
             "Convert it to one of those types, or check that the file is not damaged.",
         )
-    digest, size = _store_file(Path(root), src)
-    logical = name or logical_name(file)
+    return file_type
+
+
+def find_duplicate(conn, company_id: int, digest: str) -> dict | None:
+    row = conn.execute(
+        "SELECT id FROM document WHERE company_id = ? AND sha256 = ? ORDER BY id LIMIT 1", (company_id, digest)
+    ).fetchone()
+    return get_document(conn, row["id"]) if row else None
+
+
+def _register(conn, co, digest, size, file_type, logical, kind, privacy, source):
     with store.transaction(conn):
-        dup = conn.execute(
-            "SELECT id FROM document WHERE company_id = ? AND sha256 = ? ORDER BY id LIMIT 1",
-            (co["id"], digest),
-        ).fetchone()
+        dup = find_duplicate(conn, co["id"], digest)
         if dup:
-            return "duplicate", get_document(conn, dup["id"])
+            return "duplicate", dup
         last = conn.execute(
             "SELECT MAX(version) FROM document WHERE company_id = ? AND logical_name = ?",
             (co["id"], logical),
@@ -189,6 +202,25 @@ def add_document(conn, root, file, company, kind="report", privacy="private", na
         )
         doc_id = cur.lastrowid
     return "ok", get_document(conn, doc_id)
+
+
+def add_document(conn, root, file, company, kind="report", privacy="private", name=None, source=None):
+    """Register a file. Returns (status, document) with status 'ok' or 'duplicate'."""
+    co = _find_company(conn, company)
+    src = Path(file)
+    file_type = checked_file_type(src)
+    digest, size = _store_file(Path(root), src)
+    return _register(conn, co, digest, size, file_type, name or logical_name(file), kind, privacy, source)
+
+
+def add_stored(conn, root, digest, company, name, kind="report", privacy="private", source=None, file_name=None):
+    """Register a file already stored under files/ (a download). Returns like add_document.
+    file_name (the address's name) is used only to detect the type; it defaults to name."""
+    path = stored_path(Path(root), digest)
+    return _register(
+        conn, _find_company(conn, company), digest, path.stat().st_size, detect_file_type(path, file_name or name),
+        name, kind, privacy, source,
+    )
 
 
 def verify(conn, root) -> list[dict]:
