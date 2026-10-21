@@ -11,12 +11,18 @@ def test_every_table_is_append_only(ws, db, gct, make_file):
     # Put a row in every table so the UPDATE and DELETE actually fire their triggers.
     gct("company", "add", "Acme")
     gct("doc", "add", make_file("a.pdf"), "--company", "Acme")
-    gct("doc", "add", make_file("b.pdf", make_pdf([{"text": [(72, 72, "Scope 1 120 tCO2e")]}])), "--company", "Acme")
+    page = {"text": [(72, 72, "Scope 1 120 tCO2e"), (72, 120, "Reporting boundary: Report is prepared on a standalone basis.")]}
+    gct("doc", "add", make_file("b.pdf", make_pdf([page])), "--company", "Acme")
     gct("read")
     gct("extract")
     gct("contributor", "add", "ana", "--name", "Ana")
-    gct("expect", "add", "--company", "Acme", "--metric", "water", "--doc", "2")
+    gct("infer")
     who = ("--as", "ana", "--capacity", "analyst", "--rationale", "checked by eye")
+    gct("infer", "scope", "1", "--pages", "1", *who)
+    gct("infer")
+    gct("infer", "resolve", "1", "--field", "period", "--kind", "calendar_year", "--start", "2024-01-01",
+        "--end", "2024-12-31", *who)
+    gct("expect", "add", "--company", "Acme", "--metric", "water", "--doc", "2")
     gct("pages", "accept", "--doc", "2", "--pages", "1", "--type", "figures", *who)
     gct("gap", "confirm", "1", *who)
     for _ in range(3):  # three builds, so published_purge also holds a row

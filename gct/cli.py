@@ -9,7 +9,7 @@ from collections import Counter
 from gct import __version__
 from gct.api import server
 from gct.models import adapters, policy
-from gct.stages import extract, link, missing, read
+from gct.stages import extract, infer, link, missing, read
 from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -203,16 +203,36 @@ def _extract_out(args, docs, head=None, extra=None) -> int:
     return layout.REFUSED
 
 
+def _period_text(p: dict) -> str:
+    """The effective period: dates, kind and state word, or the label and unknown with the reason."""
+    if p["state"] == "extracted":
+        return p["label"] or "-"
+    if p["start"]:
+        return (f"{p['label']} → " if p["label"] else "") + f"{p['start']}..{p['end']} {p['kind']} {p['state']}"
+    return f"{p['label'] or '-'} unknown {p['state']} ({p['reason']})"
+
+
+def _boundary_text(b: dict) -> str:
+    if b["state"] == "extracted":
+        return b["boundary"]
+    if b["state"] == "unresolved":
+        return f"unknown unresolved ({b['reason']})"
+    return f"{b['boundary']}" + (f" ({b['detail']})" if b["detail"] else "") + f" {b['state']}"
+
+
 def _claim_line(c: dict) -> str:
     status = c["source_match"] or "not checked: gct link"
     status += f" ({c['source_match_reason']})" if c["source_match_reason"] else ""
     box = "  box " + ", ".join(f"{v:g}" for v in c["boxes"][0]) if c["boxes"] else ""
-    return (f"p{c['page_number']}  {c['value_text']}  {c['unit_text'] or '-'}  {c['metric_text'] or '-'}  "
-            f"{c['period_label'] or '-'}  {c['reporting_boundary']}  {status}{box}")
+    return (f"{c['id']}  p{c['page_number']}  {c['value_text']}  {c['unit_text'] or '-'}  {c['metric_text'] or '-'}  "
+            f"{_period_text(c['period'])}  {_boundary_text(c['boundary'])}  {status}{box}")
 
 
 def cmd_claims_list(args) -> None:
-    cs = extract.claims(_open(args, write=False), args.doc)
+    conn = _open(args, write=False)
+    cs = extract.claims(conn, args.doc)
+    eff = infer.effective(conn, args.doc)
+    cs = [{**c, **eff[c["id"]]} for c in cs]
     text = "\n".join(map(_claim_line, cs)) or f"No claims yet. Run: gct extract {args.doc}"
     _print(args, {"status": "ok", "document": args.doc, "claims": cs}, text)
 
@@ -254,6 +274,132 @@ def _link_out(args, docs, head=None, extra=None) -> int:
     if not args.json:
         print(f"error: {cause}\nnext: {link.RETRY}", file=sys.stderr)
     return layout.REFUSED
+
+
+def _state_lines(name: str, counts: dict) -> list[str]:
+    """'  period: 3 proposed, 9 unresolved' and one line per unresolved reason, each on its own line."""
+    states = [f"{counts[s]} {s}" for s in infer.STATES if counts.get(s)]
+    reasons = [f"    {k}: {n}" for k, n in counts.items() if k.startswith("unresolved: ")]
+    return [f"  {name}: {', '.join(states) or 'no claims'}", *reasons]
+
+
+def _infer_lines(d: dict) -> list[str]:
+    if d["action"] != "inferred":
+        return [f"{d['action']} {d['id']}: {d['logical_name']}: {d['cause']}" + (f" ({d['next_action']})" if d["next_action"] else "")]
+    head = (f"inferred {d['id']}: {d['logical_name']}: {d['claims']} claims, {d['inferred']} inferred, {d['cached']} cached, "
+            f"{d['failed']} failed; {d['bases']} statements found, {d['headings']} boundary headings without a readable answer")
+    return [head, *_state_lines("period", d["period"]), *_state_lines("boundary", d["boundary"])]
+
+
+def cmd_infer(args) -> int:
+    _, docs = infer.infer(_open(args), args.root, [args.doc] if args.doc else [], args.company)
+    return _infer_out(args, docs)
+
+
+def _infer_out(args, docs, head=None, extra=None) -> int:
+    """Print infer documents. head is a first text line and extra more top-level keys (resume and retry)."""
+    extra = extra or {}
+    if not docs:
+        _print(args, {"status": "ok", **extra, "documents": []}, "Nothing to infer.")
+        return 0
+    text = "\n".join([*([head] if head else []), *(line for d in docs for line in _infer_lines(d)),
+                      "Proposed values are not used until accepted: gct infer groups, then gct infer accept GROUP."])
+    bad = [d for d in docs if d["failed"]]
+    if not bad:
+        _print(args, {"status": "ok", **extra, "documents": docs}, text)
+        return 0
+    cause = f"{len(bad)} of {len(docs)} documents were not inferred: " + ", ".join(str(d["id"]) for d in bad)
+    _print(args, {"status": "partial", "cause": cause, "next_action": infer.RETRY, **extra, "documents": docs}, text)
+    if not args.json:
+        print(f"error: {cause}\nnext: {infer.RETRY}", file=sys.stderr)
+    return layout.REFUSED
+
+
+def _basis_line(b: dict) -> str:
+    what = (f"fiscal year end {b['year_end']}" if b["kind"] == "fiscal_year_end"
+            else b["boundary"] + (f" ({b['detail']})" if b["detail"] else ""))
+    s = b["scope"]
+    scope = ("" if b["kind"] == "fiscal_year_end" else
+             f"  pages {s['first']}-{s['last']} declared by {s['contributor']} ({s['capacity']})" if s else
+             f"  no pages declared: gct infer scope {b['id']} --pages FIRST-LAST")
+    return f"#{b['id']}  document {b['document']} p{b['page']}  {what}  \"{b['wording']}\"{scope}"
+
+
+def cmd_infer_bases(args) -> None:
+    bs, headings = infer.bases(_open(args, write=False), args.doc)
+    lines = [*map(_basis_line, bs), *(f"document {h['document']} p{h['page']}  {h['reason']}" for h in headings)]
+    _print(args, {"status": "ok", "bases": bs, "headings": headings},
+           "\n".join(lines) or "No statements found yet. Run: gct infer")
+
+
+def cmd_infer_scope(args) -> None:
+    b = infer.scope(_open(args), args.root, args.basis, args.pages, args.as_, args.capacity, args.rationale)
+    _print(args, {"status": "ok", "basis": b},
+           f"Declared: {_basis_line(b)}. It applies from the next run of: gct infer --doc {b['document']}")
+
+
+def _values(g: dict) -> str:
+    if g["field"] == "period":
+        return f"{g['start']}..{g['end']} {g['kind']}" if g["start"] else "unknown"
+    return (g["boundary"] + (f" ({g['detail']})" if g["detail"] else "")) if g["boundary"] else "unknown"
+
+
+def _group_line(g: dict) -> str:
+    source = (f"p{g['basis']['page']} \"{g['basis']['wording']}\"" if g["basis"] else
+              "the label itself" if g["state"] == "proposed" else f"reason: {g['reason']}")
+    reviews = ", ".join(f"{n} {k}" for k, n in g["reviews"].items() if n)
+    return (f"{g['id']}  document {g['document']}  {g['field']}  {g['state']}  {_values(g)}  from {source}  "
+            f"{g['claims']} claims  ({reviews})")
+
+
+def cmd_infer_groups(args) -> None:
+    gs = infer.groups(_open(args, write=False), args.doc, args.state)
+    _print(args, {"status": "ok", "groups": gs}, "\n".join(map(_group_line, gs)) or "No groups yet. Run: gct infer")
+
+
+def _decision_text(r: dict, verb: str) -> str:
+    g = r["group"]
+    text = f"{verb} {r[verb.lower()]} claims by {r['by']}: {_group_line(g)}"
+    if r["skipped"]:
+        text += "\nLeft as they were: " + ", ".join(f"{n} {k}" for k, n in r["skipped"].items()) + " (already decided)."
+    if verb == "Accepted" and r["accepted"] and g["basis"] and g["basis"]["kind"] == "fiscal_year_end":
+        text += (f"\nThis confirms the fiscal year end stated on page {g['basis']['page']} of document {g['document']}"
+                 " for these claims.")
+    return text
+
+
+def cmd_infer_accept(args) -> None:
+    r = infer.accept(_open(args), args.group, args.as_, args.capacity, args.rationale)
+    _print(args, {"status": "ok", **r}, _decision_text(r, "Accepted"))
+
+
+def _one_text(r: dict) -> str:
+    rec, f = r["effective"], r["field"]
+    shown = _period_text(rec) if f == "period" else _boundary_text(rec)
+    rev = rec["review"]
+    by = f" by {rev['contributor']} ({rev['capacity']}): {rev['rationale']}" if rev else ""
+    return f"Claim {r['claim']} {f}: {shown}{by}"
+
+
+def cmd_infer_resolve(args) -> None:
+    r = infer.resolve(_open(args), args.claim, args.field, args.as_, args.capacity, args.rationale,
+                      args.kind, args.start, args.end, args.boundary, args.detail)
+    _print(args, {"status": "ok", **r}, _one_text(r))
+
+
+def cmd_infer_reject(args) -> None:
+    conn = _open(args)
+    if (args.group is None) == (args.claim is None):
+        raise GctError(layout.USAGE, "Give either a group or --claim, not both.", "For example: gct infer reject GROUP ...")
+    if args.group is not None:
+        r = infer.reject(conn, args.group, args.as_, args.capacity, args.rationale)
+        _print(args, {"status": "ok", **r}, _decision_text(r, "Rejected"))
+        return
+    if args.field is None:
+        raise GctError(layout.USAGE, "--claim needs --field period or --field boundary.",
+                       f"For example: gct infer reject --claim {args.claim} --field period ...")
+    r = infer.reject_claim(conn, args.claim, args.field, args.as_, args.capacity, args.rationale)
+    _print(args, {"status": "ok", **r}, _one_text(r))
 
 
 def _contributor_line(c: dict) -> str:
@@ -394,15 +540,17 @@ def cmd_run_show(args) -> None:
 AGAIN = {"read": "Run gct read again with the same documents.",
          "extract": "Run gct extract again with the same documents.",
          "link": "Run gct link again with the same documents.",
+         "infer": "Run gct infer again with the same documents.",
          "doc add": "Run gct doc add again with the same files."}
-STAGES = {"read": (read, _read_out), "extract": (extract, _extract_out), "link": (link, _link_out)}
+STAGES = {"read": (read, _read_out), "extract": (extract, _extract_out), "link": (link, _link_out),
+          "infer": (infer, _infer_out)}
 
 
 def _of_run(conn, n: int, verb: str) -> dict:
-    """Run n, which must be a read, extract, link or doc add run."""
+    """Run n, which must be a read, extract, link, infer or doc add run."""
     r = runs.show_run(conn, n)
     if r["command"] not in AGAIN:
-        raise GctError(layout.REFUSED, f"Run {n} was a {r['command']} run. Only read, extract, link and doc add runs can be {verb}.",
+        raise GctError(layout.REFUSED, f"Run {n} was a {r['command']} run. Only read, extract, link, infer and doc add runs can be {verb}.",
                        "See the runs with: gct run list")
     return r
 
@@ -416,16 +564,11 @@ def _selection(conn, r: dict) -> dict:
 
 
 def _replay(args, conn, r: dict, sel: dict, note: str, head: str) -> int:
-    """Run the recorded selection of a read, extract or doc add run again in a new run."""
-    if r["command"] == "read":
-        run_id, docs = read.read(conn, args.root, sel["ids"], sel["company"], [note])
-        return _read_out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": r["id"]})
-    if r["command"] == "extract":
-        run_id, docs = extract.extract(conn, args.root, sel["ids"], sel["company"], [note])
-        return _extract_out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": r["id"]})
-    if r["command"] == "link":
-        run_id, docs = link.link(conn, args.root, sel["ids"], sel["company"], [note])
-        return _link_out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": r["id"]})
+    """Run the recorded selection of a read, extract, link, infer or doc add run again in a new run."""
+    if r["command"] in STAGES:
+        stage, out = STAGES[r["command"]]
+        run_id, docs = getattr(stage, r["command"])(conn, args.root, sel["ids"], sel["company"], [note])
+        return out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": r["id"]})
     run_id, items = intake.add(conn, args.root, notes=[note], **sel)
     return _doc_add_out(args, items, head=head.format(run_id), extra={"run_id": run_id, "of_run": r["id"]})
 
@@ -563,7 +706,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,claims,contributor,expect,pages,gap,publish,run,approve,model,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,claims,contributor,expect,pages,gap,publish,run,approve,model,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -617,15 +760,49 @@ def build_parser() -> argparse.ArgumentParser:
     ln.add_argument("--company", help="only this company's documents")
     ln.set_defaults(func=cmd_link)
 
-    claims = group("claims", "figures extracted from documents")
-    lst = claims.add_parser("list", parents=[common], help="list one document's claims with their source location")
-    lst.add_argument("--doc", type=int, required=True, metavar="ID")
-    lst.set_defaults(func=cmd_claims_list)
-
     def attributed(p):
         p.add_argument("--as", dest="as_", required=True, metavar="KEY", help="the contributor making this record")
         p.add_argument("--capacity", required=True, help="the capacity you act in, as you describe it")
         p.add_argument("--rationale", required=True, help="why")
+
+    inf = top.add_parser("infer", parents=[common], help="propose each claim's period and boundary from the report's own wording")
+    inf.add_argument("--doc", type=int, metavar="ID", help="only this document (default: every active document)")
+    inf.add_argument("--company", help="only this company's documents")
+    inf.set_defaults(func=cmd_infer)
+    sub = inf.add_subparsers(dest="command", metavar="{bases,scope,groups,accept,resolve,reject}")
+    bases = sub.add_parser("bases", parents=[common], help="list the period and boundary statements found")
+    bases.add_argument("--doc", type=int, metavar="ID")
+    bases.set_defaults(func=cmd_infer_bases)
+    scope = sub.add_parser("scope", parents=[common], help="declare the pages a boundary statement covers")
+    scope.add_argument("basis", type=int, metavar="BASIS")
+    scope.add_argument("--pages", required=True, metavar="FIRST-LAST")
+    groups = sub.add_parser("groups", parents=[common], help="list claims inferred the same way to the same result")
+    groups.add_argument("--doc", type=int, metavar="ID")
+    groups.add_argument("--state", choices=("proposed", "unresolved"))
+    groups.set_defaults(func=cmd_infer_groups)
+    accept = sub.add_parser("accept", parents=[common], help="accept every proposed inference of one group")
+    accept.add_argument("group", metavar="GROUP")
+    resolve = sub.add_parser("resolve", parents=[common], help="set one claim's period or boundary yourself")
+    resolve.add_argument("claim", type=int, metavar="CLAIM")
+    resolve.add_argument("--field", required=True, choices=infer.FIELDS)
+    resolve.add_argument("--kind", choices=infer.KINDS)
+    resolve.add_argument("--start", metavar="YYYY-MM-DD")
+    resolve.add_argument("--end", metavar="YYYY-MM-DD")
+    resolve.add_argument("--boundary", choices=infer.BOUNDARIES)
+    resolve.add_argument("--detail", metavar="TEXT", help="the entity wording")
+    reject = sub.add_parser("reject", parents=[common], help="reject a group's or one claim's proposal; it stays unknown")
+    reject.add_argument("group", nargs="?", metavar="GROUP")
+    reject.add_argument("--claim", type=int, metavar="CLAIM")
+    reject.add_argument("--field", choices=infer.FIELDS)
+    for p, func in ((scope, cmd_infer_scope), (accept, cmd_infer_accept), (resolve, cmd_infer_resolve),
+                    (reject, cmd_infer_reject)):
+        attributed(p)
+        p.set_defaults(func=func)
+
+    claims = group("claims", "figures extracted from documents")
+    lst = claims.add_parser("list", parents=[common], help="list one document's claims with their source location")
+    lst.add_argument("--doc", type=int, required=True, metavar="ID")
+    lst.set_defaults(func=cmd_claims_list)
 
     contrib = group("contributor", "people who make review records")
     add = contrib.add_parser("add", parents=[common], help="add a contributor")
@@ -675,7 +852,7 @@ def build_parser() -> argparse.ArgumentParser:
     show = run.add_parser("show", parents=[common], help="show one run with its totals and events")
     show.add_argument("id", type=int)
     show.set_defaults(func=cmd_run_show)
-    resume = run.add_parser("resume", parents=[common], help="finish an interrupted or failed read, extract, link or doc add run")
+    resume = run.add_parser("resume", parents=[common], help="finish an interrupted or failed read, extract, link, infer or doc add run")
     resume.add_argument("id", type=int)
     resume.set_defaults(func=cmd_run_resume)
     retry = run.add_parser("retry", parents=[common], help="process again only the items that failed in one run")

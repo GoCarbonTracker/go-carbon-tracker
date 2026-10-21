@@ -26,7 +26,7 @@ WHERE a.run_id = ? AND a.stage = 'extract' AND a.outcome = 'failed'
 ORDER BY a.id
 """
 CLAIMS_SQL = """
-SELECT c.page_number, c.locator, v.value_text, v.value, v.unit_text, v.metric_text, v.period_label,
+SELECT c.id, c.page_number, c.locator, v.value_text, v.value, v.unit_text, v.metric_text, v.period_label,
        v.reporting_boundary, v.method, e.boxes, s.status AS source_match, s.reason AS source_match_reason
 FROM claim c JOIN claim_version v ON v.id = (SELECT MAX(id) FROM claim_version WHERE claim_id = c.id)
 LEFT JOIN evidence_ref e ON e.claim_version_id = v.id

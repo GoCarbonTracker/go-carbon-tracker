@@ -48,7 +48,23 @@ EXPECTED_COLUMNS = {
     "gap_confirmation": [
         "id", "expected_item_id", "contributor_version_id", "capacity", "rationale", "documents_checked", "created_at",
     ],
+    "basis": [
+        "id", "document_id", "page_number", "kind", "wording", "fy_end", "period_start", "period_end", "boundary",
+        "boundary_detail", "run_id", "config_version", "created_at",
+    ],
+    "basis_scope": [
+        "id", "basis_id", "first_page", "last_page", "contributor_version_id", "capacity", "rationale", "created_at",
+    ],
+    "inference": [
+        "id", "claim_version_id", "field", "state", "period_kind", "period_start", "period_end", "boundary",
+        "boundary_detail", "basis_id", "reason", "group_key", "run_id", "config_version", "created_at",
+    ],
+    "inference_review": [
+        "id", "inference_id", "claim_version_id", "field", "decision", "period_kind", "period_start", "period_end",
+        "boundary", "boundary_detail", "contributor_version_id", "capacity", "rationale", "created_at",
+    ],
 }
+VALUES = ("period_kind", "period_start", "period_end", "boundary", "boundary_detail")
 NULLABLE = {("company", "sector_ref"), ("company", "sector_version"), ("document", "source"), ("document_state", "note")} | {
     ("run_event", c) for c in ("stage", "item", "method", "outcome", "cost_estimated", "cost_confirmed", "message")
 } | {("attempt", c) for c in ("method", "rung", "output", "error", "cost_estimated", "cost_confirmed")} | {
@@ -58,7 +74,9 @@ NULLABLE = {("company", "sector_ref"), ("company", "sector_version"), ("document
                                    "metric_key", "boundary_detail")
 } | {("evidence_ref", c) for c in ("page_number", "boxes", "sheet", "cell")} | {
     ("source_match", "reason"), ("source_match", "artifact_id"), ("contributor_version", "organisation"),
-    ("expected_item", "period_label")}
+    ("expected_item", "period_label")} | {
+    ("basis", c) for c in ("fy_end", "period_start", "period_end", "boundary", "boundary_detail")} | {
+    ("inference", c) for c in (*VALUES, "basis_id", "reason")} | {("inference_review", c) for c in ("inference_id", *VALUES)}
 
 
 def test_init_creates_exact_layout(ws):
@@ -81,7 +99,7 @@ def test_tables_and_columns(db):
 
 
 def test_schema_version_row_and_workspace_row(db):
-    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     row = db.execute("SELECT * FROM workspace").fetchone()
     assert row["id"] == 1 and row["gct_version"]
 

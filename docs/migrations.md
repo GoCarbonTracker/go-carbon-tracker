@@ -23,3 +23,4 @@ append-only.
 | 7 | M1-3.1 | `claim`, `claim_version`, `evidence_ref` (extracted figures, their versions and source locations) |
 | 8 | M1-3.3 | `source_match` (whether each source location reproduces its figure; newest row per location is current) |
 | 9 | M1-3.3 | `contributor_version`, `expected_item`, `expected_item_document`, `page_acceptance`, `gap_confirmation` (contributors, expected figures, review records for missing evidence) |
+| 10 | M1-3.2 | `basis`, `basis_scope`, `inference`, `inference_review` (period and boundary statements found, the page ranges declared for them, inferences per claim version and field, and the reviews of them; newest row wins) |

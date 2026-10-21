@@ -56,11 +56,51 @@ One record per page number, from its newest reading. `document` is the id. `flag
 
 `status` is `ok` when no location failed to be checked (exit 0), else `partial` (exit 4), which adds `cause` and `next_action` at the top. `action` is `checked` or `skipped` (no claims yet; then `next_action` is `extract it first: gct extract`; for `run retry`, also a document no longer active). `refs` counts the source locations of the newest claim versions, `checked` those checked by this command, `cached` those already checked against the same reading. `matched`, `cited` and `unresolved` count the newest source match status of those locations. Nothing to check gives `{"status": "ok", "documents": []}`.
 
+## infer
+- top: status, documents
+- documents: id, logical_name, claims, inferred, cached, failed, bases, headings, period, boundary, action, cause, next_action
+
+`status` is `ok` when no document failed (exit 0), else `partial` (exit 4), which adds `cause` and `next_action` at the top. `action` is `inferred` or `skipped` (no claims yet; then `next_action` is `extract it first: gct extract`; for `run retry`, also a document no longer active). `inferred` is 1 when the document was inferred by this command, `cached` 1 when its claims, readings and declared ranges had not changed since. `bases` counts the period and boundary statements found on its newest readings, `headings` the pages with a reporting-boundary heading but no readable answer. `period` and `boundary` count the claims by effective state (`resolved`, `accepted`, `proposed`, `unresolved`, `extracted`) and add one key `unresolved: <reason>` per reason. Nothing to infer gives `{"status": "ok", "documents": []}`.
+
+## infer bases
+- top: status, bases, headings
+- bases: id, document, page, kind, wording, year_end, start, end, boundary, detail, scope
+- headings: document, page, reason
+
+The statements found by the newest `gct infer` of each active document. `kind` is `fiscal_year_end` (with `year_end` as `MM-DD`, and `start` and `end` when the statement prints both dates) or `reporting_boundary` (with `boundary` and `detail`, the entity wording as printed or null). `wording` is the text as read, whitespace collapsed. `scope` is null or the newest declared range: `first`, `last`, `contributor`, `capacity`, `rationale`, `created_at`. `headings` lists pages with a reporting-boundary heading but no readable answer, `reason` `heading without a readable answer`.
+
+## infer scope
+- top: status, basis
+- basis: id, document, page, kind, wording, year_end, start, end, boundary, detail, scope
+
+The statement after the range is declared. Only a `reporting_boundary` statement takes a range (else exit 4); the range must lie in the document. It applies from the next `gct infer`.
+
+## infer groups
+- top: status, groups
+- groups: id, document, field, state, kind, start, end, boundary, detail, reason, basis, claims, reviews
+
+One record per group of current inferences (newest claim versions of active documents) derived the same way to the same result. `id` is the handle `infer accept` and `infer reject` take. `field` is `period` (values in `kind`, `start`, `end`) or `boundary` (values in `boundary`, `detail`); the other field's keys are null. `state` is `proposed` or `unresolved` (then `reason` says why and the values are null). `basis` is null when the label is its own source, else `id`, `page`, `wording`, `kind`. `reviews` counts the claims by their current review: `accepted`, `resolved`, `rejected`, `open`.
+
+## infer accept
+- top: status, group, accepted, skipped, by
+
+`group` is as in `infer groups`, after the acceptance; `accepted` is the number of claims accepted (only members whose current state is `proposed`), `skipped` counts the members left as they were by their decision (`{"resolved": 1, "rejected": 1, "accepted": 2}`; empty when none): a resolution or rejection made claim by claim is never overridden by a group decision. `by` is `<name> (<capacity>)`. An unresolved group is refused (exit 4). An acceptance holds for the inference it was given on: a new claim version or a changed inference is `proposed` again.
+
+## infer resolve
+- top: status, claim, field, effective
+
+`effective` is the claim's field after the resolution, with the keys of the `period` and `boundary` records of `claims list`: `state` (`resolved`, `accepted`, `proposed`, `unresolved` or `extracted`, the last when `gct infer` has not run), the values (`kind`, `start`, `end`, `label` for a period; `boundary`, `detail` for a boundary), `reason` (why unresolved, `rejected` after a rejection), `basis` (`id`, `page`, `wording`, or null), `group` and `review` (null or `decision`, `contributor`, `organisation`, `capacity`, `rationale`, `created_at`). The values of a proposal show here and in `claims list`, never in the published main fields. A start after the end, a date not in `YYYY-MM-DD` form, or values of the other field give exit 2.
+
+## infer reject
+- top: status, group, rejected, skipped, by
+
+As `infer accept`, for a rejection: it acts on members still proposed and on members accepted, and leaves resolved and already rejected members as they were (counted in `skipped`). A group rejection is not undone by a later group accept, which skips rejected members; resolve each claim instead. With `--claim CLAIM --field FIELD` the shape is that of `infer resolve`. This claim-by-claim rejection may follow an acceptance or a resolution of that claim. A claim with no current proposal, or one already rejected, is refused (exit 4).
+
 ## claims list
 - top: status, document, claims
-- claims: page_number, locator, value_text, value, unit_text, metric_text, period_label, reporting_boundary, method, boxes, source_match, source_match_reason
+- claims: id, page_number, locator, value_text, value, unit_text, metric_text, period_label, reporting_boundary, method, boxes, source_match, source_match_reason, period, boundary
 
-One record per claim, from its newest version. `document` is the id. `value_text`, `unit_text`, `metric_text` and `period_label` are as printed; `metric_text` is null for a table row with no label; `value` is null unless the figure is in plain Western form. `reporting_boundary` is `unknown` until a later step sets it. `method` is `rung1-rules` for the fixed-rule baseline. `boxes` is a list of `[x0, top, x1, bottom]` in PDF points from the top-left of the page, or null when there is no box. `source_match` is the newest status of the location: `matched` (the words in the box reproduce the figure), `cited` (page known, but no box or the box no longer reproduces it) or `unresolved` (the page has no reading); null when it has not been checked yet (run `gct link`). `source_match_reason` is null for `matched`, else `no box`, `box does not reproduce the figure`, `page not read: gct read` or `spreadsheet check not built`.
+One record per claim, from its newest version. `id` is the claim id that `gct infer resolve` and `gct infer reject --claim` take. `document` is the id. `period` and `boundary` are the effective values (see `infer resolve` for their keys); `period_label` and `reporting_boundary` stay as extracted. `value_text`, `unit_text`, `metric_text` and `period_label` are as printed; `metric_text` is null for a table row with no label; `value` is null unless the figure is in plain Western form. `reporting_boundary` is `unknown` until a later step sets it. `method` is `rung1-rules` for the fixed-rule baseline. `boxes` is a list of `[x0, top, x1, bottom]` in PDF points from the top-left of the page, or null when there is no box. `source_match` is the newest status of the location: `matched` (the words in the box reproduce the figure), `cited` (page known, but no box or the box no longer reproduces it) or `unresolved` (the page has no reading); null when it has not been checked yet (run `gct link`). `source_match_reason` is null for `matched`, else `no box`, `box does not reproduce the figure`, `page not read: gct read` or `spreadsheet check not built`.
 
 ## contributor add
 - top: status, contributor
@@ -105,6 +145,8 @@ One record per expectation, as for `expect add`, computed when asked.
 ## publish build
 - top: status, version, built_at, history_mark, companies, documents
 
+In the published version (`projection_schema` 4), a claim's `period_kind`, `period_start`, `period_end`, `reporting_boundary` and `boundary_detail` hold only accepted or resolved values, else what was extracted. A proposal is in `proposed_period_kind`, `proposed_period_start`, `proposed_period_end`, `proposed_reporting_boundary` and `proposed_boundary_detail`. `period_state` and `boundary_state` are `resolved`, `accepted`, `proposed`, `unresolved` or `extracted`. `period_basis` and `boundary_basis` (`{"page", "wording"}` as JSON, or null) are filled for a proposal as well as for an accepted value, so read them together with the state: while the state is `proposed` the main values stay empty.
+
 ## publish restore
 - top: status, version, built_at, history_mark, companies, documents
 
@@ -123,7 +165,7 @@ One record per expectation, as for `expect add`, computed when asked.
 - top: status, run_id, of_run, documents
 - documents: id, logical_name, pages, read, cached, flagged, failed, flags, action, cause, next_action
 
-Resuming a `read` run gives the keys of `read` plus `run_id` (the new run, null when there was nothing to read) and `of_run` (the run resumed). Resuming an `extract` run gives the keys of `extract` plus the same two, and a `link` run the keys of `link`. Resuming a `doc add` run gives the keys of `doc add` (`items` in place of `documents`) plus the same two. `status`, `cause`, `next_action` and the exit codes are as for `read`, `extract` and `doc add`.
+Resuming a `read` run gives the keys of `read` plus `run_id` (the new run, null when there was nothing to read) and `of_run` (the run resumed). Resuming an `extract` run gives the keys of `extract` plus the same two, a `link` run the keys of `link`, and an `infer` run the keys of `infer`. Resuming a `doc add` run gives the keys of `doc add` (`items` in place of `documents`) plus the same two. `status`, `cause`, `next_action` and the exit codes are as for `read`, `extract` and `doc add`.
 
 ## run retry
 - top: status, run_id, of_run, documents

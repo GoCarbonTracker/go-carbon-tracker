@@ -1,6 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decide, label, newestOnly, NOT_CHECKED, overlayShown, stepClaim, stepPage } from "../src/logic.ts";
+import { boundaryText, decide, label, newestOnly, NOT_CHECKED, overlayShown, periodText, stepClaim, stepPage } from "../src/logic.ts";
+
+test("published period dates are shown with the printed label, never unknown", () => {
+  const resolved = { period_label: null, period_kind: "calendar_year", period_start: "2024-01-01", period_end: "2024-12-31", period_state: "resolved" };
+  assert.equal(periodText(resolved), "2024-01-01..2024-12-31 calendar_year (resolved)");
+  assert.equal(periodText({ ...resolved, period_label: "FY24", period_kind: "fiscal_year", period_start: "2023-04-01",
+                            period_end: "2024-03-31", period_state: "accepted" }), "FY24 · 2023-04-01..2024-03-31 fiscal_year (accepted)");
+  const proposed = { period_label: "FY24", period_kind: null, period_start: null, period_end: null, period_state: "proposed" };
+  assert.equal(periodText(proposed), "FY24 · unknown (proposed)");
+  assert.equal(periodText({ ...proposed, period_label: null, period_state: "extracted" }), "unknown (extracted)");
+});
+
+test("the boundary carries its state", () => {
+  assert.equal(boundaryText({ reporting_boundary: "standalone", boundary_detail: "Acme Ltd", boundary_state: "accepted" }),
+               "standalone: Acme Ltd (accepted)");
+  assert.equal(boundaryText({ reporting_boundary: "unknown", boundary_detail: null, boundary_state: "proposed" }),
+               "unknown (proposed)");
+});
 
 test("a late answer for an earlier selection is dropped", async () => {
   const requests = newestOnly();

@@ -24,8 +24,8 @@ BACK = "Go back to the start page at /."
 _PDFIUM = threading.Lock()
 
 CLAIMS_SQL = """
-SELECT c.id, c.locator, c.metric_text, c.value_text, c.unit_text, c.period_label, c.reporting_boundary,
-       c.boundary_detail, e.page_number AS page, e.boxes, e.source_match, e.source_match_reason
+SELECT c.id, c.locator, c.metric_text, c.value_text, c.unit_text, c.period_label, c.period_kind, c.period_start,
+       c.period_end, c.period_state, c.reporting_boundary, c.boundary_detail, c.boundary_state, e.page_number AS page, e.boxes, e.source_match, e.source_match_reason
 FROM claim c JOIN evidence_ref e ON e.claim_version_id = c.claim_version_id
 WHERE c.document_id = ? ORDER BY e.page_number IS NULL, e.page_number, c.id, e.id
 """
@@ -218,6 +218,9 @@ def create_app(root: Path, token: str) -> FastAPI:
     def claims(doc_id: int):
         if not _query(root, "SELECT id FROM document WHERE id = ?", doc_id):
             return error(404, f"There is no document {doc_id} in the published data.", BACK)
+        if int(_query(root, "SELECT value FROM meta WHERE key = 'projection_schema'")[0]["value"]) < 4:
+            return error(409, "The published data was built by an older gct and has no period dates.",
+                         "Build a fresh version with: gct publish build")
         # ponytail: one row per evidence ref; M1 stages write one ref per claim version.
         rows = _query(root, CLAIMS_SQL, doc_id)
         return {"status": "ok", "document": doc_id, "claims": [

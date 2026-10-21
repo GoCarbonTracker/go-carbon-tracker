@@ -21,7 +21,7 @@ def test_claims_list(ws, gct, make_file):
     r = gct("extract")
     assert r.code == 0 and "1 figures, 0 without a box" in r.out
     line = gct("claims", "list", "--doc", 1).out.strip()
-    assert line.startswith("p1  4,560  MWh  Energy consumed  2023  unknown  matched  box ")
+    assert line.startswith("1  p1  4,560  MWh  Energy consumed  2023  unknown  matched  box ")
     (c,) = gct("claims", "list", "--doc", 1, "--json").data["claims"]
     assert (c["value"], c["method"], len(c["boxes"])) == (4560, "rung1-rules", 1)
     assert (c["source_match"], c["source_match_reason"]) == ("matched", None)

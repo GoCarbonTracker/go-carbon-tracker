@@ -8,9 +8,15 @@ export type Claim = {
   metric_text: string | null;
   value_text: string;
   unit_text: string | null;
-  period_label: string | null;
+  period_label: string | null; // as printed
+  // Published values: only accepted or resolved dates and boundaries; a proposal never arrives here.
+  period_kind: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  period_state: string; // resolved, accepted, proposed, unresolved or extracted
   reporting_boundary: string;
   boundary_detail: string | null;
+  boundary_state: string;
   page: number | null; // the evidence page; null when the evidence is not on a page
   boxes: Box[] | null;
   source_match: "matched" | "cited" | "unresolved" | null; // null: no source-match row yet
@@ -25,6 +31,19 @@ export const NOT_CHECKED = "not checked: run gct link";
 export function label(status: Claim["source_match"], reason: string | null): Label {
   if (status === null) return { status: null, text: NOT_CHECKED };
   return { status, text: reason ? `${status}: ${reason}` : status };
+}
+
+/** The period: the printed label beside the published dates, kind and state, or the label and "unknown" only when
+ * no dates are published. */
+export function periodText(c: Pick<Claim, "period_label" | "period_kind" | "period_start" | "period_end" | "period_state">): string {
+  const printed = c.period_label ? `${c.period_label} · ` : "";
+  if (c.period_start !== null) return `${printed}${c.period_start}..${c.period_end} ${c.period_kind} (${c.period_state})`;
+  return `${printed}unknown (${c.period_state})`;
+}
+
+/** The boundary with its entity wording and its state. */
+export function boundaryText(c: Pick<Claim, "reporting_boundary" | "boundary_detail" | "boundary_state">): string {
+  return `${c.reporting_boundary}${c.boundary_detail ? `: ${c.boundary_detail}` : ""} (${c.boundary_state})`;
 }
 
 export type Decision = "jump and highlight" | "jump only" | "do not navigate";

@@ -82,6 +82,39 @@ def test_every_command_matches_the_documented_keys(tmp_path, gct, make_file):
     check("error", gct("doc", "show", 99, *w, "--json").data)
 
 
+def test_infer_matches_the_documented_keys(tmp_path, gct, make_file):
+    ws = tmp_path / "ws"
+    gct("workspace", "init", ws)
+    w = ("--workspace", ws)
+    who = ("--as", "ana", "--capacity", "analyst", "--rationale", "checked by eye")
+    gct("company", "add", "Acme", *w)
+    gct("contributor", "add", "ana", "--name", "Ana", *w)
+    check("infer", gct("infer", *w, "--json").data)
+    text = [(40, 80, "Energy FY24 4,560 MWh"), (40, 100, "Water 2023 120 kL"),
+            (40, 120, "The financial year ended March 31, 2024."),
+            (40, 140, "Reporting boundary: Report is prepared on a standalone basis.")]
+    gct("doc", "add", make_file("a.pdf", make_pdf([{"text": text}, {"text": [(40, 80, "Reporting boundary")]}])),
+        "--company", "Acme", *w)
+    gct("doc", "add", make_file("b.pdf", make_pdf([{"text": [(40, 80, "nothing")]}])), "--company", "Acme", *w)
+    gct("read", *w)
+    gct("extract", *w)
+    check("infer", gct("infer", *w, "--json").data)
+    bases = gct("infer", "bases", *w, "--json").data
+    check("infer bases", bases)
+    assert bases["bases"] and bases["headings"]
+    boundary = next(b["id"] for b in bases["bases"] if b["kind"] == "reporting_boundary")
+    check("infer scope", gct("infer", "scope", boundary, "--pages", "1-2", *who, *w, "--json").data)
+    gct("infer", *w)
+    groups = gct("infer", "groups", *w, "--json").data
+    check("infer groups", groups)
+    proposed = [g["id"] for g in groups["groups"] if g["state"] == "proposed"]
+    assert len(proposed) >= 2
+    check("infer accept", gct("infer", "accept", proposed[0], *who, *w, "--json").data)
+    check("infer reject", gct("infer", "reject", proposed[1], *who, *w, "--json").data)
+    check("infer resolve", gct("infer", "resolve", 1, "--field", "boundary", "--boundary", "standalone", *who, *w, "--json").data)
+    check("claims list", gct("claims", "list", "--doc", 1, *w, "--json").data)
+
+
 def test_approve_and_model_match_the_documented_keys(tmp_path, gct, monkeypatch):
     from gct.models import redact
 
@@ -160,6 +193,7 @@ def test_resume_and_retry_match_the_documented_keys(tmp_path, gct, make_file, mo
 def test_every_command_has_a_documented_section():
     assert set(spec()) == {
         "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc pages", "read", "extract", "link", "claims list",
+        "infer", "infer bases", "infer scope", "infer groups", "infer accept", "infer resolve", "infer reject",
         "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
         "publish build", "publish restore", "publish status",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",

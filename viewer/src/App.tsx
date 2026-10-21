@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { decide, label, newestOnly, overlayShown, stepClaim, stepPage, type Claim } from "./logic.ts";
+import { boundaryText, decide, label, newestOnly, overlayShown, periodText, stepClaim, stepPage, type Claim } from "./logic.ts";
 
 type Company = { id: number; name: string; documents: Doc[] };
 type Doc = { id: number; logical_name: string; version: number; file_type: string };
@@ -212,12 +212,9 @@ export function App() {
                   <dt>Value</dt>
                   <dd>{figure(current)}</dd>
                   <dt>Period</dt>
-                  <dd>{current.period_label ?? "unknown"}</dd>
+                  <dd>{periodText(current)}</dd>
                   <dt>Boundary</dt>
-                  <dd>
-                    {current.reporting_boundary}
-                    {current.boundary_detail && `: ${current.boundary_detail}`}
-                  </dd>
+                  <dd>{boundaryText(current)}</dd>
                   <dt>Source</dt>
                   <dd>
                     <StatusLabel claim={current} />

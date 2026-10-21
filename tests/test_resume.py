@@ -236,8 +236,8 @@ def test_resume_refusals(ws, db, gct, five, tmp_path, make_file):
     cases = [(["run", "resume", 2], 4, "Run 2 finished; nothing to resume."),
              (["run", "resume", 99], 3, "There is no run with id 99."),
              (["run", "resume", old], 4, f"Run {old} has no record of what it was given, so it cannot be replayed."),
-             (["run", "resume", 3], 4, "Run 3 was a publish build run. Only read, extract, link and doc add runs can be resumed."),
-             (["run", "retry", 3], 4, "Run 3 was a publish build run. Only read, extract, link and doc add runs can be retried."),
+             (["run", "resume", 3], 4, "Run 3 was a publish build run. Only read, extract, link, infer and doc add runs can be resumed."),
+             (["run", "retry", 3], 4, "Run 3 was a publish build run. Only read, extract, link, infer and doc add runs can be retried."),
              (["run", "retry", 99], 3, "There is no run with id 99.")]
     for argv, code, cause in cases:
         human = gct(*argv)
