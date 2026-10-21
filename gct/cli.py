@@ -10,7 +10,7 @@ from gct import __version__
 from gct.api import server
 from gct.measure import g2
 from gct.models import adapters, policy
-from gct.stages import correct, extract, infer, link, missing, read
+from gct.stages import correct, extract, infer, link, match, missing, read
 from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -450,6 +450,136 @@ def cmd_infer_reject(args) -> None:
     _print(args, {"status": "ok", **r}, _one_text(r))
 
 
+def _match_line(d: dict) -> str:
+    if d["action"] != "matched":
+        return f"{d['action']} {d['id']}: {d['logical_name']}: {d['cause']}" + (f" ({d['next_action']})" if d["next_action"] else "")
+    return (f"matched {d['id']}: {d['logical_name']}: {d['claims']} claims, {d['matched']} matched, {d['cached']} cached, "
+            f"{d['failed']} failed; {d['mapped']} mapped, {d['unmapped']} unmapped, {d['unit_unknown']} unit unknown")
+
+
+def cmd_match(args) -> int:
+    _, docs = match.match(_open(args), args.root, [args.doc] if args.doc else [], args.company)
+    return _match_out(args, docs)
+
+
+def _match_out(args, docs, head=None, extra=None) -> int:
+    """Print match documents. head is a first text line and extra more top-level keys (resume and retry)."""
+    extra = extra or {}
+    if not docs:
+        _print(args, {"status": "ok", **extra, "documents": []}, "Nothing to match.")
+        return 0
+    text = "\n".join([*([head] if head else []), *map(_match_line, docs),
+                      "See the series with: gct series list, and the review queue with: gct match review"])
+    bad = [d for d in docs if d["failed"]]
+    if not bad:
+        _print(args, {"status": "ok", **extra, "documents": docs}, text)
+        return 0
+    cause = f"{len(bad)} of {len(docs)} documents were not matched: " + ", ".join(str(d["id"]) for d in bad)
+    _print(args, {"status": "partial", "cause": cause, "next_action": match.RETRY, **extra, "documents": docs}, text)
+    if not args.json:
+        print(f"error: {cause}\nnext: {match.RETRY}", file=sys.stderr)
+    return layout.REFUSED
+
+
+def cmd_match_metrics(args) -> None:
+    m = match.metrics()
+    lines = [f"Metric list v{m['metrics_version']}, unit table v{m['units_version']}, match rules v{m['rules_version']}",
+             "A label containing any of these is unmapped: " + ", ".join(f'"{x}"' for x in m["excluded"]),
+             *(f"{x['key']}: contains {' or '.join(repr(p) for p in x['must'])}"
+               + (f"; not {', '.join(repr(p) for p in x['never'])}" if x["never"] else "") for x in m["metrics"]),
+             "Units (text as looked up: base unit x factor):",
+             *(f"  {u['text']}: {u['base']} x {u['factor']:g}" for u in m["units"]),
+             "Magnitude words multiplied in: " + ", ".join(f"{p['text']} x {p['factor']:g}" for p in m["prefixes"])]
+    _print(args, {"status": "ok", **m}, "\n".join(lines))
+
+
+def _metric_text(s: dict) -> str:
+    return s["metric_key"] or f"unmapped: {s['label']}"
+
+
+def _boundary_of(s: dict) -> str:
+    return s["reporting_boundary"] + (f" ({s['boundary_detail']})" if s["boundary_detail"] else "")
+
+
+def _base(x: dict) -> str:
+    return f"{x['value_base']:g} {x['unit_key']}" if x["value_base"] is not None else "no base value"
+
+
+def _series_line(s: dict) -> str:
+    latest = "; ".join(f"{x['value_text']} {x['unit_text'] or '-'}" for x in s["points"])
+    return (f"{s['id']}  {s['company']}  {_metric_text(s)}  {_boundary_of(s)}  {s['unit_family']}  {s['period_kind']}  "
+            f"{s['periods']} periods  latest {s['latest_period_end']}: {latest}")
+
+
+def cmd_series_list(args) -> None:
+    ss = match.series_list(_open(args, write=False), args.company, args.metric)
+    _print(args, {"status": "ok", "series": ss},
+           "\n".join(map(_series_line, ss)) or "No series yet. Run gct match, then accept or resolve periods and boundaries.")
+
+
+def _point_line(x: dict) -> str:
+    if x["link"] == "reviewed":
+        r = x["review"]
+        how = f"reviewed, not comparable ({x['reason']}) by {r['contributor']} ({r['capacity']}): {r['rationale']}"
+    else:
+        how = "rule" + (f", not comparable ({x['reason']})" if not x["comparable"] else "")
+    same = f"  same period: {x['same_period']} values" if x["same_period"] > 1 else ""
+    return (f"  {x['period_start']}..{x['period_end']}  {x['value_text']}  {x['unit_text'] or '-'}  {_base(x)}  "
+            f"document {x['document_id']} p{x['page_number']}  claim {x['claim_id']}  {how}{same}")
+
+
+def cmd_series_show(args) -> None:
+    s = match.series_show(_open(args, write=False), args.series, args.all)
+    head = (f"{s['id']}  {s['company']}  {_metric_text(s)}  {_boundary_of(s)}  {s['unit_family']}  {s['period_kind']}  "
+            f"{s['periods']} periods" + ("" if args.all else f", latest period shown (all with --all)"))
+    _print(args, {"status": "ok", "series": s}, "\n".join([head, *map(_point_line, s["points"])]))
+
+
+def _item_text(i: dict) -> str:
+    target = (i["metric_key"] or f"unmapped: {i['label']}") + "  " + i["reporting_boundary"] + (
+        f" ({i['boundary_detail']})" if i["boundary_detail"] else "")
+    return (f"claim {i['claim']}  document {i['document']} p{i['page_number']}  {i['metric_text'] or '-'}  "
+            f"{i['value_text']} {i['unit_text'] or '-'}  {i['reason']}  could join series {i['series']}  {target}")
+
+
+def cmd_match_review(args) -> None:
+    items = match.queue(_open(args, write=False), args.company, args.reason)
+    _print(args, {"status": "ok", "items": items}, "\n".join(map(_item_text, items)) or "No uncertain items.")
+
+
+def _decision_line(r: dict, verb: str) -> str:
+    b = r["by"]
+    return (f"{verb} claim {r['claim']} (version {r['version']}) and series {r['series']} by {b['contributor']} "
+            f"({b['capacity']}): {b['rationale']}. Claim is now {r['match_state']}"
+            + (f" ({r['match_reason']})" if r["match_reason"] else "") + ".")
+
+
+def cmd_match_link(args) -> None:
+    r = match.link_claim(_open(args), args.claim, args.series, args.as_, args.capacity, args.rationale)
+    _print(args, {"status": "ok", **r}, _decision_line(r, "Linked")
+           + " A reviewed link is not comparable: the boundary or unit stays unknown.")
+
+
+def cmd_match_unlink(args) -> None:
+    r = match.unlink_claim(_open(args), args.claim, args.series, args.as_, args.capacity, args.rationale)
+    _print(args, {"status": "ok", **r}, _decision_line(r, "Not linked:"))
+
+
+def _status_lines(s: dict) -> list[str]:
+    mapped = ", ".join(f"{k} {n}" for k, n in s["mapped"].items()) or "none"
+    return [f"{s['company']}: {s['claims']} claims; mapped {sum(s['mapped'].values())} ({mapped}), {s['unmapped']} unmapped, "
+            f"{s['unit_unknown']} unit unknown, {s['not_mapped_yet']} not mapped yet",
+            f"  {s['series']} series, {s['same_period_sets']} same-period sets, {s['uncertain_items']} uncertain items",
+            "  claims by state: " + (", ".join(f"{n} {k}" for k, n in s["states"].items()) or "none"),
+            *(f"  not matchable: {k}: {n}" for k, n in s["not_matchable"].items())]
+
+
+def cmd_match_status(args) -> None:
+    st = match.status(_open(args, write=False), args.company)
+    _print(args, {"status": "ok", "companies": st},
+           "\n".join(line for s in st for line in _status_lines(s)) or "No claims yet.")
+
+
 def _contributor_line(c: dict) -> str:
     return f"{c['key']}  {c['name']}  {c['organisation'] or '-'}  version {c['version']}"
 
@@ -589,16 +719,17 @@ AGAIN = {"read": "Run gct read again with the same documents.",
          "extract": "Run gct extract again with the same documents.",
          "link": "Run gct link again with the same documents.",
          "infer": "Run gct infer again with the same documents.",
+         "match": "Run gct match again with the same documents.",
          "doc add": "Run gct doc add again with the same files."}
 STAGES = {"read": (read, _read_out), "extract": (extract, _extract_out), "link": (link, _link_out),
-          "infer": (infer, _infer_out)}
+          "infer": (infer, _infer_out), "match": (match, _match_out)}
 
 
 def _of_run(conn, n: int, verb: str) -> dict:
-    """Run n, which must be a read, extract, link, infer or doc add run."""
+    """Run n, which must be a read, extract, link, infer, match or doc add run."""
     r = runs.show_run(conn, n)
     if r["command"] not in AGAIN:
-        raise GctError(layout.REFUSED, f"Run {n} was a {r['command']} run. Only read, extract, link, infer and doc add runs can be {verb}.",
+        raise GctError(layout.REFUSED, f"Run {n} was a {r['command']} run. Only read, extract, link, infer, match and doc add runs can be {verb}.",
                        "See the runs with: gct run list")
     return r
 
@@ -782,7 +913,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,claims,correct,contributor,expect,pages,gap,publish,run,approve,model,measure,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,claims,correct,contributor,expect,pages,gap,publish,run,approve,model,measure,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -874,6 +1005,37 @@ def build_parser() -> argparse.ArgumentParser:
                     (reject, cmd_infer_reject)):
         attributed(p)
         p.set_defaults(func=func)
+
+    mt = top.add_parser("match", parents=[common], help="give each claim a metric key and unit, then link it across periods and reports")
+    mt.add_argument("--doc", type=int, metavar="ID", help="only this document (default: every active document)")
+    mt.add_argument("--company", help="only this company's documents")
+    mt.set_defaults(func=cmd_match)
+    sub = mt.add_subparsers(dest="command", metavar="{metrics,review,link,unlink,status}")
+    sub.add_parser("metrics", parents=[common], help="print the metric list and unit table with their versions").set_defaults(func=cmd_match_metrics)
+    review = sub.add_parser("review", parents=[common], help="list the uncertain items: claims that could join a series after review")
+    review.add_argument("--company")
+    review.add_argument("--reason", choices=(match.BOUNDARY_UNKNOWN, match.UNIT_UNKNOWN, match.NOT_CONVERTIBLE))
+    review.set_defaults(func=cmd_match_review)
+    for name, help_, func in (("link", "put an uncertain claim in a candidate series (reviewed, not comparable)", cmd_match_link),
+                              ("unlink", "take a candidate series off a claim's review queue", cmd_match_unlink)):
+        p = sub.add_parser(name, parents=[common], help=help_)
+        p.add_argument("claim", type=int, metavar="CLAIM")
+        p.add_argument("--series", required=True, metavar="SERIES")
+        attributed(p)
+        p.set_defaults(func=func)
+    st = sub.add_parser("status", parents=[common], help="counts per company: mapped, series, same-period sets, uncertain, not matchable")
+    st.add_argument("--company")
+    st.set_defaults(func=cmd_match_status)
+
+    series = group("series", "a metric over reporting periods")
+    lst = series.add_parser("list", parents=[common], help="one line per series with its latest period")
+    lst.add_argument("--company")
+    lst.add_argument("--metric", metavar="KEY", help="only this metric key (see gct match metrics)")
+    lst.set_defaults(func=cmd_series_list)
+    show = series.add_parser("show", parents=[common], help="the latest period of one series, or every period with --all")
+    show.add_argument("series", metavar="SERIES")
+    show.add_argument("--all", action="store_true", help="every period, oldest first")
+    show.set_defaults(func=cmd_series_show)
 
     claims = group("claims", "figures extracted from documents")
     lst = claims.add_parser("list", parents=[common], help="list one document's claims with their source location")

@@ -96,6 +96,56 @@ One record per group of current inferences (newest claim versions of active docu
 
 As `infer accept`, for a rejection: it acts on members still proposed and on members accepted, and leaves resolved and already rejected members as they were (counted in `skipped`). A group rejection is not undone by a later group accept, which skips rejected members; resolve each claim instead. With `--claim CLAIM --field FIELD` the shape is that of `infer resolve`. This claim-by-claim rejection may follow an acceptance or a resolution of that claim. A claim with no current proposal, or one already rejected, is refused (exit 4).
 
+## match
+- top: status, documents
+- documents: id, logical_name, claims, matched, cached, failed, mapped, unmapped, unit_unknown, action, cause, next_action
+
+`status` is `ok` when no document failed (exit 0), else `partial` (exit 4), which adds `cause` and `next_action` at the top. `action` is `matched` or `skipped` (no claims yet; then `next_action` is `extract it first: gct extract`; for `run retry`, also a document no longer active). `matched` is 1 when the document's claims were given a metric key and unit by this command, `cached` 1 when its newest claim versions had not changed since. `mapped` and `unmapped` count the newest claim versions by whether a metric key was assigned, `unit_unknown` those without a known unit. Nothing to match gives `{"status": "ok", "documents": []}`. See `docs/matching.md` for the rules.
+
+## match metrics
+- top: status, rules_version, metrics_version, units_version, excluded, metrics, units, prefixes
+- metrics: key, must, never
+- units: text, base, factor
+- prefixes: text, factor
+
+The built-in metric list and unit table. `excluded` lists the wording that leaves a label unmapped for every key. Each metric has the phrases one of which the label must contain (`must`) and the phrases it may not contain (`never`). Each unit is the text as looked up (lowercased, the word `in`, brackets and spaces removed), its base unit (the conversion family) and the factor to it. `prefixes` are the magnitude words multiplied in.
+
+## match review
+- top: status, items
+- items: claim, version, document, page_number, metric_text, value_text, unit_text, reason, series, metric_key, label, reporting_boundary, boundary_detail
+
+One record per uncertain item: claim version `version` of claim `claim` could join series `series` after review, because of `reason` (`boundary unknown`, `unit unknown` or `unit not convertible`). `metric_key` (null for an unmapped series, then `label`), `reporting_boundary` and `boundary_detail` describe the candidate series. `--company NAME` and `--reason R` filter. An unknown company is refused (exit 3).
+
+## match link
+- top: status, claim, version, series, decision, match_state, match_reason, series_id, by
+- by: contributor, organisation, capacity, rationale
+
+Records a `linked` review for the claim's newest version and the series. `match_state` is then `reviewed`, `series_id` the series and `match_reason` the uncertain reason: the point is stored with `comparable` false. A claim with no uncertain item for that series (or no candidate at all), a link already made, or a claim already linked to another series is refused (exit 4); an unknown claim or contributor exits 3.
+
+## match unlink
+- top: status, claim, version, series, decision, match_state, match_reason, series_id, by
+- by: contributor, organisation, capacity, rationale
+
+As `match link`, with `decision` `not_linked`: the item leaves the queue (or a link to that series is undone). When every candidate of the claim is answered `not_linked`, `match_state` is `not matchable` with `match_reason` `not linked by review`.
+
+## match status
+- top: status, companies
+- companies: company, claims, mapped, unmapped, unit_unknown, not_mapped_yet, series, same_period_sets, uncertain_items, states, not_matchable
+
+Counts per company over the newest claim versions of active documents. `mapped` is `{metric key: claims}`; `not_mapped_yet` counts versions `gct match` has not seen. `states` counts claims by match state (`series`, `reviewed`, `uncertain`, `not matchable`), `not_matchable` by reason. `same_period_sets` counts the periods of a series with two or more points.
+
+## series list
+- top: status, series
+- series: id, company_id, metric_key, label, document_id, reporting_boundary, boundary_detail, unit_family, period_kind, periods, latest_period_end, company, points, same_period_sets
+
+One record per series, with `points` holding only the points of its latest period (the newest `period_end`). `metric_key` is null for an unmapped label, which then has `label` (lowercased as matched) and `document_id`; a `unit as printed` series also has `document_id`. `unit_family` is the base unit (`tco2e`, `tco2`, `gj`, `kl`, `t`) or `printed:<unit text lowercased, the word in, brackets and spaces removed, or ->`. `periods` counts the distinct periods. Each point: `claim_id`, `claim_version_id`, `document_id`, `page_number`, `period_start`, `period_end`, `value_text` and `unit_text` as printed, `unit_key`, `value_base` (the value in the base unit, null when the point is not comparable or the value is not a plain Western number), `link` (`rule` or `reviewed`), `comparable` (false for a reviewed link and a `unit as printed` point), `reason` (why not comparable, else null), `review` (null, or `decision`, `contributor`, `organisation`, `capacity`, `rationale`, `created_at`) and `same_period` (how many points of the series share its period). `--metric KEY` and `--company NAME` filter.
+
+## series show
+- top: status, series
+- series: id, company_id, metric_key, label, document_id, reporting_boundary, boundary_detail, unit_family, period_kind, periods, latest_period_end, company, points, same_period_sets
+
+One series as in `series list`: the points of the latest period, or with `--all` every point, oldest period first. Nothing says whether two values of one period agree. An unknown series is refused (exit 3).
+
 ## claims list
 - top: status, document, claims
 - claims: id, page_number, locator, value_text, value, unit_text, metric_text, period_label, reporting_boundary, boundary_label, method, boxes, source_match, source_match_reason, period, boundary, claim_state, needs_re_review
@@ -157,7 +207,7 @@ One record per expectation, as for `expect add`, computed when asked.
 ## publish build
 - top: status, version, built_at, history_mark, companies, documents
 
-In the published version (`projection_schema` 4), a claim's `period_kind`, `period_start`, `period_end`, `reporting_boundary` and `boundary_detail` hold only accepted or resolved values, else what was extracted. A proposal is in `proposed_period_kind`, `proposed_period_start`, `proposed_period_end`, `proposed_reporting_boundary` and `proposed_boundary_detail`. `period_state` and `boundary_state` are `resolved`, `accepted`, `proposed`, `unresolved` or `extracted`. `period_basis` and `boundary_basis` (`{"page", "wording"}` as JSON, or null) are filled for a proposal as well as for an accepted value, so read them together with the state: while the state is `proposed` the main values stay empty.
+In the published version (`projection_schema` 4), a claim's `period_kind`, `period_start`, `period_end`, `reporting_boundary` and `boundary_detail` hold only accepted or resolved values, else what was extracted. A proposal is in `proposed_period_kind`, `proposed_period_start`, `proposed_period_end`, `proposed_reporting_boundary` and `proposed_boundary_detail`. `period_state` and `boundary_state` are `resolved`, `accepted`, `proposed`, `unresolved` or `extracted`. `period_basis` and `boundary_basis` (`{"page", "wording"}` as JSON, or null) are filled for a proposal as well as for an accepted value, so read them together with the state: while the state is `proposed` the main values stay empty. From `projection_schema` 6 (story 4.1) a claim also has `metric_key` (the assigned key, null when unmapped), `metric_rule`, `unit_key`, `unit_factor`, `series_id`, `match_state` (`series`, `reviewed`, `uncertain` or `not matchable`) and `match_reason`, and the tables `series` and `series_point` hold the series of `gct series list` and their points (a time series is `series_point` ordered by `period_end`).
 
 ## publish restore
 - top: status, version, built_at, history_mark, companies, documents
@@ -177,7 +227,7 @@ In the published version (`projection_schema` 4), a claim's `period_kind`, `peri
 - top: status, run_id, of_run, documents
 - documents: id, logical_name, pages, read, cached, flagged, failed, flags, action, cause, next_action
 
-Resuming a `read` run gives the keys of `read` plus `run_id` (the new run, null when there was nothing to read) and `of_run` (the run resumed). Resuming an `extract` run gives the keys of `extract` plus the same two, a `link` run the keys of `link`, and an `infer` run the keys of `infer`. Resuming a `doc add` run gives the keys of `doc add` (`items` in place of `documents`) plus the same two. `status`, `cause`, `next_action` and the exit codes are as for `read`, `extract` and `doc add`.
+Resuming a `read` run gives the keys of `read` plus `run_id` (the new run, null when there was nothing to read) and `of_run` (the run resumed). Resuming an `extract` run gives the keys of `extract` plus the same two, a `link` run the keys of `link`, an `infer` run the keys of `infer`, and a `match` run the keys of `match`. Resuming a `doc add` run gives the keys of `doc add` (`items` in place of `documents`) plus the same two. `status`, `cause`, `next_action` and the exit codes are as for `read`, `extract` and `doc add`.
 
 ## run retry
 - top: status, run_id, of_run, documents

@@ -122,6 +122,41 @@ def test_infer_matches_the_documented_keys(tmp_path, gct, make_file):
     assert any(c["needs_re_review"] for c in listed["claims"])
 
 
+def test_match_and_series_match_the_documented_keys(ws, gct, make_file, monkeypatch):
+    from test_match import SCOPE_1, WHO, add, ready
+    from gct.stages import match
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    check("match", gct("match", "--json").data)
+    check("match status", gct("match", "status", "--json").data)
+    check("series list", gct("series", "list", "--json").data)
+    add(gct, make_file, "a.pdf", [SCOPE_1])
+    add(gct, make_file, "d.pdf", [["Total Scope 1 emissions", "tCO2e", "999"]], periods=("FY 2024-25",), boundary=None)
+    check("match", ready(gct))
+    check("match metrics", gct("match", "metrics", "--json").data)
+    items = gct("match", "review", "--json").data
+    check("match review", items)
+    (item,) = items["items"]
+    check("match link", gct("match", "link", item["claim"], "--series", item["series"], *WHO, "--json").data)
+    check("match unlink", gct("match", "unlink", item["claim"], "--series", item["series"], *WHO, "--json").data)
+    check("match status", gct("match", "status", "--json").data)
+    listed = gct("series", "list", "--json").data
+    check("series list", listed)
+    check("series show", gct("series", "show", listed["series"][0]["id"], "--all", "--json").data)
+    real = match.assign
+    monkeypatch.setattr(match, "assign", lambda *a: (_ for _ in ()).throw(ValueError("boom")))
+    gct("correct", item["claim"], "--value", "998", *WHO)
+    failed = gct("match", "--json").data
+    assert failed["status"] == "partial"
+    monkeypatch.setattr(match, "assign", real)
+    n = gct("run", "list", "--json").data["runs"][0]["id"]
+    retried = gct("run", "retry", n, "--json").data
+    assert set(retried) == spec()["match"]["top"] | {"run_id", "of_run"}
+    for d in retried["documents"]:
+        assert set(d) == spec()["match"]["documents"]
+
+
 def test_approve_and_model_match_the_documented_keys(tmp_path, gct, monkeypatch):
     from gct.models import redact
 
@@ -202,6 +237,8 @@ def test_every_command_has_a_documented_section():
         "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc pages", "read", "extract", "link", "claims list",
         "claims history", "correct",
         "infer", "infer bases", "infer scope", "infer groups", "infer accept", "infer resolve", "infer reject",
+        "match", "match metrics", "match review", "match link", "match unlink", "match status", "series list",
+        "series show",
         "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
         "publish build", "publish restore", "publish status",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",

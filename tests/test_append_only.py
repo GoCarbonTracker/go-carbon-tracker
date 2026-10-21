@@ -23,6 +23,10 @@ def test_every_table_is_append_only(ws, db, gct, make_file):
     gct("infer", "resolve", "1", "--field", "period", "--kind", "calendar_year", "--start", "2024-01-01",
         "--end", "2024-12-31", *who)
     assert gct("correct", "1", "--value", "121", *who).code == 0
+    gct("match")
+    db.execute("INSERT INTO match_review (claim_version_id, series_key, reason, decision, contributor_version_id, capacity,"
+               " rationale, created_at) VALUES (2, 'k', 'boundary unknown', 'linked', 1, 'analyst', 'r', 't')")
+    db.commit()
     gct("expect", "add", "--company", "Acme", "--metric", "water", "--doc", "2")
     gct("pages", "accept", "--doc", "2", "--pages", "1", "--type", "figures", *who)
     gct("gap", "confirm", "1", *who)
