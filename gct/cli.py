@@ -8,6 +8,7 @@ from collections import Counter
 
 from gct import __version__
 from gct.api import server
+from gct.measure import g2
 from gct.models import adapters, policy
 from gct.stages import correct, extract, infer, link, missing, read
 from gct.workspace import intake, layout, lock, published, registry, runs, store
@@ -730,6 +731,34 @@ def cmd_workspace_status(args) -> None:
     _print(args, {"status": "ok", **st}, text)
 
 
+def _measure_line(t: dict) -> str:
+    where = " ".join(str(t[k]) for k in ("company", "document_type", "kind") if k in t)
+    return (f"{where}: Found {t['found_text']}, Partial {t['partial']}, Missed {t['missed']}, "
+            f"value and unit on the gold page {t['value_and_unit_on_gold_page']}, cannot be Found under rule 1 "
+            f"{t['ceiling']['rows']}/{t['ceiling']['of']}; {t['verdict']}" + ("; re-adjudicate" if t["re_adjudicate"] else ""))
+
+
+def cmd_measure_g2(args) -> None:
+    r = g2.measure(args.workspace, args.gold, args.seed, args.against)
+    d, delta = r["delta"], []
+    if d:
+        p = d["previous"]
+        delta = [f"{d['attributed_to'].capitalize()} delta from run {p['run_id']} (scorer version {p['scorer_version']}, "
+                 f"published version {p['published_version']}): "
+                 + "; ".join(f"{t['company']} {t['kind']} Found {t['before']} -> {t['after']} ({t['found_change']:+d})"
+                             for t in d["types"])]
+    lines = [f"published version {r['published_version']}, gct commit {r['gct_commit']}, scorer version {r['scorer_version']}",
+             *delta,
+             f"Gold {r['gold']['version']} commit {r['gold']['commit']}. {r['headline']}.",
+             *map(_measure_line, r["types"]),
+             *(f"{x['row']}: {x['state']}" for x in r["runs"]),
+             f"Adjudication seed {r['adjudication']['seed']}: {len(r['adjudication']['missed'])} Missed rows, "
+             f"{sum(len(s['ids']) for s in r['adjudication']['found_sample'])} sampled Found rows.",
+             *(_measure_line(a) for a in r["aggregate"]),
+             f"Report: {r['report_path']}"]
+    _print(args, r, "\n".join(lines))
+
+
 def cmd_serve(args) -> None:
     _open(args, write=False).close()  # locate and upgrade the workspace like every other command
     srv = server.serve(args.root, args.port)
@@ -753,7 +782,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,claims,correct,contributor,expect,pages,gap,publish,run,approve,model,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,claims,correct,contributor,expect,pages,gap,publish,run,approve,model,measure,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -931,6 +960,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     model = group("model", "model adapters (configured in models.toml)")
     model.add_parser("list", parents=[json_flag], help="list the configured model adapters").set_defaults(func=cmd_model_list)
+
+    measure = group("measure", "measurement against a gold set")
+    g2_ = measure.add_parser("g2", parents=[common], help="score the current published version against the G2 gold set")
+    g2_.add_argument("--gold", required=True, metavar="FOLDER", help="gold folder with MANIFEST.json and the jsonl files")
+    g2_.add_argument("--seed", type=int, help="seed of the adjudication sample (default: drawn and printed)")
+    g2_.add_argument("--against", metavar="REPORT", help="a previous report: print the scorer or extraction delta")
+    g2_.set_defaults(func=cmd_measure_g2)
 
     serve = top.add_parser("serve", parents=[common], help="start the local service and open it in the browser")
     serve.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (default: 8765)")

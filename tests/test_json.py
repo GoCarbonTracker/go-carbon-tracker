@@ -205,5 +205,5 @@ def test_every_command_has_a_documented_section():
         "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
         "publish build", "publish restore", "publish status",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",
-        "approve spend", "approve transfer", "approve list", "model list",
+        "approve spend", "approve transfer", "approve list", "model list", "measure g2",
     }
