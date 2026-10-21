@@ -25,11 +25,19 @@ A workspace folder for company documents, kept as an append-only history. Early 
 
 ## Resume and retry
 
-Every `gct read` and `gct doc add` run records exactly what it was given. `gct run resume ID` runs that again in a new run, for a run that was interrupted or failed: what was already done is reused from cache (pages already read, files already registered show as duplicates), so only the rest is processed. `gct run retry ID` processes again only what failed in that run and has not succeeded since: the pages that failed, a PDF that could not be opened (read again in full), or the files and links that could not be added. A document that is no longer active is reported as skipped. With nothing failed it says so and exits 0. The run that was resumed or retried is left as it was; the new run notes which one it continues. A finished run cannot be resumed (retry it instead), and only `read` and `doc add` runs can be resumed or retried.
+Every `gct read`, `gct extract` and `gct doc add` run records exactly what it was given. `gct run resume ID` runs that again in a new run, for a run that was interrupted or failed: what was already done is reused from cache (pages already read, files already registered show as duplicates), so only the rest is processed. `gct run retry ID` processes again only what failed in that run and has not succeeded since: the pages that failed (to read or to extract), a PDF that could not be opened (read again in full), or the files and links that could not be added. A document that is no longer active is reported as skipped. With nothing failed it says so and exits 0. The run that was resumed or retried is left as it was; the new run notes which one it continues. A finished run cannot be resumed (retry it instead), and only `read`, `extract` and `doc add` runs can be resumed or retried.
+
+## Claims
+
+Claims from `gct extract` come from fixed reading rules (a no-model baseline). Their accuracy is not measured yet.
+
+- `gct extract [ID ...] [--company NAME]` lists the figures on every read page: numbers in ruled tables, and numbers followed by a unit (`tCO2e`, `MWh`, `%` and a few more) in the text. Each claim keeps the metric wording, the value, the unit and the period label exactly as printed, plus the page and the box it came from. A value is filled only for a plain Western number (`1,234.5`); other forms such as `1,23,456` or `(12)` keep only the printed text. Years and numbers in the top or bottom 5% of the page are not claims. Units are recognised, never converted; periods and reporting boundaries are not worked out yet (the boundary is `unknown`). A table figure's box comes from the cell pdfplumber found; when the cell's words do not match the figure, the location is shown as unresolved, never guessed. A page whose reading has not changed is not extracted again; a new reading adds a new version of each claim and keeps the old one. Documents not read yet are skipped with a note.
+- `gct claims list --doc ID` shows one line per claim: page, value as printed, unit, metric wording, period label, boundary, and the box or "location unresolved".
+- `gct publish build` includes the newest version of each claim of active documents, with its source location.
 
 ## What does not exist yet
 
-OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), extraction, review, reports, a viewer, archive and delete.
+OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), period and boundary resolution, review, reports, a viewer, archive and delete.
 
 ## Setup
 

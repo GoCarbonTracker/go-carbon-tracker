@@ -57,6 +57,9 @@ def test_every_command_matches_the_documented_keys(tmp_path, gct, make_file):
     assert ok["status"] == "ok"
     check("read", ok)
     check("doc pages", gct("doc", "pages", 2, *w, "--json").data)
+    check("extract", gct("extract", *w, "--json").data)
+    check("claims list", gct("claims", "list", "--doc", 2, *w, "--json").data)
+    check("claims list", gct("claims", "list", "--doc", 1, *w, "--json").data)
     check("publish status", gct("publish", "status", *w, "--json").data)
     check("publish build", gct("publish", "build", *w, "--json").data)
     check("publish build", gct("publish", "build", *w, "--json").data)
@@ -145,7 +148,7 @@ def test_resume_and_retry_match_the_documented_keys(tmp_path, gct, make_file, mo
 
 def test_every_command_has_a_documented_section():
     assert set(spec()) == {
-        "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc pages", "read",
+        "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc pages", "read", "extract", "claims list",
         "publish build", "publish restore", "publish status",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",
         "approve spend", "approve transfer", "approve list", "model list",

@@ -44,6 +44,18 @@ One record per page number, from its newest reading. `document` is the id. `flag
 
 `status` is `ok` when no document and no page failed (flags are not failures; exit 0), else `partial` (exit 4), which adds `cause` and `next_action` at the top. `action` is `read`, `skipped` (not a PDF, or for `run retry` no longer active) or `failed` (the PDF could not be opened). `read` counts pages read by this command, `cached` pages already read under the same document bytes and reader settings, `failed` pages that raised. `flags` maps each quality code to its number of pages. `cause` is set for `skipped`; `cause` and `next_action` for `failed` and for a `read` document with failed pages; null otherwise. Nothing to read gives `{"status": "ok", "documents": []}`.
 
+## extract
+- top: status, documents
+- documents: id, logical_name, pages, extracted, cached, failed, figures, unresolved, action, cause, next_action
+
+`status` is `ok` when no page failed (exit 0), else `partial` (exit 4), which adds `cause` and `next_action` at the top. `action` is `extracted` or `skipped` (not a PDF, or no page read yet; then `next_action` is `read it first: gct read`). `pages` counts the read pages, `extracted` the pages extracted by this command, `cached` the pages whose reading had not changed since they were extracted. `figures` and `unresolved` count the claims of those pages and the claims whose source box could not be found. Nothing to extract gives `{"status": "ok", "documents": []}`.
+
+## claims list
+- top: status, document, claims
+- claims: page_number, locator, value_text, value, unit_text, metric_text, period_label, reporting_boundary, method, boxes
+
+One record per claim, from its newest version. `document` is the id. `value_text`, `unit_text`, `metric_text` and `period_label` are as printed; `metric_text` is null for a table row with no label; `value` is null unless the figure is in plain Western form. `reporting_boundary` is `unknown` until a later step sets it. `method` is `rung1-rules` for the fixed-rule baseline. `boxes` is a list of `[x0, top, x1, bottom]` in PDF points from the top-left of the page, or null when the location is unresolved.
+
 ## publish build
 - top: status, version, built_at, history_mark, companies, documents
 
@@ -65,13 +77,13 @@ One record per page number, from its newest reading. `document` is the id. `flag
 - top: status, run_id, of_run, documents
 - documents: id, logical_name, pages, read, cached, flagged, failed, flags, action, cause, next_action
 
-Resuming a `read` run gives the keys of `read` plus `run_id` (the new run, null when there was nothing to read) and `of_run` (the run resumed). Resuming a `doc add` run gives the keys of `doc add` (`items` in place of `documents`) plus the same two. `status`, `cause`, `next_action` and the exit codes are as for `read` and `doc add`.
+Resuming a `read` run gives the keys of `read` plus `run_id` (the new run, null when there was nothing to read) and `of_run` (the run resumed). Resuming an `extract` run gives the keys of `extract` plus the same two. Resuming a `doc add` run gives the keys of `doc add` (`items` in place of `documents`) plus the same two. `status`, `cause`, `next_action` and the exit codes are as for `read`, `extract` and `doc add`.
 
 ## run retry
 - top: status, run_id, of_run, documents
 - documents: id, logical_name, pages, read, cached, flagged, failed, flags, action, cause, next_action
 
-The same shapes as `run resume`. For a `read` run, `read` counts the failed pages read again and `pages` is still the document's page count; `action` `skipped` with a cause also marks a document no longer active. With nothing failed: `{"status": "ok", "run_id": null, "of_run": N, "documents": []}` (`items` for a `doc add` run), exit 0, and no new run.
+The same shapes as `run resume`. For a `read` run, `read` counts the failed pages read again and `pages` is still the document's page count; `action` `skipped` with a cause also marks a document no longer active. For an `extract` run, `pages` counts only the failed pages extracted again. With nothing failed: `{"status": "ok", "run_id": null, "of_run": N, "documents": []}` (`items` for a `doc add` run), exit 0, and no new run.
 
 ## approve spend
 - top: status, cap, spent

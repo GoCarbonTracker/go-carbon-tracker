@@ -16,9 +16,31 @@ CREATE TABLE document (
     id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL, logical_name TEXT NOT NULL, version INTEGER NOT NULL,
     sha256 TEXT NOT NULL, kind TEXT NOT NULL, file_type TEXT NOT NULL, privacy TEXT NOT NULL, size_bytes INTEGER NOT NULL
 );
+CREATE TABLE claim (
+    id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL, document_id INTEGER NOT NULL, page_number INTEGER NOT NULL,
+    locator TEXT NOT NULL, sector_ref TEXT, sector_version TEXT, claim_version_id INTEGER NOT NULL, method TEXT NOT NULL,
+    config_version TEXT NOT NULL, metric_text TEXT, value_text TEXT NOT NULL, value REAL, unit_text TEXT,
+    period_label TEXT, period_kind TEXT, period_start TEXT, period_end TEXT, metric_key TEXT,
+    reporting_boundary TEXT NOT NULL, boundary_detail TEXT
+);
+CREATE TABLE evidence_ref (
+    id INTEGER PRIMARY KEY, claim_version_id INTEGER NOT NULL, document_id INTEGER NOT NULL, page_number INTEGER,
+    boxes TEXT, sheet TEXT, cell TEXT
+);
 """
 COMPANY_COLUMNS = "id, name, sector_ref, sector_version"
 DOCUMENT_COLUMNS = "id, company_id, logical_name, version, sha256, kind, file_type, privacy, size_bytes"
+# The newest version of each claim of an active document.
+NEWEST_CLAIMS = f"""
+FROM claim c JOIN claim_version v ON v.id = (SELECT MAX(id) FROM claim_version WHERE claim_id = c.id)
+JOIN document d ON d.id = c.document_id WHERE {ACTIVE} IN ('registered', 'restored')
+"""
+CLAIM_COLUMNS = (
+    "c.id, c.company_id, c.document_id, c.page_number, c.locator, c.sector_ref, c.sector_version, v.id, v.method,"
+    " v.config_version, v.metric_text, v.value_text, v.value, v.unit_text, v.period_label, v.period_kind,"
+    " v.period_start, v.period_end, v.metric_key, v.reporting_boundary, v.boundary_detail"
+)
+EVIDENCE_COLUMNS = "e.id, e.claim_version_id, e.document_id, e.page_number, e.boxes, e.sheet, e.cell"
 
 BUILD_AGAIN = "Build a fresh version with: gct publish build"
 
@@ -37,7 +59,7 @@ def open_version(path: Path) -> sqlite3.Connection:
 def history_mark(conn: sqlite3.Connection) -> str:
     return ".".join(
         str(conn.execute(f"SELECT COALESCE(MAX(id), 0) FROM {t}").fetchone()[0])
-        for t in ("company", "document", "document_state")
+        for t in ("company", "document", "document_state", "claim", "claim_version", "evidence_ref")
     )
 
 
@@ -65,7 +87,7 @@ def _info(conn: sqlite3.Connection, version: int) -> dict:
 
 
 def _read_history(conn: sqlite3.Connection):
-    """One consistent snapshot of the history: (mark, companies, active documents)."""
+    """One consistent snapshot of the history: (mark, companies, active documents, their claims, evidence refs)."""
     conn.execute("BEGIN")
     try:
         mark = history_mark(conn)
@@ -73,12 +95,17 @@ def _read_history(conn: sqlite3.Connection):
         docs = conn.execute(
             f"SELECT {DOCUMENT_COLUMNS} FROM document d WHERE {ACTIVE} IN ('registered', 'restored') ORDER BY id"
         ).fetchall()
+        claims = conn.execute(f"SELECT {CLAIM_COLUMNS} {NEWEST_CLAIMS} ORDER BY c.id").fetchall()
+        refs = conn.execute(
+            f"SELECT {EVIDENCE_COLUMNS} FROM evidence_ref e WHERE e.claim_version_id IN (SELECT v.id {NEWEST_CLAIMS})"
+            " ORDER BY e.id"
+        ).fetchall()
     finally:
         conn.execute("COMMIT")
-    return mark, companies, docs
+    return mark, companies, docs, claims, refs
 
 
-def _write_projection(path: Path, meta: dict, companies, docs) -> None:
+def _write_projection(path: Path, meta: dict, companies, docs, claims, refs) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.unlink(missing_ok=True)
     out = sqlite3.connect(tmp, isolation_level=None)
@@ -90,6 +117,8 @@ def _write_projection(path: Path, meta: dict, companies, docs) -> None:
         out.executemany("INSERT INTO meta VALUES (?, ?)", [(k, str(v)) for k, v in meta.items()])
         out.executemany(f"INSERT INTO company VALUES ({','.join('?' * 4)})", [tuple(r) for r in companies])
         out.executemany(f"INSERT INTO document VALUES ({','.join('?' * 9)})", [tuple(r) for r in docs])
+        out.executemany(f"INSERT INTO claim VALUES ({','.join('?' * 21)})", [tuple(r) for r in claims])
+        out.executemany(f"INSERT INTO evidence_ref VALUES ({','.join('?' * 7)})", [tuple(r) for r in refs])
         out.execute("COMMIT")
     except BaseException:
         out.close()
@@ -102,6 +131,7 @@ def _write_projection(path: Path, meta: dict, companies, docs) -> None:
             check.execute("SELECT value FROM meta WHERE key = 'version'").fetchone()[0] == str(meta["version"])
             and check.execute("SELECT COUNT(*) FROM company").fetchone()[0] == len(companies)
             and check.execute("SELECT COUNT(*) FROM document").fetchone()[0] == len(docs)
+            and check.execute("SELECT COUNT(*) FROM claim").fetchone()[0] == len(claims)
         )
     finally:
         check.close()
@@ -116,13 +146,13 @@ def build(conn: sqlite3.Connection, root: Path) -> dict:
     root = Path(root)
     (root / "published").mkdir(exist_ok=True)
     version = (conn.execute("SELECT MAX(version) FROM published_version").fetchone()[0] or 0) + 1
-    mark, companies, docs = _read_history(conn)
+    mark, companies, docs, claims, refs = _read_history(conn)
     built_at = store.now()
     meta = {
         "version": version, "built_at": built_at, "history_mark": mark,
-        "gct_version": __version__, "projection_schema": 1,
+        "gct_version": __version__, "projection_schema": 2,
     }
-    _write_projection(version_path(root, version), meta, companies, docs)
+    _write_projection(version_path(root, version), meta, companies, docs, claims, refs)
     with store.transaction(conn):
         conn.execute(
             "INSERT INTO published_version (version, built_at, history_mark, companies, documents, gct_version)"

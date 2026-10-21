@@ -32,7 +32,8 @@ for mod in pkgutil.walk_packages(gct.__path__, "gct."):
 from gct import cli
 for argv in (["workspace", "init", sys.argv[1]], ["company", "add", "Acme", "--workspace", sys.argv[1]],
              ["doc", "add", sys.argv[2], "--company", "Acme", "--workspace", sys.argv[1]],
-             ["read", "--workspace", sys.argv[1]], ["run", "retry", "2", "--workspace", sys.argv[1]], ["model", "list"],
+             ["read", "--workspace", sys.argv[1]], ["run", "retry", "2", "--workspace", sys.argv[1]],
+             ["extract", "--workspace", sys.argv[1]], ["model", "list"],
              ["approve", "spend", "1", "--workspace", sys.argv[1]]):
     assert cli.main(argv) == 0
 """

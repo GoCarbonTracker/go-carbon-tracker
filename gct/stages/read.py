@@ -46,7 +46,7 @@ ORDER BY p.page_number
 
 def read_config() -> str:
     """Called once per command, so a changed threshold or pdfplumber version is never served a stale reading."""
-    return version_of("read", 1, "pdfplumber", version("pdfplumber"), quality.thresholds())
+    return version_of("read", 2, "pdfplumber", version("pdfplumber"), quality.thresholds())
 
 
 class _Page:
@@ -71,7 +71,9 @@ def read_page(page) -> dict:
         "height": _r(page.height),
         "text": page.extract_text() or "",
         "words": [{"text": w["text"], **{k: _r(w[k]) for k in ("x0", "top", "x1", "bottom")}} for w in page.extract_words()],
-        "tables": [{"bbox": [_r(v) for v in t.bbox], "rows": t.extract()} for t in page.find_tables()],
+        "tables": [{"bbox": [_r(v) for v in t.bbox], "rows": t.extract(),
+                    "cells": [[c and [_r(v) for v in c] for c in row.cells] for row in t.rows]}
+                   for t in page.find_tables()],
     }
     page.close()  # drop pdfplumber's per-page cache so a long report does not pile up in memory
     return reading

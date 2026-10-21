@@ -9,7 +9,7 @@ from collections import Counter
 from gct import __version__
 from gct.api import server
 from gct.models import adapters, policy
-from gct.stages import read
+from gct.stages import extract, read
 from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -164,6 +164,57 @@ def cmd_doc_pages(args) -> None:
     _print(args, {"status": "ok", "document": args.id, "pages": ps}, text)
 
 
+EXTRACT_TOTALS = ("pages", "extracted", "cached", "failed", "figures", "unresolved")
+
+
+def _extract_line(d: dict) -> str:
+    if d["action"] != "extracted":
+        return f"{d['action']} {d['id']}: {d['logical_name']}: {d['cause']}" + (f" ({d['next_action']})" if d["next_action"] else "")
+    return (f"extracted {d['id']}: {d['logical_name']}: {d['pages']} pages, {d['extracted']} extracted, "
+            f"{d['cached']} cached, {d['failed']} failed, {d['figures']} figures, {d['unresolved']} unresolved boxes")
+
+
+def cmd_extract(args) -> int:
+    _, docs = extract.extract(_open(args), args.root, args.ids, args.company)
+    return _extract_out(args, docs)
+
+
+def _extract_out(args, docs, head=None, extra=None) -> int:
+    """Print extract documents. head is a first text line and extra more top-level keys (resume and retry)."""
+    extra = extra or {}
+    if not docs:
+        _print(args, {"status": "ok", **extra, "documents": []}, "Nothing to extract.")
+        return 0
+    total = {k: sum(d[k] for d in docs) for k in EXTRACT_TOTALS}
+    text = "\n".join([
+        *([head] if head else []),
+        *map(_extract_line, docs),
+        f"Total: {len(docs)} documents, {total['pages']} pages, {total['extracted']} extracted, {total['cached']} cached, "
+        f"{total['failed']} failed, {total['figures']} figures, {total['unresolved']} unresolved boxes",
+    ])
+    bad = [d for d in docs if d["failed"]]
+    if not bad:
+        _print(args, {"status": "ok", **extra, "documents": docs}, text)
+        return 0
+    cause = f"{len(bad)} of {len(docs)} documents were not fully extracted: " + ", ".join(str(d["id"]) for d in bad)
+    _print(args, {"status": "partial", "cause": cause, "next_action": extract.RETRY, **extra, "documents": docs}, text)
+    if not args.json:
+        print(f"error: {cause}\nnext: {extract.RETRY}", file=sys.stderr)
+    return layout.REFUSED
+
+
+def _claim_line(c: dict) -> str:
+    box = "box " + ", ".join(f"{v:g}" for v in c["boxes"][0]) if c["boxes"] else "location unresolved"
+    return (f"p{c['page_number']}  {c['value_text']}  {c['unit_text'] or '-'}  {c['metric_text'] or '-'}  "
+            f"{c['period_label'] or '-'}  {c['reporting_boundary']}  {box}")
+
+
+def cmd_claims_list(args) -> None:
+    cs = extract.claims(_open(args, write=False), args.doc)
+    text = "\n".join(map(_claim_line, cs)) or f"No claims yet. Run: gct extract {args.doc}"
+    _print(args, {"status": "ok", "document": args.doc, "claims": cs}, text)
+
+
 def _version_line(v: dict) -> str:
     return f"version {v['version']} ({v['companies']} companies, {v['documents']} documents, built {v['built_at']})"
 
@@ -232,14 +283,16 @@ def cmd_run_show(args) -> None:
 
 
 AGAIN = {"read": "Run gct read again with the same documents.",
+         "extract": "Run gct extract again with the same documents.",
          "doc add": "Run gct doc add again with the same files."}
+STAGES = {"read": (read, _read_out), "extract": (extract, _extract_out)}
 
 
 def _of_run(conn, n: int, verb: str) -> dict:
-    """Run n, which must be a read or doc add run."""
+    """Run n, which must be a read, extract or doc add run."""
     r = runs.show_run(conn, n)
     if r["command"] not in AGAIN:
-        raise GctError(layout.REFUSED, f"Run {n} was a {r['command']} run. Only read and doc add runs can be {verb}.",
+        raise GctError(layout.REFUSED, f"Run {n} was a {r['command']} run. Only read, extract and doc add runs can be {verb}.",
                        "See the runs with: gct run list")
     return r
 
@@ -253,10 +306,13 @@ def _selection(conn, r: dict) -> dict:
 
 
 def _replay(args, conn, r: dict, sel: dict, note: str, head: str) -> int:
-    """Run the recorded selection of a read or doc add run again in a new run."""
+    """Run the recorded selection of a read, extract or doc add run again in a new run."""
     if r["command"] == "read":
         run_id, docs = read.read(conn, args.root, sel["ids"], sel["company"], [note])
         return _read_out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": r["id"]})
+    if r["command"] == "extract":
+        run_id, docs = extract.extract(conn, args.root, sel["ids"], sel["company"], [note])
+        return _extract_out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": r["id"]})
     run_id, items = intake.add(conn, args.root, notes=[note], **sel)
     return _doc_add_out(args, items, head=head.format(run_id), extra={"run_id": run_id, "of_run": r["id"]})
 
@@ -274,14 +330,15 @@ def cmd_run_retry(args) -> int:
     conn = _open(args)
     r = _of_run(conn, args.id, "retried")
     note, head = f"retries failed items of run {args.id}", f"Run {{}} retries the failed items of run {args.id}."
-    wanted = read.failed(conn, args.id) if r["command"] == "read" else intake.failed(conn, args.id)
+    stage, out = STAGES.get(r["command"], (intake, None))
+    wanted = stage.failed(conn, args.id)
     if not wanted:
-        key = "documents" if r["command"] == "read" else "items"
+        key = "documents" if out else "items"
         _print(args, {"status": "ok", "run_id": None, "of_run": args.id, key: []}, f"Run {args.id} has no failed items.")
         return 0
-    if r["command"] == "read":
-        run_id, docs = read.retry(conn, args.root, wanted, [note])
-        return _read_out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": args.id})
+    if out:
+        run_id, docs = stage.retry(conn, args.root, wanted, [note])
+        return out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": args.id})
     return _replay(args, conn, r, {**_selection(conn, r), "sources": wanted}, note, head)
 
 
@@ -393,7 +450,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,publish,run,approve,model,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,claims,publish,run,approve,model,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -437,6 +494,16 @@ def build_parser() -> argparse.ArgumentParser:
     rd.add_argument("--company", help="only this company's documents")
     rd.set_defaults(func=cmd_read)
 
+    ex = top.add_parser("extract", parents=[common], help="list the figures on read pages with fixed rules (no model)")
+    ex.add_argument("ids", nargs="*", type=int, metavar="ID", help="documents to extract (default: every active document)")
+    ex.add_argument("--company", help="only this company's documents")
+    ex.set_defaults(func=cmd_extract)
+
+    claims = group("claims", "figures extracted from documents")
+    lst = claims.add_parser("list", parents=[common], help="list one document's claims with their source location")
+    lst.add_argument("--doc", type=int, required=True, metavar="ID")
+    lst.set_defaults(func=cmd_claims_list)
+
     publish = group("publish", "published data versions")
     publish.add_parser("build", parents=[common], help="build the next version and make it current").set_defaults(func=cmd_publish_build)
     publish.add_parser("restore", parents=[common], help="make the previous version current again").set_defaults(func=cmd_publish_restore)
@@ -447,7 +514,7 @@ def build_parser() -> argparse.ArgumentParser:
     show = run.add_parser("show", parents=[common], help="show one run with its totals and events")
     show.add_argument("id", type=int)
     show.set_defaults(func=cmd_run_show)
-    resume = run.add_parser("resume", parents=[common], help="finish an interrupted or failed read or doc add run")
+    resume = run.add_parser("resume", parents=[common], help="finish an interrupted or failed read, extract or doc add run")
     resume.add_argument("id", type=int)
     resume.set_defaults(func=cmd_run_resume)
     retry = run.add_parser("retry", parents=[common], help="process again only the items that failed in one run")
