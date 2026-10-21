@@ -64,7 +64,7 @@ def full_flow(srv):
     assert set_cookie.startswith(f"gct_session={srv.token};")
     assert "HttpOnly" in set_cookie and "samesite=strict" in set_cookie.lower()
     status, headers, body = call(p, "/", **cookie(srv))
-    assert status == 200 and headers["content-type"].startswith("text/html") and __version__ in body
+    assert status == 200 and headers["content-type"].startswith("text/html") and '<div id="root">' in body
     assert call(p, "/")[0] == 401
     assert call(p, "/?token=wrong")[0] == 401
     assert call(p, "/api/health", Authorization=f"Bearer {srv.token}")[0] == 200
@@ -89,10 +89,8 @@ def test_health_names_the_published_data_version(ws, running, gct):
     assert status == 200
     assert json.loads(body) == {"status": "ok", "gct_version": __version__, "workspace": str(ws.resolve()),
                                 "data_version": None}
-    assert "no published version yet" in call(running.port, "/", **cookie(running))[2]
     assert gct("publish", "build").code == 0
     assert json.loads(call(running.port, "/api/health", **cookie(running))[2])["data_version"] == 1
-    assert "published data version 1" in call(running.port, "/", **cookie(running))[2]
 
 
 def test_unknown_path_is_404_json(running):

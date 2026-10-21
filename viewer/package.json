@@ -1,0 +1,18 @@
+{
+  "name": "gct-viewer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build"
+  },
+  "devDependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "vite": "6.4.4",
+    "@vitejs/plugin-react": "4.7.0",
+    "typescript": "5.9.3",
+    "@types/react": "18.3.27",
+    "@types/react-dom": "18.3.7"
+  }
+}

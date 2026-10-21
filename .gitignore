@@ -4,5 +4,6 @@ __pycache__/
 .pytest_cache/
 build/
 dist/
+viewer/node_modules/
 # workspaces created by hand while testing
 test-workspaces/

@@ -1,0 +1,3 @@
+# Hashed and rebuilt byte for byte by tests/test_viewer.py: no line-ending conversion on checkout.
+viewer/** -text
+gct/viewer_dist/** -text

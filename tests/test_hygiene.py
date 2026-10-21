@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -60,7 +61,7 @@ def test_company_list_does_not_import_pdfplumber(tmp_path):
 
 def test_no_runtime_dependencies():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
-    assert project["dependencies"] == ["fastapi>=0.115", "uvicorn>=0.30", "pdfplumber>=0.11"]
+    assert project["dependencies"] == ["fastapi>=0.115", "uvicorn>=0.30", "pdfplumber>=0.11", "pypdfium2>=5.9"]
     assert project["requires-python"] == ">=3.11"
     assert project["optional-dependencies"]["dev"] == ["pytest"]
 
@@ -76,6 +77,21 @@ def test_console_script_help():
         pytest.skip("gct is not installed in this environment (pip install -e '.[dev]')")
     r = subprocess.run([str(script), "--help"], capture_output=True, text=True)
     assert r.returncode == 0 and "workspace" in r.stdout
+
+
+def test_no_home_paths_or_large_files():
+    """The committed viewer build is the likeliest place for either to slip in."""
+    if not (ROOT / ".git").exists():
+        pytest.skip("not a git checkout")
+    tracked = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True).stdout.split("\0")
+    home = str(Path.home()).encode()
+    anyone_home = re.compile(rb"/(?:Users|home)/[A-Za-z0-9._-]+/")  # also on another contributor's machine or CI
+    for name in filter(None, tracked):
+        path = ROOT / name
+        if path.is_file():
+            assert path.stat().st_size < 1_000_000, name
+            data = path.read_bytes()
+            assert home not in data and not anyone_home.search(data), name
 
 
 PRIVATE_BACKUP = "github.com/gocarbontracker/gct-release"
