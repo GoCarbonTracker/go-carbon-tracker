@@ -17,7 +17,7 @@ from gct.workspace import registry, runs, store
 from gct.workspace.layout import NOT_FOUND, REFUSED, USAGE, GctError
 
 METHOD = "infer-rules"
-RULES_VERSION = 1
+RULES_VERSION = 2
 CONFIG = version_of("infer", 1, RULES_VERSION)
 KINDS = ("fiscal_year", "calendar_year", "half", "quarter", "as_at")
 BOUNDARIES = ("standalone", "subsidiary_set", "consolidated")
@@ -61,7 +61,7 @@ FY_RANGE = re.compile(rf"{FY_WORD}[^.]{{0,80}}?({DATE})\s+to\s+({DATE})|({DATE})
 # Boundary statements (B1). The BRSR item-13 question names both bases, so it is removed before anything is read.
 QUESTION = re.compile(r"are\s+the\s+disclosures\s+under\s+this\s+report\s+made\s+on\s+a\s+standalone\s+basis.{0,400}?"
                       r"consolidated\s+basis(?:\s*\([^)]*\))?\.?", re.I | re.S)
-B1 = re.compile(r"\b(?:prepared|reports?|reporting)\b[^.]{0,80}?\bon\s+an?\s+(standalone|consolidated)\s+basis"
+B1 = re.compile(r"\b(?:prepared|reports?|reporting)\b[^.]{0,80}?\bon\s+(?:an?\s+)?(standalone|consolidated)\s+basis"
                 r"(?:\s*,?\s*i\.\s?e[.,]+\s*(?P<detail>[^.]+))?", re.I)
 COMBINED = re.compile(r"combin\w*\s+the\s+information\s+of[^.]+", re.I)
 HEADING = re.compile(r"reporting\s+boundary", re.I)
@@ -233,8 +233,9 @@ def bases_of(reading: dict) -> tuple[list[dict], bool]:
                           "period_start": start.isoformat(), "period_end": end.isoformat()})
     answers = QUESTION.sub(" ", text)
     for m in B1.finditer(answers):
-        if re.search(r"disclosures\s+under\s+this\s*$", answers[max(0, m.start() - 40):m.start()], re.I):
-            continue  # the rest of a question the removal did not catch
+        if re.search(r"\bare\s+the\s+disclosures\s+under\s+this\s*$", answers[max(0, m.start() - 40):m.start()], re.I):
+            continue  # the rest of a question the removal did not catch; the answer's "The disclosures under this
+            # report are made on Standalone basis" (Mahindra p114 in column order) is a statement
         if re.search(r"\b(?:not|no|never)\b", answers[max(answers.rfind(s, 0, m.start()) for s in (". ", ", ", "; ")) + 1:m.start(1)], re.I):
             continue  # "not required to report on a consolidated basis" in the same clause states no boundary
         boundary, detail, wording = m[1].lower(), m["detail"] and _clean(m["detail"]).rstrip(" ,;:"), m[0]

@@ -189,6 +189,24 @@ ul {
   margin: 0;
 }
 
+.correct {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.6rem;
+  max-width: 24rem;
+}
+
+.correct h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.correct label {
+  display: grid;
+  gap: 0.1rem;
+  font-size: 0.85rem;
+}
+
 .status {
   display: inline-block;
   font-size: 0.8rem;

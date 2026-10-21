@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { boundaryText, decide, label, newestOnly, overlayShown, periodText, stepClaim, stepPage, type Claim } from "./logic.ts";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { boundaryText, correctionBody, correctionText, type CorrectionFields, decide, label, newestOnly, overlayShown, periodText, reReviewText, stepClaim, stepPage, type Claim } from "./logic.ts";
 
 type Company = { id: number; name: string; documents: Doc[] };
 type Doc = { id: number; logical_name: string; version: number; file_type: string };
@@ -43,6 +43,53 @@ function StatusLabel({ claim }: { claim: Claim }) {
 
 function figure(c: Claim): string {
   return c.unit_text ? `${c.value_text} ${c.unit_text}` : c.value_text;
+}
+
+const EMPTY: CorrectionFields = { value: "", unit: "", metric: "", period_label: "", contributor: "", capacity: "", rationale: "" };
+const FIELDS: [keyof CorrectionFields, string][] = [
+  ["value", "Value"], ["unit", "Unit"], ["metric", "Metric wording"], ["period_label", "Period label"],
+  ["contributor", "Contributor key"], ["capacity", "Capacity"], ["rationale", "Rationale"],
+];
+
+function CorrectionForm({ claimId, onDone }: { claimId: number; onDone: () => Promise<void> }) {
+  const [f, setF] = useState(EMPTY);
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setFailure(null);
+    try {
+      const r = await fetch(`/api/claims/${claimId}/corrections`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(correctionBody(f)),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new ApiError(data);
+      setF(EMPTY);
+      await onDone();
+    } catch (err) {
+      setFailure(failureOf(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="correct" onSubmit={submit}>
+      <h3>Correct this figure</h3>
+      {FIELDS.map(([k, text]) => (
+        <label key={k}>
+          {text}
+          <input name={k} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
+        </label>
+      ))}
+      <button type="submit" disabled={busy || !f.contributor.trim() || !f.capacity.trim() || !f.rationale.trim()}>
+        Save correction
+      </button>
+      {failure && <Problem failure={failure} />}
+    </form>
+  );
 }
 
 export function App() {
@@ -98,6 +145,17 @@ export function App() {
     } catch (e) {
       if (docRequests.isCurrent(id)) setFailure(failureOf(e));
     }
+  };
+
+  // After a correction: the new published version's claims, the same claim still selected.
+  const reload = async () => {
+    const [h, list] = await Promise.all([
+      get<{ gct_version: string; data_version: number | null }>("/api/health"),
+      get<{ claims: Claim[] }>(`/api/documents/${opened!.id}/claims`),
+    ]);
+    setHealth(h);
+    setSelected(list.claims.findIndex((c) => c.id === claims[selected].id));
+    setClaims(list.claims);
   };
 
   const pageCount = opened ? opened.pages.length : 0;
@@ -215,11 +273,32 @@ export function App() {
                   <dd>{periodText(current)}</dd>
                   <dt>Boundary</dt>
                   <dd>{boundaryText(current)}</dd>
+                  {current.boundary_label !== null && (
+                    <>
+                      <dt>Boundary label</dt>
+                      <dd>{current.boundary_label}</dd>
+                    </>
+                  )}
+                  <dt>State</dt>
+                  <dd>{current.claim_state}</dd>
+                  {current.correction && (
+                    <>
+                      <dt>Corrected</dt>
+                      <dd>{correctionText(current.correction)}</dd>
+                    </>
+                  )}
+                  {current.needs_re_review.map((e) => (
+                    <Fragment key={`${e.kind}-${e.id}`}>
+                      <dt>Needs re-review</dt>
+                      <dd>{reReviewText(e)}</dd>
+                    </Fragment>
+                  ))}
                   <dt>Source</dt>
                   <dd>
                     <StatusLabel claim={current} />
                   </dd>
                 </dl>
+                {current.claim_state === "current" && <CorrectionForm key={current.id} claimId={current.id} onDone={reload} />}
                 {decision === "do not navigate" && (
                   <p className="hint">
                     {current.page === null
@@ -273,7 +352,10 @@ export function App() {
               >
                 <span className="figure">{figure(c)}</span>
                 <span className="wording">{c.metric_text ?? "(no wording)"}</span>
-                <span className="meta">{c.page === null ? "no page" : `page ${c.page}`}</span>
+                <span className="meta">
+                  {c.page === null ? "no page" : `page ${c.page}`}
+                  {c.claim_state !== "current" && ` · ${c.claim_state}`}
+                </span>
                 <StatusLabel claim={c} />
               </button>
             </li>

@@ -71,6 +71,10 @@ def refusals(ws, tmp_path, make_file):
         (["pages", "accept", "--doc", "1", "--pages", "1", "--type", "figures", "--as", "bob", "--capacity", "c",
           "--rationale", "r", "--workspace", ws], 3),
         (["gap", "confirm", "99", *WHO, "--workspace", ws], 3),
+        (["correct", "99", "--value", "1", *WHO, "--workspace", ws], 3),
+        (["correct", "99", *WHO, "--workspace", ws], 2),
+        (["correct", "99", "--value", " ", *WHO, "--workspace", ws], 3),
+        (["claims", "history", "99", "--workspace", ws], 3),
         (["serve", "--no-open", "--workspace", tmp_path / "nowhere"], 3),
     ]
 

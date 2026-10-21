@@ -113,6 +113,13 @@ def test_infer_matches_the_documented_keys(tmp_path, gct, make_file):
     check("infer reject", gct("infer", "reject", proposed[1], *who, *w, "--json").data)
     check("infer resolve", gct("infer", "resolve", 1, "--field", "boundary", "--boundary", "standalone", *who, *w, "--json").data)
     check("claims list", gct("claims", "list", "--doc", 1, *w, "--json").data)
+    check("correct", gct("correct", 1, "--value", "4,570", *who, *w, "--json").data)
+    history = gct("claims", "history", 1, *w, "--json").data
+    check("claims history", history)
+    assert history["versions"][0]["reviews"] and history["versions"][1]["correction"]
+    listed = gct("claims", "list", "--doc", 1, "--state", "current", *w, "--json").data
+    check("claims list", listed)
+    assert any(c["needs_re_review"] for c in listed["claims"])
 
 
 def test_approve_and_model_match_the_documented_keys(tmp_path, gct, monkeypatch):
@@ -193,6 +200,7 @@ def test_resume_and_retry_match_the_documented_keys(tmp_path, gct, make_file, mo
 def test_every_command_has_a_documented_section():
     assert set(spec()) == {
         "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc pages", "read", "extract", "link", "claims list",
+        "claims history", "correct",
         "infer", "infer bases", "infer scope", "infer groups", "infer accept", "infer resolve", "infer reject",
         "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
         "publish build", "publish restore", "publish status",

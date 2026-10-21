@@ -19,12 +19,13 @@ CREATE TABLE document (
 );
 CREATE TABLE claim (
     id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL, document_id INTEGER NOT NULL, page_number INTEGER NOT NULL,
-    locator TEXT NOT NULL, sector_ref TEXT, sector_version TEXT, claim_version_id INTEGER NOT NULL, method TEXT NOT NULL,
+    locator TEXT NOT NULL, sector_ref TEXT, sector_version TEXT, claim_version_id INTEGER NOT NULL, version_method TEXT NOT NULL,
     config_version TEXT NOT NULL, metric_text TEXT, value_text TEXT NOT NULL, value REAL, unit_text TEXT,
     period_label TEXT, period_kind TEXT, period_start TEXT, period_end TEXT, metric_key TEXT,
     reporting_boundary TEXT NOT NULL, boundary_detail TEXT, period_state TEXT NOT NULL, boundary_state TEXT NOT NULL,
     period_basis TEXT, boundary_basis TEXT, proposed_period_kind TEXT, proposed_period_start TEXT,
-    proposed_period_end TEXT, proposed_reporting_boundary TEXT, proposed_boundary_detail TEXT
+    proposed_period_end TEXT, proposed_reporting_boundary TEXT, proposed_boundary_detail TEXT, boundary_label TEXT,
+    claim_state TEXT NOT NULL, correction TEXT, needs_re_review TEXT NOT NULL
 );
 CREATE TABLE evidence_ref (
     id INTEGER PRIMARY KEY, claim_version_id INTEGER NOT NULL, document_id INTEGER NOT NULL, page_number INTEGER,
@@ -63,7 +64,7 @@ JOIN document d ON d.id = c.document_id WHERE {ACTIVE} IN ('registered', 'restor
 CLAIM_COLUMNS = (
     "c.id, c.company_id, c.document_id, c.page_number, c.locator, c.sector_ref, c.sector_version, v.id, v.method,"
     " v.config_version, v.metric_text, v.value_text, v.value, v.unit_text, v.period_label, v.period_kind,"
-    " v.period_start, v.period_end, v.metric_key, v.reporting_boundary, v.boundary_detail"
+    " v.period_start, v.period_end, v.metric_key, v.reporting_boundary, v.boundary_detail, v.boundary_label"
 )
 EVIDENCE_COLUMNS = (
     "e.id, e.claim_version_id, e.document_id, e.page_number, e.boxes, e.sheet, e.cell,"
@@ -93,7 +94,9 @@ def history_mark(conn: sqlite3.Connection) -> str:
                   "page", "contributor_version", "expected_item", "page_acceptance", "gap_confirmation",
                   # A failed re-read changes a state without adding a page row.
                   "attempt WHERE stage = 'read'",
-                  "basis", "basis_scope", "inference", "inference_review")
+                  "basis", "basis_scope", "inference", "inference_review",
+                  # A claim's state follows the extractions, including one that found nothing on its page.
+                  "correction", "claim_seen", "attempt WHERE stage = 'extract'")
     )
 
 
@@ -142,12 +145,20 @@ def _missing(conn: sqlite3.Connection, root: Path) -> dict:
 def _with_inference(conn: sqlite3.Connection, claims) -> list[tuple]:
     """Claim rows with the period and boundary taken in order: resolved, else accepted for the current inference, else
     the claim version's own. A proposal goes to the proposed_* columns only, so a reader of the main fields never
-    sees it."""
-    from gct.stages import infer  # the stages import this package
+    sees it. Then the boundary label, the claim's state, the correction that made the version and the decisions
+    that need re-review (story 3.5)."""
+    from gct.stages import correct, infer  # the stages import this package
 
-    eff, out = infer.effective(conn), []
+    eff, out, per_doc = infer.effective(conn), [], {}
     for row in claims:
-        row, e = list(row), eff[row[0]]
+        doc = row[2]
+        if doc not in per_doc:
+            per_doc[doc] = correct.states(conn, doc), correct.re_review(conn, doc)
+        states, reviews = per_doc[doc]
+        made_by = correct.correction_of(conn, row[7])
+        extra = (row[-1], states[row[0]], made_by and json.dumps(made_by, ensure_ascii=False),
+                 json.dumps(reviews.get(row[0], [])))
+        row, e = list(row[:-1]), eff[row[0]]
         p, b = e["period"], e["boundary"]
         if p["state"] in ("resolved", "accepted"):
             row[15:18] = p["kind"], p["start"], p["end"]
@@ -157,7 +168,7 @@ def _with_inference(conn: sqlite3.Connection, claims) -> list[tuple]:
                  if x["basis"] else None for x in (p, b)]
         proposed = ([p["kind"], p["start"], p["end"]] if p["state"] == "proposed" else [None] * 3) + (
             [b["boundary"], b["detail"]] if b["state"] == "proposed" else [None] * 2)
-        out.append((*row, p["state"], b["state"], *basis, *proposed))
+        out.append((*row, p["state"], b["state"], *basis, *proposed, *extra))
     return out
 
 
@@ -194,7 +205,7 @@ def _write_projection(path: Path, meta: dict, companies, docs, claims, refs, ext
         out.executemany("INSERT INTO meta VALUES (?, ?)", [(k, str(v)) for k, v in meta.items()])
         out.executemany(f"INSERT INTO company VALUES ({','.join('?' * 4)})", [tuple(r) for r in companies])
         out.executemany(f"INSERT INTO document VALUES ({','.join('?' * 9)})", [tuple(r) for r in docs])
-        out.executemany(f"INSERT INTO claim VALUES ({','.join('?' * 30)})", [tuple(r) for r in claims])
+        out.executemany(f"INSERT INTO claim VALUES ({','.join('?' * 34)})", [tuple(r) for r in claims])
         out.executemany(f"INSERT INTO evidence_ref VALUES ({','.join('?' * 9)})", [tuple(r) for r in refs])
         for table, rows in extra.items():
             rows = [tuple(r) for r in rows]
@@ -231,7 +242,7 @@ def build(conn: sqlite3.Connection, root: Path) -> dict:
     built_at = store.now()
     meta = {
         "version": version, "built_at": built_at, "history_mark": mark,
-        "gct_version": __version__, "projection_schema": 4,
+        "gct_version": __version__, "projection_schema": 5,
     }
     _write_projection(version_path(root, version), meta, companies, docs, claims, refs, extra)
     with store.transaction(conn):

@@ -55,8 +55,11 @@ def build(folder: str | Path) -> Path:
         hand_claim(db, 1, 999, "unknown-page")  # becomes unresolved: page not read
         gct("link", *w)
         hand_claim(db, 1, 2, "not-checked")  # added after the link run: no source-match row
+        water = db.execute("SELECT id FROM claim WHERE page_number = 3").fetchone()[0]  # extracted, so current
     finally:
         db.close()
+    gct("contributor", "add", "ann", "--name", "Ann", *w)
+    gct("correct", water, "--value", "9,877", "--as", "ann", "--capacity", "analyst", "--rationale", "misread digit", *w)
     gct("publish", "build", *w)
     return root
 

@@ -10,22 +10,27 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 
 from gct import __version__
-from gct.workspace import layout, published, registry, store
+from gct.workspace import layout, lock, published, registry, runs, store
+from gct.workspace.layout import GctError
 
 COOKIE = "gct_session"
 OPEN_LAUNCH_URL = "Open the address printed by gct serve."
 VIEWER = Path(__file__).resolve().parent.parent / "viewer_dist"  # the committed build (viewer/README.md)
 SCALES = {1.5, 3.0}
 BACK = "Go back to the start page at /."
+HTTP = {layout.USAGE: 400, layout.NOT_FOUND: 404, layout.REFUSED: 409}
+CORRECTION_FIELDS = ("value", "unit", "metric", "period_label", "contributor", "capacity", "rationale")
 # pdfium is not thread-safe and FastAPI runs these handlers in a thread pool.
 _PDFIUM = threading.Lock()
 
 CLAIMS_SQL = """
 SELECT c.id, c.locator, c.metric_text, c.value_text, c.unit_text, c.period_label, c.period_kind, c.period_start,
-       c.period_end, c.period_state, c.reporting_boundary, c.boundary_detail, c.boundary_state, e.page_number AS page, e.boxes, e.source_match, e.source_match_reason
+       c.period_end, c.period_state, c.reporting_boundary, c.boundary_detail, c.boundary_state, e.page_number AS page, e.boxes, e.source_match, e.source_match_reason,
+       c.boundary_label, c.claim_state, c.version_method, c.correction, c.needs_re_review
 FROM claim c JOIN evidence_ref e ON e.claim_version_id = c.claim_version_id
 WHERE c.document_id = ? ORDER BY e.page_number IS NULL, e.page_number, c.id, e.id
 """
@@ -137,9 +142,12 @@ def create_app(root: Path, token: str) -> FastAPI:
             response.set_cookie(COOKIE, token, httponly=True, samesite="strict", path="/")
             return response
         bearer = request.headers.get("authorization", "")
-        if not (_same(request.cookies.get(COOKIE), token)
-                or (bearer.startswith("Bearer ") and _same(bearer[len("Bearer "):], token))):
+        by_bearer = bearer.startswith("Bearer ") and _same(bearer[len("Bearer "):], token)
+        if not (by_bearer or _same(request.cookies.get(COOKIE), token)):
             return error(401, "This browser has not been let in yet.", OPEN_LAUNCH_URL)
+        # A change is accepted with the token itself, or with the cookie from a page this service served (its Origin).
+        if request.method not in ("GET", "HEAD") and not by_bearer and origin is None:
+            return error(403, "A change must come from the viewer page itself.", OPEN_LAUNCH_URL)
         try:
             return await call_next(request)
         except Exception:
@@ -218,12 +226,65 @@ def create_app(root: Path, token: str) -> FastAPI:
     def claims(doc_id: int):
         if not _query(root, "SELECT id FROM document WHERE id = ?", doc_id):
             return error(404, f"There is no document {doc_id} in the published data.", BACK)
-        if int(_query(root, "SELECT value FROM meta WHERE key = 'projection_schema'")[0]["value"]) < 4:
-            return error(409, "The published data was built by an older gct and has no period dates.",
+        if int(_query(root, "SELECT value FROM meta WHERE key = 'projection_schema'")[0]["value"]) < 5:
+            return error(409, "The published data was built by an older gct and has no claim states or corrections.",
                          "Build a fresh version with: gct publish build")
         # ponytail: one row per evidence ref; M1 stages write one ref per claim version.
         rows = _query(root, CLAIMS_SQL, doc_id)
         return {"status": "ok", "document": doc_id, "claims": [
-            {**r, "boxes": None if r["boxes"] is None else json.loads(r["boxes"])} for r in rows]}
+            {**r, **{k: None if r[k] is None else json.loads(r[k]) for k in ("boxes", "correction", "needs_re_review")}}
+            for r in rows]}
+
+    @app.get("/api/claims/{claim_id:int}/history")
+    def claim_history(claim_id: int):
+        # The published version decides which claims are shown; their history is read from the workspace itself.
+        if not _query(root, "SELECT id FROM claim WHERE id = ?", claim_id):
+            return error(404, f"There is no claim {claim_id} in the published data.", BACK)
+        from gct.stages import correct  # only these endpoints pay for the stages
+
+        conn = store.connect(root / layout.DB_NAME)
+        try:
+            return {"status": "ok", **correct.history(conn, claim_id)}
+        finally:
+            conn.close()
+
+    @app.post("/api/claims/{claim_id:int}/corrections")
+    async def correct_claim(claim_id: int, request: Request):
+        if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
+            return error(415, "A correction is sent as JSON.", "Send the fields as a JSON object.")
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            return error(400, "The correction is not a JSON object.", "Send the fields as a JSON object.")
+        bad = [k for k in CORRECTION_FIELDS if k in body and not isinstance(body[k], str)]
+        if bad:
+            return error(400, f"The correction field {bad[0]} is not text.",
+                         'Send each field as a JSON string, for example "value": "1,300".')
+        return await run_in_threadpool(_correct, claim_id, body)
+
+    def _correct(claim_id: int, body: dict):
+        """The same function as gct correct, under the workspace lock, then a new published version."""
+        from gct.stages import correct
+
+        try:
+            held = lock.hold(root)
+        except GctError as e:
+            return error(409, e.cause, e.next_action)
+        conn = store.connect(root / layout.DB_NAME)
+        try:
+            r = correct.correct(conn, claim_id, body.get("contributor"), body.get("capacity"), body.get("rationale"),
+                                value_text=body.get("value"), unit_text=body.get("unit"),
+                                metric_text=body.get("metric"), period_label=body.get("period_label"))
+            with runs.run(conn, "publish build") as run_id:
+                v = published.build(conn, root)
+                runs.event(conn, run_id, "output", stage="publish", item=str(v["version"]))
+        except GctError as e:
+            return error(HTTP[e.code], e.cause, e.next_action)
+        finally:
+            conn.close()
+            lock.release(held)
+        return {"status": "ok", **r, "data_version": v["version"]}
 
     return app

@@ -45,12 +45,12 @@ def test_migration_5_applies_to_a_schema_4_workspace(tmp_path, gct):
     conn.close()
     assert gct("company", "list", "--workspace", root).code == 0
     conn = store.connect(root / layout.DB_NAME)
-    assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 10
+    assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 11
     (run,) = runs.list_runs(conn)
     assert run["command"] == "workspace upgrade"
     assert [e["message"] for e in runs.show_run(conn, run["id"])["events"] if e["kind"] == "note"] == [
         "applied migration 5", "applied migration 6", "applied migration 7", "applied migration 8", "applied migration 9",
-        "applied migration 10"]
+        "applied migration 10", "applied migration 11"]
     conn.close()
 
 
@@ -81,7 +81,7 @@ def test_three_page_fixture_reads_correctly(ws, db, gct, add):
         assert set(reading) == {"page", "width", "height", "text", "words", "tables"} and reading["page"] == n
         assert (reading["width"], reading["height"]) == (612, 792)
     word = readings[0]["words"][0]
-    assert set(word) == {"text", "x0", "top", "x1", "bottom"} and word["text"] == "Scope"
+    assert set(word) == {"text", "x0", "top", "x1", "bottom", "dir", "col"} and word["text"] == "Scope"
     assert abs(word["x0"] - 72) <= 1 and abs(word["top"] - 62.48) <= 1
     assert readings[1]["words"] == [] and readings[1]["text"] == ""
     (table,) = readings[2]["tables"]

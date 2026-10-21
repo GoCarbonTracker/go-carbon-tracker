@@ -165,13 +165,17 @@ def _documents(conn, item_id: int) -> list[dict]:
 
 
 def _claims(conn, item, doc_ids) -> list[dict]:
-    """The newest claim versions on the set whose metric wording contains the expectation's, any period label."""
+    """The newest versions of the current claims on the set whose metric wording contains the expectation's, any
+    period label. A claim not found in the newest reading, or not yet extracted from it, never counts."""
+    from gct.stages import correct  # correct imports this module
+
+    current = {cid for d in doc_ids for cid, s in correct.states(conn, d).items() if s == correct.CURRENT}
     want = _clean(item["metric_text"]).casefold()
     rows = conn.execute(
         "SELECT c.id, c.document_id, c.page_number, v.metric_text, v.value_text, v.unit_text, v.period_label FROM claim c"
         " JOIN claim_version v ON v.id = (SELECT MAX(id) FROM claim_version WHERE claim_id = c.id)"
         f" WHERE c.document_id IN ({','.join('?' * len(doc_ids))}) ORDER BY c.id", doc_ids)
-    return [dict(r) for r in rows if want in _clean(r["metric_text"]).casefold()]
+    return [dict(r) for r in rows if r["id"] in current and want in _clean(r["metric_text"]).casefold()]
 
 
 def _reading_text(conn, root, artifact_id: int) -> str:

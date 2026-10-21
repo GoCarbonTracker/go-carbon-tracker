@@ -4,6 +4,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -157,6 +158,20 @@ def test_claims_carry_page_box_and_the_four_source_match_kinds(srv):
     assert get(srv, "/api/documents/9/claims")[0] == 404
 
 
+def test_claims_carry_state_boundary_label_and_correction(srv):
+    c = claims_by_locator(srv)
+    assert {x["claim_state"] for x in c.values()} <= {
+        "current", "not found in the newest reading", "page read again, not yet extracted"}
+    assert (c["t0r1c2"]["version_method"], c["t0r1c2"]["correction"], c["t0r1c2"]["needs_re_review"]) == (
+        "rung1-rules", None, [])
+    fixed = next(x for x in c.values() if x["page"] == 3)
+    assert (fixed["version_method"], fixed["value_text"]) == ("correction", "9,877")
+    assert {k: fixed["correction"][k] for k in ("contributor", "capacity", "rationale", "fields")} == {
+        "contributor": "Ann", "capacity": "analyst", "rationale": "misread digit", "fields": ["value_text"]}
+    assert fixed["correction"]["replaced"]["value_text"] == "9,876"
+    assert "boundary_label" in fixed
+
+
 # AC 5 and 9
 def test_page_render_scales_cache_and_errors(vws, srv, monkeypatch):
     calls = []
@@ -205,7 +220,8 @@ def test_every_endpoint_is_guarded(srv):
         assert call(p, path)[0] == 401, path
         assert call(p, path, Origin="http://evil.example", **cookie(srv))[0] == 403, path
         assert call(p, path, Host=f"evil.example:{p}", **cookie(srv))[0] == 403, path
-        req = urllib.request.Request(f"http://127.0.0.1:{p}{path}", data=b"", method="POST", headers=cookie(srv))
+        req = urllib.request.Request(f"http://127.0.0.1:{p}{path}", data=b"", method="POST",
+                                     headers={**cookie(srv), "Origin": f"http://127.0.0.1:{p}"})  # a change needs an Origin
         with pytest.raises(urllib.error.HTTPError) as e:
             OPENER.open(req, timeout=10)
         assert e.value.code == 405, path
@@ -277,3 +293,35 @@ def test_the_wheel_ships_the_viewer(tmp_path):
     assert "gct/viewer_dist/index.html" in shipped
     assert {n for n in names if n.startswith("gct/viewer_dist/")} == shipped
     assert not any("node_modules" in n or n.startswith("viewer/") for n in names)
+
+
+# AC 10b: the form submits in a real (headless) browser; the panel then shows the correction; no form on a claim not current
+def test_the_correction_form_in_a_headless_browser(srv, tmp_path):
+    chrome = shutil.which("google-chrome") or shutil.which("chromium") or next(
+        (p for p in ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"] if Path(p).exists()), None)
+    if not chrome or not shutil.which("node"):
+        pytest.skip("headless Chrome or node is not installed")
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    browser = subprocess.Popen([chrome, "--headless=new", f"--remote-debugging-port={port}", f"--user-data-dir={tmp_path / 'chrome'}",
+                                "--no-first-run", "--disable-gpu", "about:blank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=1).close()
+                break
+            except OSError:
+                time.sleep(0.1)
+        r = subprocess.run(["node", str(ROOT / "tests" / "viewer_browser.mjs"), str(port), srv.url],
+                           capture_output=True, text=True, timeout=60)
+        assert r.returncode == 0, r.stdout + r.stderr
+    finally:
+        browser.terminate()
+        browser.wait(timeout=10)
+    out = json.loads(r.stdout)
+    assert "9,877" in out["before"]
+    assert "9,878" in out["after"] and "replaced 9,877" in out["after"] and "second look" in out["after"]
+    assert out["notCurrentHasForm"] is False
+    assert get(srv, "/api/documents/1/claims")[1]["claims"]  # still served after the browser's POST

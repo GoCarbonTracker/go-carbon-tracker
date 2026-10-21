@@ -22,6 +22,7 @@ def test_every_table_is_append_only(ws, db, gct, make_file):
     gct("infer")
     gct("infer", "resolve", "1", "--field", "period", "--kind", "calendar_year", "--start", "2024-01-01",
         "--end", "2024-12-31", *who)
+    assert gct("correct", "1", "--value", "121", *who).code == 0
     gct("expect", "add", "--company", "Acme", "--metric", "water", "--doc", "2")
     gct("pages", "accept", "--doc", "2", "--pages", "1", "--type", "figures", *who)
     gct("gap", "confirm", "1", *who)

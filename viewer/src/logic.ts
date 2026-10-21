@@ -21,7 +21,41 @@ export type Claim = {
   boxes: Box[] | null;
   source_match: "matched" | "cited" | "unresolved" | null; // null: no source-match row yet
   source_match_reason: string | null;
+  claim_state: string; // current, not found in the newest reading, or page read again, not yet extracted
+  version_method: string;
+  boundary_label: string | null; // the boundary header printed above the column, as printed
+  correction: Correction | null; // set when the current version is a contributor's correction
+  needs_re_review: { kind: string; id: number; version: number }[];
 };
+
+export type Correction = {
+  contributor: string;
+  capacity: string;
+  rationale: string;
+  replaced: { value_text: string };
+};
+
+/** A contributor's correction: who, in what capacity, why, and the value it replaced. */
+export function correctionText(c: Correction): string {
+  return `${c.contributor} (${c.capacity}): ${c.rationale}; replaced ${c.replaced.value_text}`;
+}
+
+export type CorrectionFields = {
+  value: string; unit: string; metric: string; period_label: string;
+  contributor: string; capacity: string; rationale: string;
+};
+
+/** The POST body: empty optional fields are left out, and everything is trimmed. */
+export function correctionBody(f: CorrectionFields): Record<string, string> {
+  const body: Record<string, string> = {};
+  for (const [k, v] of Object.entries(f)) if (v.trim() !== "") body[k] = v.trim();
+  return body;
+}
+
+/** One needs-re-review entry. */
+export function reReviewText(e: Claim["needs_re_review"][number]): string {
+  return `${e.kind} #${e.id} on version ${e.version}`;
+}
 
 export type Label = { status: "matched" | "cited" | "unresolved" | null; text: string };
 

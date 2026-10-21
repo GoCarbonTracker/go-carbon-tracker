@@ -9,8 +9,9 @@ from gct.stages.extract import FAILED_PAGES_SQL, _centre_in, _lines, _union
 from gct.stages.read import ACTIVE, NEWEST_SQL, NOT_ACTIVE, select
 from gct.workspace import registry, runs, store
 
-CONFIG = version_of("link", 1)
+CONFIG = version_of("link", 2)
 NOT_READ = "page not read: gct read"
+NO_DIRECTION = "reading has no text direction: gct read again"
 EXTRACT_FIRST = "extract it first: gct extract"
 RETRY = "Run gct link again. Locations already checked against the same reading are not checked twice."
 FAILED_SQL = FAILED_PAGES_SQL.replace("a.stage = 'extract'", "a.stage = 'link'")
@@ -32,12 +33,15 @@ def match(ref: dict, reading: dict | None) -> tuple[str, str | None]:
         return "unresolved", NOT_READ
     if not ref["boxes"]:
         return "cited", "no box"
+    if any("dir" not in w for w in reading["words"]):
+        return "cited", NO_DIRECTION  # its rotated words may be reversed, so its boxes cannot confirm themselves
     box = _union([dict(zip(("x0", "top", "x1", "bottom"), b)) for b in ref["boxes"]])
     inside = [w for w in reading["words"] if _centre_in(w, box)]
     printed = " ".join(w["text"] for line in _lines(inside) for w in line).rstrip(".,;:")
     value, unit = ref["value_text"], ref["unit_text"]
-    # Decision S: the figure as printed, alone or with its stored unit attached or as the next word(s). Nothing else.
-    if printed in (value, *((value + unit, f"{value} {unit}") if unit else ())):
+    # Decision S: the figure as printed, alone or with its stored unit attached or as the next word(s), in one
+    # direction. Nothing else.
+    if len({w["dir"] for w in inside}) == 1 and printed in (value, *((value + unit, f"{value} {unit}") if unit else ())):
         return "matched", None
     return "cited", "box does not reproduce the figure"
 

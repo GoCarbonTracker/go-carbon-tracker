@@ -10,7 +10,7 @@ A workspace made by a newer gct than the one installed is refused (exit code 4) 
 Install the newer gct to open it.
 
 No migration edits or removes existing rows. Each one only adds tables and the triggers that keep them
-append-only.
+append-only, or (11) a column that is empty on existing rows.
 
 | Version | Story | Adds |
 |---|---|---|
@@ -24,3 +24,4 @@ append-only.
 | 8 | M1-3.3 | `source_match` (whether each source location reproduces its figure; newest row per location is current) |
 | 9 | M1-3.3 | `contributor_version`, `expected_item`, `expected_item_document`, `page_acceptance`, `gap_confirmation` (contributors, expected figures, review records for missing evidence) |
 | 10 | M1-3.2 | `basis`, `basis_scope`, `inference`, `inference_review` (period and boundary statements found, the page ranges declared for them, inferences per claim version and field, and the reviews of them; newest row wins) |
+| 11 | M1-3.5 | `claim_version.boundary_label` (a boundary header printed above a table column, as printed; empty on earlier versions), `correction` (a contributor's correction: the new version, the version it corrects, the fields changed), `claim_seen` (which extraction of which reading found which version). Reading config 4 (text direction, column order and word spaces), extract rules 5, link config 2 and infer rules 2 come with this story; earlier readings are kept and the next `gct read` reads each page again |

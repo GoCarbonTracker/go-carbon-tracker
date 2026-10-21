@@ -89,10 +89,13 @@ def test_table_claims_are_matched_and_a_cell_without_a_box_is_cited(ws, db, doc,
     add_reading(ws, db, doc, lambda r: r["tables"][0].pop("cells"))
     gct("extract")
     s = statuses(db)
-    assert s["t0r1c1"] == s["t0r1c2"] == [("cited", "no box")]
-    line = next(x for x in gct("claims", "list", "--doc", doc).out.splitlines() if "1,234.5" in x)
+    # A figure that lost its box is not the boxed claim (story 3.5 identity rule): a new claim, the old one not found.
+    assert s["t0r1c1~2"] == s["t0r1c2~2"] == [("cited", "no box")]
+    assert s["t0r1c1"] == [("matched", None)]
+    line = next(x for x in gct("claims", "list", "--doc", doc, "--state", "current").out.splitlines() if "1,234.5" in x)
     assert line.endswith("unknown  cited (no box)")
-    c = next(c for c in gct("claims", "list", "--doc", doc, "--json").data["claims"] if c["value_text"] == "1,234.5")
+    current = gct("claims", "list", "--doc", doc, "--state", "current", "--json").data["claims"]
+    c = next(c for c in current if c["value_text"] == "1,234.5")
     assert (c["source_match"], c["source_match_reason"], c["boxes"]) == ("cited", "no box", None)
 
 
@@ -110,7 +113,8 @@ def test_attached_and_separate_units_are_matched(db, gct, make_file):
 
 
 def test_only_the_stored_unit_counts():
-    words = [{"text": "4,560", "x0": 10, "top": 10, "x1": 40, "bottom": 20}, {"text": "GWh.", "x0": 42, "top": 10, "x1": 60, "bottom": 20}]
+    words = [{"text": "4,560", "x0": 10, "top": 10, "x1": 40, "bottom": 20, "dir": "ltr"},
+             {"text": "GWh.", "x0": 42, "top": 10, "x1": 60, "bottom": 20, "dir": "ltr"}]
     ref = {"sheet": None, "boxes": [[10, 10, 60, 20]], "value_text": "4,560", "unit_text": "MWh"}
     assert link.match(ref, {"words": words}) == ("cited", "box does not reproduce the figure")
     assert link.match({**ref, "unit_text": "GWh"}, {"words": words}) == ("matched", None)  # trailing full stop stripped
@@ -195,7 +199,7 @@ def test_publish_carries_the_newest_status(ws, db, doc, gct):
     conn = published.open_version(path)
     rows = dict(conn.execute("SELECT c.locator, e.source_match || '|' || COALESCE(e.source_match_reason, '')"
                              " FROM evidence_ref e JOIN claim c ON c.claim_version_id = e.claim_version_id"))
-    assert conn.execute("SELECT value FROM meta WHERE key = 'projection_schema'").fetchone()[0] == "4"
+    assert conn.execute("SELECT value FROM meta WHERE key = 'projection_schema'").fetchone()[0] == "5"
     conn.close()
     assert rows["t0r1c1"] == "cited|box does not reproduce the figure" and rows["t0r1c2"] == "matched|"
     assert v1["history_mark"] != v["history_mark"]

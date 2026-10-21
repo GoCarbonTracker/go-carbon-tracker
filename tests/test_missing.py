@@ -7,7 +7,7 @@ from conftest import PDF, grid, make_pdf
 from test_extract import PAGE
 from test_link import add_reading
 from test_resume import FIVE, failing
-from gct.stages import missing, read
+from gct.stages import extract, missing, read
 from gct.workspace import layout, published, store
 
 OTHER = make_pdf([{"text": [(72, 300, "Water withdrawn 120 kL")]}])
@@ -47,7 +47,7 @@ def test_migration_9_applies_to_a_version_8_workspace(tmp_path, gct):
     c.close()
     assert gct("contributor", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 10
+    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 11
     c.close()
 
 
@@ -181,8 +181,12 @@ def test_a_confirmation_that_no_longer_holds(ws, db, docs, gct):
     # A claim that carries the wording makes the item found; the confirmation is still shown, not current (F5)
     claim = db.execute("INSERT INTO claim (company_id, document_id, page_number, locator, created_at)"
                        " VALUES (1, 1, 1, 'h1', 't')").lastrowid
-    db.execute("INSERT INTO claim_version (claim_id, run_id, method, config_version, metric_text, value_text, created_at)"
-               " VALUES (?, 1, 'hand', 'c', 'Water withdrawal', '7', 't')", (claim,))
+    version = db.execute("INSERT INTO claim_version (claim_id, run_id, method, config_version, metric_text, value_text,"
+                         " created_at) VALUES (?, 1, 'hand', 'c', 'Water withdrawal', '7', 't')", (claim,)).lastrowid
+    # Seen by the newest extraction of page 1, so the claim is current (story 3.5: only current claims count)
+    page = db.execute("SELECT MAX(id) FROM page WHERE document_id = 1").fetchone()[0]
+    db.execute("INSERT INTO claim_seen (claim_version_id, page_id, config_version, run_id, created_at)"
+               " VALUES (?, ?, ?, 1, 't')", (version, page, extract.extract_config()))
     db.commit()
     e = listed(gct, a)
     assert (e["found"], e["state"], e["confirmation"]["id"], e["confirmation"]["current"]) == (True, None, 1, False)
@@ -262,3 +266,19 @@ def test_a_document_without_a_page_set(ws, gct, make_file):
     gct("doc", "add", make_file("bad.pdf", PDF), "--company", "Acme")
     e = expect(gct, "--metric", "scope 1")
     assert (e["state"], e["reasons"]) == (missing.INCOMPLETE, [{"type": "document", "reason": "not opened", "count": 1}])
+
+
+# Story 3.5 S2: only current claims count, so an expectation is never found through a claim the newest reading lost.
+def test_a_claim_that_is_not_current_does_not_make_an_expectation_found(ws, db, docs, gct):
+    def blank(reading):
+        reading["words"], reading["text"] = [], ""
+
+    item = expect(gct, "--metric", "water withdrawn", "--doc", 2)["id"]
+    assert listed(gct, item)["found"] is True
+    add_reading(ws, db, 2, blank)  # document 2's page holds only the water line
+    for step in ("page read again, not yet extracted", "not found in the newest reading"):
+        (claim,) = gct("claims", "list", "--doc", 2, "--json").data["claims"]
+        assert claim["claim_state"] == step
+        e = listed(gct, item)
+        assert (e["found"], e["claims"]) == (False, []) and e["state"] is not None, e
+        gct("extract")

@@ -47,7 +47,7 @@ def test_migration_7_applies_to_a_version_6_workspace(tmp_path, gct):
     c.close()
     assert gct("company", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 10
+    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 11
     c.close()
 
 
@@ -178,12 +178,17 @@ def test_unchanged_readings_are_cached_and_a_new_reading_adds_a_version(ws, db, 
     db.commit()
     (d,) = gct("extract", "--json").data["documents"]
     assert (d["extracted"], d["cached"], d["no_box"]) == (1, 0, 2)
-    assert count(db, "claim") == before[0] and count(db, "claim_version") == before[1] * 2
-    versions = db.execute("SELECT v.value_text FROM claim_version v JOIN claim c ON c.id = v.claim_id"
-                          " WHERE c.locator = 't0r1c1' ORDER BY v.id").fetchall()
-    assert [v[0] for v in versions] == ["1,234.5", "1,300"]
-    listed = gct("claims", "list", "--doc", doc)
+    # Story 3.5 identity rule: the two table figures lost their boxes, so neither continues a boxed claim. Each is a
+    # new claim at its locator ~2 and the boxed claims are not found in the newest reading; nothing is carried by
+    # position. The two text figures are unchanged, so they get no new version.
+    assert count(db, "claim") == before[0] + 2 and count(db, "claim_version") == before[1] + 2
+    versions = db.execute("SELECT c.locator, v.value_text FROM claim_version v JOIN claim c ON c.id = v.claim_id"
+                          " WHERE c.locator LIKE 't0r1c1%' ORDER BY v.id").fetchall()
+    assert [tuple(v) for v in versions] == [("t0r1c1", "1,234.5"), ("t0r1c1~2", "1,300")]
+    listed = gct("claims", "list", "--doc", doc, "--state", "current")
     assert listed.out.count("cited (no box)") == 2 and "1,300" in listed.out and "1,234.5" not in listed.out
+    gone = gct("claims", "list", "--doc", doc, "--state", "not-found").out
+    assert gone.count("not found in the newest reading") == 2 and "1,234.5" in gone
 
 
 # AC 7

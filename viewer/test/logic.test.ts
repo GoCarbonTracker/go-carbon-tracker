@@ -1,6 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { boundaryText, decide, label, newestOnly, NOT_CHECKED, overlayShown, periodText, stepClaim, stepPage } from "../src/logic.ts";
+import { boundaryText, correctionBody, correctionText, decide, label, newestOnly, NOT_CHECKED, overlayShown, periodText, reReviewText, stepClaim, stepPage } from "../src/logic.ts";
+
+test("the correction body leaves out empty optional fields", () => {
+  const f = { value: " 5 ", unit: "", metric: "", period_label: "  ", contributor: "ann", capacity: "analyst", rationale: "typo" };
+  assert.deepEqual(correctionBody(f), { value: "5", contributor: "ann", capacity: "analyst", rationale: "typo" });
+});
+
+test("a correction shows who, why and the value it replaced; a re-review entry names its kind, id and version", () => {
+  assert.equal(correctionText({ contributor: "Ann", capacity: "analyst", rationale: "misread digit", replaced: { value_text: "1,100" } }),
+               "Ann (analyst): misread digit; replaced 1,100");
+  assert.equal(reReviewText({ kind: "period review", id: 3, version: 2 }), "period review #3 on version 2");
+});
 
 test("published period dates are shown with the printed label, never unknown", () => {
   const resolved = { period_label: null, period_kind: "calendar_year", period_start: "2024-01-01", period_end: "2024-12-31", period_state: "resolved" };

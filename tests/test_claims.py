@@ -21,7 +21,7 @@ def test_claims_list(ws, gct, make_file):
     r = gct("extract")
     assert r.code == 0 and "1 figures, 0 without a box" in r.out
     line = gct("claims", "list", "--doc", 1).out.strip()
-    assert line.startswith("1  p1  4,560  MWh  Energy consumed  2023  unknown  matched  box ")
+    assert line.startswith("1  p1  current  4,560  MWh  Energy consumed  2023  unknown  matched  box ")
     (c,) = gct("claims", "list", "--doc", 1, "--json").data["claims"]
     assert (c["value"], c["method"], len(c["boxes"])) == (4560, "rung1-rules", 1)
     assert (c["source_match"], c["source_match_reason"]) == ("matched", None)
@@ -41,7 +41,7 @@ def test_publish_carries_the_claims_of_active_documents_only(ws, db, gct, make_f
     v = gct("publish", "build", "--json").data
     path = ws / "published" / f"v{v['version']}.db"
     assert rows(path, "SELECT document_id, page_number, value_text, unit_text, metric_text, period_label,"
-                      " reporting_boundary, method FROM claim") == [
+                      " reporting_boundary, version_method FROM claim") == [
         (1, 1, "4,560", "MWh", "Energy consumed", "2023", "unknown", "rung1-rules")]
     (ref,) = rows(path, "SELECT e.document_id, e.page_number, e.boxes FROM evidence_ref e"
                         " JOIN claim c ON c.claim_version_id = e.claim_version_id")

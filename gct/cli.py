@@ -9,7 +9,7 @@ from collections import Counter
 from gct import __version__
 from gct.api import server
 from gct.models import adapters, policy
-from gct.stages import extract, infer, link, missing, read
+from gct.stages import correct, extract, infer, link, missing, read
 from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -224,17 +224,64 @@ def _claim_line(c: dict) -> str:
     status = c["source_match"] or "not checked: gct link"
     status += f" ({c['source_match_reason']})" if c["source_match_reason"] else ""
     box = "  box " + ", ".join(f"{v:g}" for v in c["boxes"][0]) if c["boxes"] else ""
-    return (f"{c['id']}  p{c['page_number']}  {c['value_text']}  {c['unit_text'] or '-'}  {c['metric_text'] or '-'}  "
-            f"{_period_text(c['period'])}  {_boundary_text(c['boundary'])}  {status}{box}")
+    label = f"  {c['boundary_label']}" if c["boundary_label"] else ""
+    review = "".join(f"\n  needs re-review: {correct.entry_text(e)}" for e in c["needs_re_review"])
+    return (f"{c['id']}  p{c['page_number']}  {c['claim_state']}  {c['value_text']}  {c['unit_text'] or '-'}  "
+            f"{c['metric_text'] or '-'}  {_period_text(c['period'])}  {_boundary_text(c['boundary'])}{label}  "
+            f"{status}{box}{review}")
 
 
 def cmd_claims_list(args) -> None:
     conn = _open(args, write=False)
     cs = extract.claims(conn, args.doc)
-    eff = infer.effective(conn, args.doc)
-    cs = [{**c, **eff[c["id"]]} for c in cs]
-    text = "\n".join(map(_claim_line, cs)) or f"No claims yet. Run: gct extract {args.doc}"
+    eff, states, reviews = (f(conn, args.doc) for f in (infer.effective, correct.states, correct.re_review))
+    cs = [{**c, **eff[c["id"]], "claim_state": states[c["id"]], "needs_re_review": reviews.get(c["id"], [])} for c in cs
+          if args.state is None or states[c["id"]] == correct.STATES[args.state]]
+    text = "\n".join(map(_claim_line, cs)) or (
+        f"No {args.state} claims." if args.state else f"No claims yet. Run: gct extract {args.doc}")
     _print(args, {"status": "ok", "document": args.doc, "claims": cs}, text)
+
+
+def _fields(c: dict) -> str:
+    words = {col: w for col, _, w in correct.FIELDS}
+    return ", ".join(words[f] for f in c["fields"])
+
+
+def _version_lines(v: dict) -> list[str]:
+    head = (f"version {v['id']}  {v['method']}  run {v['run_id']}  {v['created_at']}  {v['value_text']}  "
+            f"{v['unit_text'] or '-'}  {v['metric_text'] or '-'}  {v['period_label'] or '-'}"
+            + (f"  {v['boundary_label']}" if v["boundary_label"] else ""))
+    lines = [head]
+    if c := v["correction"]:
+        lines.append(f"  correction #{c['id']} of version {c['corrects_version']} ({_fields(c)}) by "
+                     f"{c['contributor']} ({c['capacity']}): {c['rationale']}; replaced {c['replaced']['value_text']}")
+    for e in v["evidence_refs"]:
+        matches = ", ".join(s["status"] + (f" ({s['reason']})" if s["reason"] else "") for s in e["source_match"])
+        lines.append(f"  location p{e['page_number']}: {matches or 'not checked: gct link'}")
+    lines += [f"  {i['field']} inference #{i['id']}: {i['state']}" + (f" ({i['reason']})" if i["reason"] else "")
+              for i in v["inferences"]]
+    lines += [f"  {r['field']} review #{r['id']}: {r['decision']} by {r['contributor']} ({r['capacity']}): {r['rationale']}"
+              for r in v["reviews"]]
+    lines += [f"  found by extraction in run {s['run_id']} of reading {s['page_id']}" for s in v["seen"]]
+    return lines
+
+
+def cmd_claims_history(args) -> None:
+    h = correct.history(_open(args, write=False), args.claim)
+    c = h["claim"]
+    lines = [f"claim {c['id']}  document {c['document']}  p{c['page_number']}  {c['locator']}  {c['state']}",
+             *(f"  needs re-review: {correct.entry_text(e)}" for e in c["needs_re_review"]),
+             *(line for v in h["versions"] for line in _version_lines(v))]
+    _print(args, {"status": "ok", **h}, "\n".join(lines))
+
+
+def cmd_correct(args) -> None:
+    r = correct.correct(_open(args), args.claim, args.as_, args.capacity, args.rationale, value_text=args.value,
+                        unit_text=args.unit, metric_text=args.metric, period_label=args.period_label)
+    c = r["correction"]
+    _print(args, {"status": "ok", **r},
+           f"Corrected claim {r['claim']}: version {r['version']} replaces version {c['corrects_version']} "
+           f"({_fields(c)}). Earlier versions stay in its history: gct claims history {r['claim']}")
 
 
 LINK_TOTALS = ("refs", "checked", "cached", "failed", "matched", "cited", "unresolved")
@@ -706,7 +753,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,claims,contributor,expect,pages,gap,publish,run,approve,model,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,claims,correct,contributor,expect,pages,gap,publish,run,approve,model,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -802,7 +849,20 @@ def build_parser() -> argparse.ArgumentParser:
     claims = group("claims", "figures extracted from documents")
     lst = claims.add_parser("list", parents=[common], help="list one document's claims with their source location")
     lst.add_argument("--doc", type=int, required=True, metavar="ID")
+    lst.add_argument("--state", choices=tuple(correct.STATES), help="only claims in this state")
     lst.set_defaults(func=cmd_claims_list)
+    hist = claims.add_parser("history", parents=[common], help="every version of one claim and what was recorded on it")
+    hist.add_argument("claim", type=int, metavar="CLAIM")
+    hist.set_defaults(func=cmd_claims_history)
+
+    cor = top.add_parser("correct", parents=[common], help="correct a current claim's figure (a new version; earlier ones stay)")
+    cor.add_argument("claim", type=int, metavar="CLAIM")
+    cor.add_argument("--value", metavar="TEXT", help="the figure as printed")
+    cor.add_argument("--unit", metavar="TEXT")
+    cor.add_argument("--metric", metavar="TEXT", help="the metric wording")
+    cor.add_argument("--period-label", metavar="TEXT", help="the period label as printed")
+    attributed(cor)
+    cor.set_defaults(func=cmd_correct)
 
     contrib = group("contributor", "people who make review records")
     add = contrib.add_parser("add", parents=[common], help="add a contributor")
