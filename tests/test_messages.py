@@ -8,6 +8,7 @@ from conftest import PDF
 from gct.workspace import registry
 
 INTERNAL_WORDS = ["Traceback", "sqlite", "sha256", "schema_version"]
+WHO = ["--as", "ana", "--capacity", "analyst", "--rationale", "checked by eye"]
 
 
 def internal_names(ws):
@@ -39,12 +40,27 @@ def refusals(ws, tmp_path, make_file):
         (["extract", "99", "--workspace", ws], 3),
         (["extract", "--company", "Nobody", "--workspace", ws], 3),
         (["claims", "list", "--doc", "99", "--workspace", ws], 3),
+        (["link", "99", "--workspace", ws], 3),
+        (["link", "--company", "Nobody", "--workspace", ws], 3),
+        (["contributor", "add", "ana", "--name", "Ana", "--workspace", ws], 4),
+        (["contributor", "add", " ", "--name", "Ana", "--workspace", ws], 2),
+        (["contributor", "edit", "bob", "--name", "Bob", "--workspace", ws], 3),
+        (["contributor", "edit", "ana", "--workspace", ws], 2),
+        (["expect", "add", "--company", "Nobody", "--metric", "x", "--workspace", ws], 3),
+        (["expect", "add", "--company", "Acme", "--metric", "x", "--workspace", ws], 4),
+        (["expect", "add", "--company", "Acme", "--metric", "x", "--doc", "99", "--workspace", ws], 3),
+        (["expect", "list", "--company", "Nobody", "--workspace", ws], 3),
+        (["pages", "accept", "--doc", "99", "--pages", "1", "--type", "figures", *WHO, "--workspace", ws], 3),
+        (["pages", "accept", "--doc", "1", "--pages", "1", "--type", "figures", "--as", "bob", "--capacity", "c",
+          "--rationale", "r", "--workspace", ws], 3),
+        (["gap", "confirm", "99", *WHO, "--workspace", ws], 3),
         (["serve", "--no-open", "--workspace", tmp_path / "nowhere"], 3),
     ]
 
 
 def test_every_refusal_has_cause_next_action_and_no_internals(ws, gct, tmp_path, make_file):
     gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
     names = internal_names(ws)
     for argv, code in refusals(ws, tmp_path, make_file):
         human = gct(*argv)

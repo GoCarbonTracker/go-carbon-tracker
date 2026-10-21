@@ -14,6 +14,11 @@ def test_every_table_is_append_only(ws, db, gct, make_file):
     gct("doc", "add", make_file("b.pdf", make_pdf([{"text": [(72, 72, "Scope 1 120 tCO2e")]}])), "--company", "Acme")
     gct("read")
     gct("extract")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    gct("expect", "add", "--company", "Acme", "--metric", "water", "--doc", "2")
+    who = ("--as", "ana", "--capacity", "analyst", "--rationale", "checked by eye")
+    gct("pages", "accept", "--doc", "2", "--pages", "1", "--type", "figures", *who)
+    gct("gap", "confirm", "1", *who)
     for _ in range(3):  # three builds, so published_purge also holds a row
         gct("publish", "build")
     gct("approve", "spend", "1")

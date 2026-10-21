@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 from pathlib import Path
@@ -25,8 +26,30 @@ CREATE TABLE claim (
 );
 CREATE TABLE evidence_ref (
     id INTEGER PRIMARY KEY, claim_version_id INTEGER NOT NULL, document_id INTEGER NOT NULL, page_number INTEGER,
-    boxes TEXT, sheet TEXT, cell TEXT
+    boxes TEXT, sheet TEXT, cell TEXT, source_match TEXT, source_match_reason TEXT
 );
+CREATE TABLE expected_item (
+    id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL, metric_text TEXT NOT NULL, period_label TEXT,
+    found INTEGER NOT NULL, claims INTEGER NOT NULL, state TEXT, reasons TEXT NOT NULL, accepted TEXT NOT NULL
+);
+CREATE TABLE expected_item_document (expected_item_id INTEGER NOT NULL, document_id INTEGER NOT NULL);
+CREATE TABLE gap_confirmation (
+    id INTEGER PRIMARY KEY, expected_item_id INTEGER NOT NULL, contributor_name TEXT NOT NULL,
+    contributor_organisation TEXT, capacity TEXT NOT NULL, rationale TEXT NOT NULL, current INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE page_acceptance (
+    id INTEGER PRIMARY KEY, document_id INTEGER NOT NULL, page_number INTEGER NOT NULL, content_type TEXT NOT NULL,
+    contributor_name TEXT NOT NULL, contributor_organisation TEXT, capacity TEXT NOT NULL, rationale TEXT NOT NULL,
+    current INTEGER NOT NULL, created_at TEXT NOT NULL
+);
+"""
+# Contributors project their name and organisation only; the sanitised package (E7) decides what leaves.
+ACCEPTANCE_SQL = """
+SELECT a.id, a.document_id, a.page_number, a.content_type, c.name, c.organisation, a.capacity, a.rationale,
+       a.artifact_id IS (SELECT p.artifact_id FROM page p WHERE p.document_id = a.document_id
+                         AND p.page_number = a.page_number ORDER BY p.id DESC LIMIT 1), a.created_at
+FROM page_acceptance a JOIN contributor_version c ON c.id = a.contributor_version_id ORDER BY a.id
 """
 COMPANY_COLUMNS = "id, name, sector_ref, sector_version"
 DOCUMENT_COLUMNS = "id, company_id, logical_name, version, sha256, kind, file_type, privacy, size_bytes"
@@ -40,7 +63,11 @@ CLAIM_COLUMNS = (
     " v.config_version, v.metric_text, v.value_text, v.value, v.unit_text, v.period_label, v.period_kind,"
     " v.period_start, v.period_end, v.metric_key, v.reporting_boundary, v.boundary_detail"
 )
-EVIDENCE_COLUMNS = "e.id, e.claim_version_id, e.document_id, e.page_number, e.boxes, e.sheet, e.cell"
+EVIDENCE_COLUMNS = (
+    "e.id, e.claim_version_id, e.document_id, e.page_number, e.boxes, e.sheet, e.cell,"
+    " (SELECT s.status FROM source_match s WHERE s.evidence_ref_id = e.id ORDER BY s.id DESC LIMIT 1),"
+    " (SELECT s.reason FROM source_match s WHERE s.evidence_ref_id = e.id ORDER BY s.id DESC LIMIT 1)"
+)
 
 BUILD_AGAIN = "Build a fresh version with: gct publish build"
 
@@ -59,7 +86,11 @@ def open_version(path: Path) -> sqlite3.Connection:
 def history_mark(conn: sqlite3.Connection) -> str:
     return ".".join(
         str(conn.execute(f"SELECT COALESCE(MAX(id), 0) FROM {t}").fetchone()[0])
-        for t in ("company", "document", "document_state", "claim", "claim_version", "evidence_ref")
+        for t in ("company", "document", "document_state", "claim", "claim_version", "evidence_ref", "source_match",
+                  # The missing-item states are computed from readings and review records, so those count too.
+                  "page", "contributor_version", "expected_item", "page_acceptance", "gap_confirmation",
+                  # A failed re-read changes a state without adding a page row.
+                  "attempt WHERE stage = 'read'")
     )
 
 
@@ -86,8 +117,28 @@ def _info(conn: sqlite3.Connection, version: int) -> dict:
     return dict(row)
 
 
-def _read_history(conn: sqlite3.Connection):
-    """One consistent snapshot of the history: (mark, companies, active documents, their claims, evidence refs)."""
+def _missing(conn: sqlite3.Connection, root: Path) -> dict:
+    """The projected rows of expectations (state computed now), their documents, the newest gap confirmation of
+    each missing item and every page acceptance."""
+    from gct.stages import missing  # the stages import this package
+
+    items, links, gaps = [], [], []
+    for (i,) in conn.execute("SELECT id FROM expected_item ORDER BY id").fetchall():
+        e = missing.describe(conn, root, i)
+        items.append((i, conn.execute("SELECT company_id FROM expected_item WHERE id = ?", (i,)).fetchone()[0],
+                      e["metric_text"], e["period_label"], int(e["found"]), len(e["claims"]), e["state"],
+                      json.dumps(e["reasons"]), json.dumps(e["accepted"])))
+        links += [(i, d) for d in e["documents"]]
+        if c := e["confirmation"]:
+            gaps.append((c["id"], i, c["contributor"], c["organisation"], c["capacity"], c["rationale"],
+                         int(c["current"]), c["created_at"]))
+    return {"expected_item": items, "expected_item_document": links, "gap_confirmation": gaps,
+            "page_acceptance": conn.execute(ACCEPTANCE_SQL).fetchall()}
+
+
+def _read_history(conn: sqlite3.Connection, root: Path):
+    """One consistent snapshot of the history: (mark, companies, active documents, their claims, evidence refs,
+    missing-evidence rows)."""
     conn.execute("BEGIN")
     try:
         mark = history_mark(conn)
@@ -100,12 +151,13 @@ def _read_history(conn: sqlite3.Connection):
             f"SELECT {EVIDENCE_COLUMNS} FROM evidence_ref e WHERE e.claim_version_id IN (SELECT v.id {NEWEST_CLAIMS})"
             " ORDER BY e.id"
         ).fetchall()
+        extra = _missing(conn, root)
     finally:
         conn.execute("COMMIT")
-    return mark, companies, docs, claims, refs
+    return mark, companies, docs, claims, refs, extra
 
 
-def _write_projection(path: Path, meta: dict, companies, docs, claims, refs) -> None:
+def _write_projection(path: Path, meta: dict, companies, docs, claims, refs, extra: dict) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.unlink(missing_ok=True)
     out = sqlite3.connect(tmp, isolation_level=None)
@@ -118,7 +170,11 @@ def _write_projection(path: Path, meta: dict, companies, docs, claims, refs) -> 
         out.executemany(f"INSERT INTO company VALUES ({','.join('?' * 4)})", [tuple(r) for r in companies])
         out.executemany(f"INSERT INTO document VALUES ({','.join('?' * 9)})", [tuple(r) for r in docs])
         out.executemany(f"INSERT INTO claim VALUES ({','.join('?' * 21)})", [tuple(r) for r in claims])
-        out.executemany(f"INSERT INTO evidence_ref VALUES ({','.join('?' * 7)})", [tuple(r) for r in refs])
+        out.executemany(f"INSERT INTO evidence_ref VALUES ({','.join('?' * 9)})", [tuple(r) for r in refs])
+        for table, rows in extra.items():
+            rows = [tuple(r) for r in rows]
+            if rows:
+                out.executemany(f"INSERT INTO {table} VALUES ({','.join('?' * len(rows[0]))})", rows)
         out.execute("COMMIT")
     except BaseException:
         out.close()
@@ -146,13 +202,13 @@ def build(conn: sqlite3.Connection, root: Path) -> dict:
     root = Path(root)
     (root / "published").mkdir(exist_ok=True)
     version = (conn.execute("SELECT MAX(version) FROM published_version").fetchone()[0] or 0) + 1
-    mark, companies, docs, claims, refs = _read_history(conn)
+    mark, companies, docs, claims, refs, extra = _read_history(conn, root)
     built_at = store.now()
     meta = {
         "version": version, "built_at": built_at, "history_mark": mark,
-        "gct_version": __version__, "projection_schema": 2,
+        "gct_version": __version__, "projection_schema": 3,
     }
-    _write_projection(version_path(root, version), meta, companies, docs, claims, refs)
+    _write_projection(version_path(root, version), meta, companies, docs, claims, refs, extra)
     with store.transaction(conn):
         conn.execute(
             "INSERT INTO published_version (version, built_at, history_mark, companies, documents, gct_version)"

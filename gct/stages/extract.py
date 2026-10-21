@@ -27,9 +27,10 @@ ORDER BY a.id
 """
 CLAIMS_SQL = """
 SELECT c.page_number, c.locator, v.value_text, v.value, v.unit_text, v.metric_text, v.period_label,
-       v.reporting_boundary, v.method, e.boxes
+       v.reporting_boundary, v.method, e.boxes, s.status AS source_match, s.reason AS source_match_reason
 FROM claim c JOIN claim_version v ON v.id = (SELECT MAX(id) FROM claim_version WHERE claim_id = c.id)
 LEFT JOIN evidence_ref e ON e.claim_version_id = v.id
+LEFT JOIN source_match s ON s.id = (SELECT MAX(id) FROM source_match WHERE evidence_ref_id = e.id)
 WHERE c.document_id = ? ORDER BY c.page_number, c.id
 """
 
@@ -162,8 +163,11 @@ class _Page:
 
 
 def _work(root: Path, config: str, run_id: int, item: _Page, conn) -> Result:
+    from gct.stages import link  # link imports this module
+
     path = conn.execute("SELECT path FROM artifact WHERE id = ?", (item.row["artifact_id"],)).fetchone()[0]
-    found = rules(json.loads((root / path).read_text(encoding="utf-8")))
+    reading = json.loads((root / path).read_text(encoding="utf-8"))
+    found = rules(reading)
     doc_id, page, stamp = item.doc["id"], item.row["page_number"], store.now()
     # ponytail: a crash between this commit and run_stage's attempt row adds a duplicate claim_version on the
     # next run; a guard needs the reading's identity on claim_version, which the schema does not carry yet.
@@ -182,18 +186,20 @@ def _work(root: Path, config: str, run_id: int, item: _Page, conn) -> Result:
                 (claim_id, run_id, METHOD, config, f["metric_text"], f["value_text"], f["value"], f["unit_text"],
                  f["period_label"], stamp),
             ).lastrowid
-            conn.execute(
+            ref_id = conn.execute(
                 "INSERT INTO evidence_ref (claim_version_id, document_id, page_number, boxes, created_at)"
                 " VALUES (?, ?, ?, ?, ?)",
                 (version_id, doc_id, page, None if f["boxes"] is None else json.dumps(f["boxes"]), stamp),
-            )
-    unresolved = sum(f["boxes"] is None for f in found)
-    return Result(output={"figures": len(found), "unresolved": unresolved}, method=METHOD, rung=1)
+            ).lastrowid
+            status = link.match({"sheet": None, **f}, reading)
+            link.record(conn, ref_id, run_id, status, item.row["artifact_id"], stamp)
+    no_box = sum(f["boxes"] is None for f in found)
+    return Result(output={"figures": len(found), "no_box": no_box}, method=METHOD, rung=1)
 
 
 def _doc(d: dict, action: str, cause=None, next_action=None, **counts) -> dict:
     out = {"id": d["id"], "logical_name": d["logical_name"], "pages": 0, "extracted": 0, "cached": 0, "failed": 0,
-           "figures": 0, "unresolved": 0, "action": action, "cause": cause, "next_action": next_action}
+           "figures": 0, "no_box": 0, "action": action, "cause": cause, "next_action": next_action}
     return {**out, **counts}
 
 
@@ -220,7 +226,8 @@ def _extract(conn, root, run_id, docs, wanted=None) -> list[dict]:
         out.append(_doc(
             d, "extracted", f"{failed} of {len(items)} pages could not be extracted." if failed else None,
             RETRY if failed else None, pages=len(items), extracted=counts["processed"], cached=counts["cached"],
-            failed=failed, figures=sum(o["figures"] for o in done), unresolved=sum(o["unresolved"] for o in done),
+            failed=failed, figures=sum(o["figures"] for o in done),
+            no_box=sum(o.get("no_box", o.get("unresolved", 0)) for o in done),  # attempts before 3.3 say "unresolved"
         ))
     return out
 
@@ -258,7 +265,8 @@ def retry(conn, root, wanted: dict, notes=()) -> tuple[int, list[dict]]:
 
 
 def claims(conn, doc_id: int) -> list[dict]:
-    """The newest version of every claim of one document, with its evidence boxes (None: location unresolved)."""
+    """The newest version of every claim of one document, with its evidence boxes (None: no box) and the newest
+    source match status (None: not checked yet)."""
     registry.show_document(conn, doc_id)
     return [{**dict(r), "boxes": None if r["boxes"] is None else json.loads(r["boxes"])}
             for r in conn.execute(CLAIMS_SQL, (doc_id,))]

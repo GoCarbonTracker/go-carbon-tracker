@@ -37,6 +37,17 @@ EXPECTED_COLUMNS = {
         "boundary_detail", "created_at",
     ],
     "evidence_ref": ["id", "claim_version_id", "document_id", "page_number", "boxes", "sheet", "cell", "created_at"],
+    "source_match": ["id", "evidence_ref_id", "run_id", "status", "reason", "artifact_id", "config_version", "created_at"],
+    "contributor_version": ["id", "contributor_key", "name", "organisation", "created_at"],
+    "expected_item": ["id", "company_id", "metric_text", "period_label", "created_at"],
+    "expected_item_document": ["expected_item_id", "document_id"],
+    "page_acceptance": [
+        "id", "document_id", "page_number", "content_type", "artifact_id", "contributor_version_id", "capacity",
+        "rationale", "created_at",
+    ],
+    "gap_confirmation": [
+        "id", "expected_item_id", "contributor_version_id", "capacity", "rationale", "documents_checked", "created_at",
+    ],
 }
 NULLABLE = {("company", "sector_ref"), ("company", "sector_version"), ("document", "source"), ("document_state", "note")} | {
     ("run_event", c) for c in ("stage", "item", "method", "outcome", "cost_estimated", "cost_confirmed", "message")
@@ -45,7 +56,9 @@ NULLABLE = {("company", "sector_ref"), ("company", "sector_version"), ("document
 } | {("claim", "sector_ref"), ("claim", "sector_version")} | {
     ("claim_version", c) for c in ("metric_text", "value", "unit_text", "period_label", "period_kind", "period_start", "period_end",
                                    "metric_key", "boundary_detail")
-} | {("evidence_ref", c) for c in ("page_number", "boxes", "sheet", "cell")}
+} | {("evidence_ref", c) for c in ("page_number", "boxes", "sheet", "cell")} | {
+    ("source_match", "reason"), ("source_match", "artifact_id"), ("contributor_version", "organisation"),
+    ("expected_item", "period_label")}
 
 
 def test_init_creates_exact_layout(ws):
@@ -68,7 +81,7 @@ def test_tables_and_columns(db):
 
 
 def test_schema_version_row_and_workspace_row(db):
-    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4, 5, 6, 7]
+    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
     row = db.execute("SELECT * FROM workspace").fetchone()
     assert row["id"] == 1 and row["gct_version"]
 

@@ -9,7 +9,7 @@ from collections import Counter
 from gct import __version__
 from gct.api import server
 from gct.models import adapters, policy
-from gct.stages import extract, read
+from gct.stages import extract, link, missing, read
 from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -164,14 +164,14 @@ def cmd_doc_pages(args) -> None:
     _print(args, {"status": "ok", "document": args.id, "pages": ps}, text)
 
 
-EXTRACT_TOTALS = ("pages", "extracted", "cached", "failed", "figures", "unresolved")
+EXTRACT_TOTALS = ("pages", "extracted", "cached", "failed", "figures", "no_box")
 
 
 def _extract_line(d: dict) -> str:
     if d["action"] != "extracted":
         return f"{d['action']} {d['id']}: {d['logical_name']}: {d['cause']}" + (f" ({d['next_action']})" if d["next_action"] else "")
     return (f"extracted {d['id']}: {d['logical_name']}: {d['pages']} pages, {d['extracted']} extracted, "
-            f"{d['cached']} cached, {d['failed']} failed, {d['figures']} figures, {d['unresolved']} unresolved boxes")
+            f"{d['cached']} cached, {d['failed']} failed, {d['figures']} figures, {d['no_box']} without a box")
 
 
 def cmd_extract(args) -> int:
@@ -190,7 +190,7 @@ def _extract_out(args, docs, head=None, extra=None) -> int:
         *([head] if head else []),
         *map(_extract_line, docs),
         f"Total: {len(docs)} documents, {total['pages']} pages, {total['extracted']} extracted, {total['cached']} cached, "
-        f"{total['failed']} failed, {total['figures']} figures, {total['unresolved']} unresolved boxes",
+        f"{total['failed']} failed, {total['figures']} figures, {total['no_box']} without a box",
     ])
     bad = [d for d in docs if d["failed"]]
     if not bad:
@@ -204,15 +204,124 @@ def _extract_out(args, docs, head=None, extra=None) -> int:
 
 
 def _claim_line(c: dict) -> str:
-    box = "box " + ", ".join(f"{v:g}" for v in c["boxes"][0]) if c["boxes"] else "location unresolved"
+    status = c["source_match"] or "not checked: gct link"
+    status += f" ({c['source_match_reason']})" if c["source_match_reason"] else ""
+    box = "  box " + ", ".join(f"{v:g}" for v in c["boxes"][0]) if c["boxes"] else ""
     return (f"p{c['page_number']}  {c['value_text']}  {c['unit_text'] or '-'}  {c['metric_text'] or '-'}  "
-            f"{c['period_label'] or '-'}  {c['reporting_boundary']}  {box}")
+            f"{c['period_label'] or '-'}  {c['reporting_boundary']}  {status}{box}")
 
 
 def cmd_claims_list(args) -> None:
     cs = extract.claims(_open(args, write=False), args.doc)
     text = "\n".join(map(_claim_line, cs)) or f"No claims yet. Run: gct extract {args.doc}"
     _print(args, {"status": "ok", "document": args.doc, "claims": cs}, text)
+
+
+LINK_TOTALS = ("refs", "checked", "cached", "failed", "matched", "cited", "unresolved")
+
+
+def _link_line(d: dict) -> str:
+    if d["action"] != "checked":
+        return f"{d['action']} {d['id']}: {d['logical_name']}: {d['cause']}" + (f" ({d['next_action']})" if d["next_action"] else "")
+    return (f"checked {d['id']}: {d['logical_name']}: {d['refs']} locations, {d['checked']} checked, {d['cached']} cached, "
+            f"{d['failed']} failed; {d['matched']} matched, {d['cited']} cited, {d['unresolved']} unresolved")
+
+
+def cmd_link(args) -> int:
+    _, docs = link.link(_open(args), args.root, args.ids, args.company)
+    return _link_out(args, docs)
+
+
+def _link_out(args, docs, head=None, extra=None) -> int:
+    """Print link documents. head is a first text line and extra more top-level keys (resume and retry)."""
+    extra = extra or {}
+    if not docs:
+        _print(args, {"status": "ok", **extra, "documents": []}, "Nothing to check.")
+        return 0
+    total = {k: sum(d[k] for d in docs) for k in LINK_TOTALS}
+    text = "\n".join([
+        *([head] if head else []),
+        *map(_link_line, docs),
+        f"Total: {len(docs)} documents, {total['refs']} locations, {total['checked']} checked, {total['cached']} cached, "
+        f"{total['failed']} failed; {total['matched']} matched, {total['cited']} cited, {total['unresolved']} unresolved",
+    ])
+    bad = [d for d in docs if d["failed"]]
+    if not bad:
+        _print(args, {"status": "ok", **extra, "documents": docs}, text)
+        return 0
+    cause = f"{len(bad)} of {len(docs)} documents were not fully checked: " + ", ".join(str(d["id"]) for d in bad)
+    _print(args, {"status": "partial", "cause": cause, "next_action": link.RETRY, **extra, "documents": docs}, text)
+    if not args.json:
+        print(f"error: {cause}\nnext: {link.RETRY}", file=sys.stderr)
+    return layout.REFUSED
+
+
+def _contributor_line(c: dict) -> str:
+    return f"{c['key']}  {c['name']}  {c['organisation'] or '-'}  version {c['version']}"
+
+
+def cmd_contributor_add(args) -> None:
+    c = missing.add_contributor(_open(args), args.key, args.name, args.organisation)
+    _print(args, {"status": "ok", "contributor": c}, f"Added contributor {_contributor_line(c)}.")
+
+
+def cmd_contributor_edit(args) -> None:
+    c = missing.edit_contributor(_open(args), args.key, args.name, args.organisation)
+    _print(args, {"status": "ok", "contributor": c}, f"Contributor is now {_contributor_line(c)}. Earlier records keep their version.")
+
+
+def cmd_contributor_list(args) -> None:
+    cs = missing.contributors(_open(args, write=False))
+    _print(args, {"status": "ok", "contributors": cs},
+           "\n".join(map(_contributor_line, cs)) or "No contributors yet. Add one with: gct contributor add KEY --name NAME")
+
+
+def _expect_lines(e: dict) -> list[str]:
+    head = (f"{e['id']}  {e['company']}  \"{e['metric_text']}\"  {e['period_label'] or '-'}  "
+            f"documents {', '.join(map(str, e['documents']))}")
+    if e["found"]:
+        lines = [f"{head}  found: {len(e['claims'])} claims"]
+    else:
+        lines = [f"{head}  {e['state']}"]
+        lines += [f"  {r['type']}: {r['count']} {'documents' if r['type'] == 'document' else 'pages'}, {r['reason']}"
+                  + (f" ({', '.join(r['pages'])})" if "pages" in r else "")
+                  for r in e["reasons"] if r["type"] != "confirmation"]
+        lines += [f"  {a['type']}: {a['count']} pages {a['accepted']}" for a in e["accepted"]]
+    c = e["confirmation"]
+    if c:
+        why = next((r["reason"] for r in e["reasons"] if r["type"] == "confirmation"), "the figure is found now")
+        lines.append(f"  gap confirmation #{c['id']} by {c['contributor']} ({c['capacity']}): "
+                     + (c["rationale"] if c["current"] else f"{why}, not current"))
+    return lines
+
+
+def cmd_expect_add(args) -> None:
+    e = missing.add_expectation(_open(args), args.root, args.company, args.metric, args.period, args.doc)
+    _print(args, {"status": "ok", "expectation": e}, "\n".join(["Added expectation:", *_expect_lines(e)]))
+
+
+LITERAL = ("Matching uses the literal wording, so the same figure under different wording can still exist. A gap"
+           " confirmation is the contributor's own judgment, not a conclusion GCT draws from absent wording.")
+
+
+def cmd_expect_list(args) -> None:
+    es = missing.expectations(_open(args, write=False), args.root, args.company)
+    text = "\n".join([*(line for e in es for line in _expect_lines(e)), LITERAL] if es else [])
+    _print(args, {"status": "ok", "expectations": es},
+           text or 'No expectations yet. Add one with: gct expect add --company NAME --metric "WORDING"')
+
+
+def cmd_pages_accept(args) -> None:
+    a = missing.accept_pages(_open(args), args.root, args.doc, args.pages, args.type, args.as_, args.capacity, args.rationale)
+    _print(args, {"status": "ok", **a}, f"Document {a['document']}, {a['type']}: pages {', '.join(map(str, a['pages']))} "
+                                         f"{a['accepted']}. This is an acceptance, not a check.")
+
+
+def cmd_gap_confirm(args) -> None:
+    e = missing.confirm_gap(_open(args), args.root, args.item, args.as_, args.capacity, args.rationale)
+    _print(args, {"status": "ok", "expectation": e}, "\n".join(["Recorded the gap confirmation:", *_expect_lines(e), (
+        f"GCT looked only for the exact wording \"{e['metric_text']}\" on the pages. A reworded or abbreviated label"
+        " (for example \"Scope-1\" for \"scope 1 emissions\") is not caught, so check the pages yourself.")]))
 
 
 def _version_line(v: dict) -> str:
@@ -284,15 +393,16 @@ def cmd_run_show(args) -> None:
 
 AGAIN = {"read": "Run gct read again with the same documents.",
          "extract": "Run gct extract again with the same documents.",
+         "link": "Run gct link again with the same documents.",
          "doc add": "Run gct doc add again with the same files."}
-STAGES = {"read": (read, _read_out), "extract": (extract, _extract_out)}
+STAGES = {"read": (read, _read_out), "extract": (extract, _extract_out), "link": (link, _link_out)}
 
 
 def _of_run(conn, n: int, verb: str) -> dict:
-    """Run n, which must be a read, extract or doc add run."""
+    """Run n, which must be a read, extract, link or doc add run."""
     r = runs.show_run(conn, n)
     if r["command"] not in AGAIN:
-        raise GctError(layout.REFUSED, f"Run {n} was a {r['command']} run. Only read, extract and doc add runs can be {verb}.",
+        raise GctError(layout.REFUSED, f"Run {n} was a {r['command']} run. Only read, extract, link and doc add runs can be {verb}.",
                        "See the runs with: gct run list")
     return r
 
@@ -313,6 +423,9 @@ def _replay(args, conn, r: dict, sel: dict, note: str, head: str) -> int:
     if r["command"] == "extract":
         run_id, docs = extract.extract(conn, args.root, sel["ids"], sel["company"], [note])
         return _extract_out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": r["id"]})
+    if r["command"] == "link":
+        run_id, docs = link.link(conn, args.root, sel["ids"], sel["company"], [note])
+        return _link_out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": r["id"]})
     run_id, items = intake.add(conn, args.root, notes=[note], **sel)
     return _doc_add_out(args, items, head=head.format(run_id), extra={"run_id": run_id, "of_run": r["id"]})
 
@@ -450,7 +563,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,claims,publish,run,approve,model,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,claims,contributor,expect,pages,gap,publish,run,approve,model,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -499,10 +612,58 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--company", help="only this company's documents")
     ex.set_defaults(func=cmd_extract)
 
+    ln = top.add_parser("link", parents=[common], help="check again whether each claim's source location reproduces its figure")
+    ln.add_argument("ids", nargs="*", type=int, metavar="ID", help="documents to check (default: every active document)")
+    ln.add_argument("--company", help="only this company's documents")
+    ln.set_defaults(func=cmd_link)
+
     claims = group("claims", "figures extracted from documents")
     lst = claims.add_parser("list", parents=[common], help="list one document's claims with their source location")
     lst.add_argument("--doc", type=int, required=True, metavar="ID")
     lst.set_defaults(func=cmd_claims_list)
+
+    def attributed(p):
+        p.add_argument("--as", dest="as_", required=True, metavar="KEY", help="the contributor making this record")
+        p.add_argument("--capacity", required=True, help="the capacity you act in, as you describe it")
+        p.add_argument("--rationale", required=True, help="why")
+
+    contrib = group("contributor", "people who make review records")
+    add = contrib.add_parser("add", parents=[common], help="add a contributor")
+    add.add_argument("key")
+    add.add_argument("--name", required=True)
+    add.add_argument("--organisation")
+    add.set_defaults(func=cmd_contributor_add)
+    edit = contrib.add_parser("edit", parents=[common], help="change a contributor (a new version; earlier records keep theirs)")
+    edit.add_argument("key")
+    edit.add_argument("--name")
+    edit.add_argument("--organisation")
+    edit.set_defaults(func=cmd_contributor_edit)
+    contrib.add_parser("list", parents=[common], help="list contributors").set_defaults(func=cmd_contributor_list)
+
+    expect = group("expect", "figures you expect a company to report")
+    add = expect.add_parser("add", parents=[common], help="declare an expected figure by its wording")
+    add.add_argument("--company", required=True)
+    add.add_argument("--metric", required=True, metavar="TEXT", help="wording a claim's metric must contain")
+    add.add_argument("--period", metavar="LABEL", help="period label exactly as printed")
+    add.add_argument("--doc", type=int, nargs="+", default=[], metavar="ID", help="documents to look in (default: the company's active reports)")
+    add.set_defaults(func=cmd_expect_add)
+    lst = expect.add_parser("list", parents=[common], help="list expectations: found, or why missing")
+    lst.add_argument("--company")
+    lst.set_defaults(func=cmd_expect_list)
+
+    pages_ = group("pages", "page review")
+    accept = pages_.add_parser("accept", parents=[common], help="accept pages for a content type that no check covers")
+    accept.add_argument("--doc", type=int, required=True, metavar="ID")
+    accept.add_argument("--pages", required=True, metavar="SPEC", help="for example 3, 1-4 or 1,3-5")
+    accept.add_argument("--type", required=True, choices=missing.TYPES)
+    attributed(accept)
+    accept.set_defaults(func=cmd_pages_accept)
+
+    gap = group("gap", "disclosure gaps")
+    confirm = gap.add_parser("confirm", parents=[common], help="confirm an expected figure is not disclosed")
+    confirm.add_argument("item", type=int, metavar="ITEM")
+    attributed(confirm)
+    confirm.set_defaults(func=cmd_gap_confirm)
 
     publish = group("publish", "published data versions")
     publish.add_parser("build", parents=[common], help="build the next version and make it current").set_defaults(func=cmd_publish_build)
@@ -514,7 +675,7 @@ def build_parser() -> argparse.ArgumentParser:
     show = run.add_parser("show", parents=[common], help="show one run with its totals and events")
     show.add_argument("id", type=int)
     show.set_defaults(func=cmd_run_show)
-    resume = run.add_parser("resume", parents=[common], help="finish an interrupted or failed read, extract or doc add run")
+    resume = run.add_parser("resume", parents=[common], help="finish an interrupted or failed read, extract, link or doc add run")
     resume.add_argument("id", type=int)
     resume.set_defaults(func=cmd_run_resume)
     retry = run.add_parser("retry", parents=[common], help="process again only the items that failed in one run")

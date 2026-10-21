@@ -58,6 +58,17 @@ def test_every_command_matches_the_documented_keys(tmp_path, gct, make_file):
     check("read", ok)
     check("doc pages", gct("doc", "pages", 2, *w, "--json").data)
     check("extract", gct("extract", *w, "--json").data)
+    check("link", gct("link", *w, "--json").data)
+    check("contributor add", gct("contributor", "add", "ana", "--name", "Ana", *w, "--json").data)
+    check("contributor edit", gct("contributor", "edit", "ana", "--organisation", "Acme", *w, "--json").data)
+    check("contributor list", gct("contributor", "list", *w, "--json").data)
+    check("expect add", gct("expect", "add", "--company", "Acme", "--metric", "scope 1", "--doc", 2, *w, "--json").data)
+    check("expect add", gct("expect", "add", "--company", "Acme", "--metric", "water", "--doc", 2, *w, "--json").data)
+    who = ("--as", "ana", "--capacity", "analyst", "--rationale", "checked by eye")
+    check("pages accept", gct("pages", "accept", "--doc", 2, "--pages", "1-2", "--type", "figures", *who, *w, "--json").data)
+    gct("pages", "accept", "--doc", 2, "--pages", "2", "--type", "text", *who, *w)  # the empty page has no text
+    check("gap confirm", gct("gap", "confirm", 2, *who, *w, "--json").data)
+    check("expect list", gct("expect", "list", *w, "--json").data)
     check("claims list", gct("claims", "list", "--doc", 2, *w, "--json").data)
     check("claims list", gct("claims", "list", "--doc", 1, *w, "--json").data)
     check("publish status", gct("publish", "status", *w, "--json").data)
@@ -148,7 +159,8 @@ def test_resume_and_retry_match_the_documented_keys(tmp_path, gct, make_file, mo
 
 def test_every_command_has_a_documented_section():
     assert set(spec()) == {
-        "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc pages", "read", "extract", "claims list",
+        "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc pages", "read", "extract", "link", "claims list",
+        "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
         "publish build", "publish restore", "publish status",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",
         "approve spend", "approve transfer", "approve list", "model list",

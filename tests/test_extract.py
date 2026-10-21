@@ -47,7 +47,7 @@ def test_migration_7_applies_to_a_version_6_workspace(tmp_path, gct):
     c.close()
     assert gct("company", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 7
+    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 9
     c.close()
 
 
@@ -71,7 +71,7 @@ def test_table_and_text_claims(db, doc, gct):
     r = gct("extract", "--json")
     assert r.code == 0
     (d,) = r.data["documents"]
-    assert (d["pages"], d["extracted"], d["cached"], d["figures"], d["unresolved"]) == (1, 1, 0, 4, 0)
+    assert (d["pages"], d["extracted"], d["cached"], d["figures"], d["no_box"]) == (1, 1, 0, 4, 0)
     claims = newest(db)
     assert set(claims) == {"t0r1c1", "t0r1c2", "l0w2", "l1w1"}
     words = {w["text"]: w for w in json.loads(_root_read(db))["words"]}
@@ -177,13 +177,13 @@ def test_unchanged_readings_are_cached_and_a_new_reading_adds_a_version(ws, db, 
                (doc, old["width"], old["height"], old["words"], old["tables"], art))
     db.commit()
     (d,) = gct("extract", "--json").data["documents"]
-    assert (d["extracted"], d["cached"], d["unresolved"]) == (1, 0, 2)
+    assert (d["extracted"], d["cached"], d["no_box"]) == (1, 0, 2)
     assert count(db, "claim") == before[0] and count(db, "claim_version") == before[1] * 2
     versions = db.execute("SELECT v.value_text FROM claim_version v JOIN claim c ON c.id = v.claim_id"
                           " WHERE c.locator = 't0r1c1' ORDER BY v.id").fetchall()
     assert [v[0] for v in versions] == ["1,234.5", "1,300"]
     listed = gct("claims", "list", "--doc", doc)
-    assert listed.out.count("location unresolved") == 2 and "1,300" in listed.out and "1,234.5" not in listed.out
+    assert listed.out.count("cited (no box)") == 2 and "1,300" in listed.out and "1,234.5" not in listed.out
 
 
 # AC 7
