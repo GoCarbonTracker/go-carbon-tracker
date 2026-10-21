@@ -76,6 +76,10 @@ EXPECTED_COLUMNS = {
         "id", "claim_version_id", "series_key", "reason", "decision", "contributor_version_id", "capacity", "rationale",
         "created_at",
     ],
+    "restatement": [
+        "id", "original_version_id", "restated_version_id", "series_key", "decision", "evidence_document_id",
+        "evidence_page", "evidence_quote", "contributor_version_id", "capacity", "rationale", "created_at",
+    ],
 }
 VALUES = ("period_kind", "period_start", "period_end", "boundary", "boundary_detail")
 NULLABLE = {("company", "sector_ref"), ("company", "sector_version"), ("document", "source"), ("document_state", "note")} | {
@@ -90,7 +94,8 @@ NULLABLE = {("company", "sector_ref"), ("company", "sector_version"), ("document
     ("expected_item", "period_label")} | {
     ("basis", c) for c in ("fy_end", "period_start", "period_end", "boundary", "boundary_detail")} | {
     ("inference", c) for c in (*VALUES, "basis_id", "reason")} | {("inference_review", c) for c in ("inference_id", *VALUES)} | {
-    ("metric_assignment", c) for c in ("metric_key", "rule", "unit_key", "unit_factor", "unit_source")}
+    ("metric_assignment", c) for c in ("metric_key", "rule", "unit_key", "unit_factor", "unit_source")} | {
+    ("restatement", "evidence_page"), ("restatement", "evidence_quote")}
 
 
 def test_init_creates_exact_layout(ws):
@@ -113,7 +118,7 @@ def test_tables_and_columns(db):
 
 
 def test_schema_version_row_and_workspace_row(db):
-    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     row = db.execute("SELECT * FROM workspace").fetchone()
     assert row["id"] == 1 and row["gct_version"]
 

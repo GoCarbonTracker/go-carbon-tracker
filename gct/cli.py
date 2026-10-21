@@ -10,7 +10,7 @@ from gct import __version__
 from gct.api import server
 from gct.measure import g2
 from gct.models import adapters, policy
-from gct.stages import correct, extract, infer, link, match, missing, read
+from gct.stages import correct, extract, infer, link, match, missing, read, restate
 from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -512,9 +512,15 @@ def _series_line(s: dict) -> str:
 
 
 def cmd_series_list(args) -> None:
-    ss = match.series_list(_open(args, write=False), args.company, args.metric)
+    conn = _open(args, write=False)
+    ss = [restate.mark(conn, s) for s in match.series_list(conn, args.company, args.metric)]
     _print(args, {"status": "ok", "series": ss},
            "\n".join(map(_series_line, ss)) or "No series yet. Run gct match, then accept or resolve periods and boundaries.")
+
+
+def _pair_state(p: dict) -> str:
+    """A pair state as shown: same value, restatement #id, unresolved conflict or not compared (reason)."""
+    return p["state"] + (f" #{p['restatement']}" if p["restatement"] else "") + (f" ({p['reason']})" if p["reason"] else "")
 
 
 def _point_line(x: dict) -> str:
@@ -523,13 +529,16 @@ def _point_line(x: dict) -> str:
         how = f"reviewed, not comparable ({x['reason']}) by {r['contributor']} ({r['capacity']}): {r['rationale']}"
     else:
         how = "rule" + (f", not comparable ({x['reason']})" if not x["comparable"] else "")
-    same = f"  same period: {x['same_period']} values" if x["same_period"] > 1 else ""
+    many = len(x["pairs"]) > 1
+    states = ", ".join((f"claim {p['claim']}: " if many else "") + _pair_state(p) for p in x["pairs"])
+    same = f"  same period: {x['same_period']} values, {states}" if x["same_period"] > 1 else ""
     return (f"  {x['period_start']}..{x['period_end']}  {x['value_text']}  {x['unit_text'] or '-'}  {_base(x)}  "
             f"document {x['document_id']} p{x['page_number']}  claim {x['claim_id']}  {how}{same}")
 
 
 def cmd_series_show(args) -> None:
-    s = match.series_show(_open(args, write=False), args.series, args.all)
+    conn = _open(args, write=False)
+    s = restate.mark(conn, match.series_show(conn, args.series, args.all))
     head = (f"{s['id']}  {s['company']}  {_metric_text(s)}  {_boundary_of(s)}  {s['unit_family']}  {s['period_kind']}  "
             f"{s['periods']} periods" + ("" if args.all else f", latest period shown (all with --all)"))
     _print(args, {"status": "ok", "series": s}, "\n".join([head, *map(_point_line, s["points"])]))
@@ -571,13 +580,85 @@ def _status_lines(s: dict) -> list[str]:
             f"{s['unit_unknown']} unit unknown, {s['not_mapped_yet']} not mapped yet",
             f"  {s['series']} series, {s['same_period_sets']} same-period sets, {s['uncertain_items']} uncertain items",
             "  claims by state: " + (", ".join(f"{n} {k}" for k, n in s["states"].items()) or "none"),
-            *(f"  not matchable: {k}: {n}" for k, n in s["not_matchable"].items())]
+            *(f"  not matchable: {k}: {n}" for k, n in s["not_matchable"].items()),
+            "  pairs by state: " + (", ".join(f"{n} {k}" for k, n in s["pairs"].items()) or "none")]
 
 
 def cmd_match_status(args) -> None:
-    st = match.status(_open(args, write=False), args.company)
+    conn = _open(args, write=False)
+    pairs = restate.counts(conn, args.company)
+    st = [{**s, "pairs": pairs.get(s["company"], {})} for s in match.status(conn, args.company)]
     _print(args, {"status": "ok", "companies": st},
            "\n".join(line for s in st for line in _status_lines(s)) or "No claims yet.")
+
+
+def _side(x: dict) -> str:
+    return f"{x['value_text']} {x['unit_text'] or '-'} (document {x['document_id']} p{x['page_number']}, claim {x['claim_id']})"
+
+
+def _restate_line(p: dict) -> str:
+    what = (p["metric_key"] or f"unmapped: {p['label']}") + "  " + _boundary_of(p)
+    why = f" #{p['restatement']['id']}" if p["restatement"] else f" ({p['reason']})" if p["reason"] else ""
+    return (f"{p['series_id']}  {p['company']}  {what}  {p['period_start']}..{p['period_end']}  {_side(p['a'])}  "
+            f"{_side(p['b'])}  {p['state']}{why}")
+
+
+def cmd_restate_list(args) -> None:
+    shown, hidden = restate.listed(_open(args, write=False), args.company, args.state)
+    lines = list(map(_restate_line, shown)) or ["No pairs" + (" in this state." if args.state else " yet.")]
+    if args.state:
+        lines.append(f"{hidden} pairs in other states hidden by --state {args.state}.")
+    _print(args, {"status": "ok", "pairs": shown, "hidden": hidden}, "\n".join(lines))
+
+
+def _record_text(r: dict) -> str:
+    where = f" citing document {r['document']} p{r['page']}: \"{r['quote']}\"" if r["decision"] == "recorded" else ""
+    return (f"restatement #{r['id']} {r['decision']}: version {r['original_version']} original, version "
+            f"{r['restated_version']} restated{where}, by {r['contributor']} ({r['capacity']}): {r['rationale']}")
+
+
+def _review_lines(v: dict) -> list[str]:
+    r = v["reviews"]
+    return [f"  claim {v['claim']} version {v['id']}:",
+            *(f"    {x['field']} review #{x['id']} {x['decision']} by {x['contributor']} ({x['capacity']}): {x['rationale']}"
+              for x in r["inference_reviews"]),
+            *(f"    correction #{x['id']} {x['role']} ({', '.join(x['fields'])}) by {x['contributor']} ({x['capacity']}):"
+              f" {x['rationale']}" for x in r["corrections"]),
+            *(f"    match review #{x['id']} {x['decision']} series {x['series']} by {x['contributor']} ({x['capacity']}):"
+              f" {x['rationale']}" for x in r["match_reviews"]),
+            *(f"    location p{x['page_number']}: {x['status'] or 'not checked: gct link'}"
+              + (f" ({x['reason']})" if x["reason"] else "") for x in r["source_match"]),
+            *(f"    {_record_text(x)}" + ("" if x["current"] else " (superseded)")
+              + ("" if x["binds"] else " (on an earlier version)") for x in r["restatements"])]
+
+
+def cmd_restate_show(args) -> None:
+    r = restate.show(_open(args, write=False), args.claim)
+    c = r["claim"]
+    head = (f"claim {c['id']}  document {c['document']} p{c['page_number']}  version {c['version']}  {c['match_state']}"
+            + (f" ({c['match_reason']})" if c["match_reason"] else ""))
+    why = (c["match_state"] + (f" ({c['match_reason']})" if c["match_reason"] else "") if c["match_state"]
+           else "its document is not active")
+    none = "No pairs: the claim shares no period." if c["series_id"] else f"No pairs: the claim is in no series: {why}."
+    lines = [head, *(_restate_line(p) for p in r["pairs"])] if r["pairs"] else [head, none]
+    _print(args, {"status": "ok", **r}, "\n".join([*lines, "Records:", *(x for v in r["versions"] for x in _review_lines(v))]))
+
+
+def _decided(r: dict) -> str:
+    p = r["pair"]
+    return _record_text(r["restatement"]) + "." + (
+        f" The pair is now {_pair_state({**p, 'restatement': p['restatement'] and p['restatement']['id']})}." if p else "")
+
+
+def cmd_restate_record(args) -> None:
+    r = restate.record(_open(args), args.root, args.original, args.restated, args.page, args.quote, args.as_,
+                       args.capacity, args.rationale)
+    _print(args, {"status": "ok", **r}, _decided(r))
+
+
+def cmd_restate_withdraw(args) -> None:
+    r = restate.withdraw(_open(args), args.original, args.restated, args.as_, args.capacity, args.rationale)
+    _print(args, {"status": "ok", **r}, _decided(r))
 
 
 def _contributor_line(c: dict) -> str:
@@ -913,7 +994,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,claims,correct,contributor,expect,pages,gap,publish,run,approve,model,measure,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,claims,correct,contributor,expect,pages,gap,publish,run,approve,model,measure,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -1036,6 +1117,25 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument("series", metavar="SERIES")
     show.add_argument("--all", action="store_true", help="every period, oldest first")
     show.set_defaults(func=cmd_series_show)
+
+    rs = group("restate", "pairs of figures for one metric, period and boundary: same value, restatement or conflict")
+    lst = rs.add_parser("list", parents=[common], help="one line per pair of a same-period set, with its state")
+    lst.add_argument("--company")
+    lst.add_argument("--state", choices=tuple(restate.FILTERS), help="only pairs in this state (the rest are counted)")
+    lst.set_defaults(func=cmd_restate_list)
+    show = rs.add_parser("show", parents=[common], help="the pairs of one claim and every record on both versions")
+    show.add_argument("claim", type=int, metavar="CLAIM")
+    show.set_defaults(func=cmd_restate_show)
+    for name, help_, func in (("record", "record a restatement cited from the restated figure's document", cmd_restate_record),
+                              ("withdraw", "withdraw the current restatement record of a pair", cmd_restate_withdraw)):
+        p = rs.add_parser(name, parents=[common], help=help_)
+        p.add_argument("--original", type=int, required=True, metavar="CLAIM")
+        p.add_argument("--restated", type=int, required=True, metavar="CLAIM")
+        if name == "record":
+            p.add_argument("--page", type=int, required=True, metavar="N", help="page of the restated figure's document")
+            p.add_argument("--quote", required=True, metavar="TEXT", help="the line exactly as printed on that page")
+        attributed(p)
+        p.set_defaults(func=func)
 
     claims = group("claims", "figures extracted from documents")
     lst = claims.add_parser("list", parents=[common], help="list one document's claims with their source location")

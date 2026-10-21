@@ -45,12 +45,12 @@ def test_migration_5_applies_to_a_schema_4_workspace(tmp_path, gct):
     conn.close()
     assert gct("company", "list", "--workspace", root).code == 0
     conn = store.connect(root / layout.DB_NAME)
-    assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 12
+    assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 13
     (run,) = runs.list_runs(conn)
     assert run["command"] == "workspace upgrade"
     assert [e["message"] for e in runs.show_run(conn, run["id"])["events"] if e["kind"] == "note"] == [
         "applied migration 5", "applied migration 6", "applied migration 7", "applied migration 8", "applied migration 9",
-        "applied migration 10", "applied migration 11", "applied migration 12"]
+        "applied migration 10", "applied migration 11", "applied migration 12", "applied migration 13"]
     conn.close()
 
 

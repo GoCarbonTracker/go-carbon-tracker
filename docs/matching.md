@@ -3,12 +3,28 @@
 `gct match` gives each claim version a canonical metric key and a unit, then series of one metric over reporting
 periods are worked out on read from those assignments, the effective periods and boundaries (`gct infer`, accepted or
 resolved only) and the claim states (`gct correct`). Series are never stored in `workspace.db`; `gct publish build`
-writes them to the published version. Matching links figures. It never says that two values agree or differ.
+writes them to the published version. Matching links figures. It never says that two values agree or differ; the
+pairs of a same-period set are compared by `gct restate` (`docs/restatements.md`).
 
-Versions: match rules 1, metric list 1, unit table 1. All three are folded into the stage's config version, so a change
-to any of them makes the next `gct match` assign every claim again (a row is added only where the result changes).
+Versions: match rules 2, metric list 2, unit table 1. All three are folded into the stage's config version, which is
+stored on every assignment row, so a change to any of them makes the next `gct match` assign every claim again and add
+one row for every newest claim version, even where the key, rule and unit stay the same. Reviews bind to the claim
+version and series, so they and the series stay as they were. Later runs with an unchanged config add a row only where
+the result changes. Match rules 2 (story 4.2) adds the number rule below. Metric list 2 is the combined-scope list of
+4.1 fix 95e3c9e (`scope 1 & 2` and the other combined forms map to `ghg_scope_1_2`, and the exclusion words are checked
+on the printed unit too), given its own version number in story 4.2; the list did not change then. The unit table did
+not change.
 
-## Metric list v1
+## Numbers (match rules 2)
+
+The number of a point is the claim's value when extraction gave it one. Otherwise it is read from the value as printed,
+after trailing footnote marks `*`, `#`, `†` and `^` are removed: the Western form extraction accepts (`43,325`,
+`1,234.5`), or Indian grouping (`29,79,832`, `9,76,828.5`: the last group three digits, every earlier one two). `12,34`,
+`1,2345`, `1.234,56`, `NA` and `-` have no number, and parentheses never give a sign: `(1,234)` has no number. The
+number is used for the base value and for comparison only: the printed value and the claim's value are never
+rewritten and no claim version is added.
+
+## Metric list v2
 
 Absolute totals only. The label is lowercased, whitespace collapsed and the footnote marks `#`, `*` and `†` removed
 before matching. A label containing any of `intensity`, `per rupee`, `per unit`, ` per `, `%` or `percentage`, or
@@ -63,7 +79,8 @@ The families each key accepts: the emissions keys `tco2e` or `tco2` (each its ow
 water keys `kl`, `waste_total` `t`. An unmapped label accepts any family. A unit in the table whose family the key does
 not accept (a Scope 1 figure in GJ) is `unit not convertible`.
 
-The base value (`value × factor`) is for display only. The printed value and unit are never rewritten.
+The base value (`number × factor`, numbers above) is used for display and for comparing the pairs of a same-period
+set. The printed value and unit are never rewritten.
 
 ## Series key
 
@@ -85,7 +102,7 @@ for the lookup (`A+B+C` and `a + b + c` are the same; both empty counts as the s
 Such a series has no base values and its points are not comparable. Its points still show the unit as printed.
 
 A same-period set is two or more points of one series with equal period start and end. It is listed with every value
-as printed and its source; 4.1 never compares them.
+as printed and its source, and each pair of its points has a state (`docs/restatements.md`).
 
 ## Review queue
 

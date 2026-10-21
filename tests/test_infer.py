@@ -83,7 +83,7 @@ def test_migration_10_applies_to_a_version_9_workspace(tmp_path, gct):
     c.close()
     assert gct("infer", "groups", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 12
+    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 13
     c.close()
 
 
@@ -419,7 +419,7 @@ def test_projection_carries_only_accepted_or_resolved_values_in_the_main_fields(
         v = gct("publish", "build", "--json").data
         conn = published.open_version(ws / "published" / f"v{v['version']}.db")
         rows = {r["id"]: dict(r) for r in conn.execute("SELECT * FROM claim")}
-        assert conn.execute("SELECT value FROM meta WHERE key = 'projection_schema'").fetchone()[0] == "6"
+        assert conn.execute("SELECT value FROM meta WHERE key = 'projection_schema'").fetchone()[0] == "7"
         conn.close()
         return v, rows
 

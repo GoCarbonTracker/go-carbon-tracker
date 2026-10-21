@@ -157,6 +157,31 @@ def test_match_and_series_match_the_documented_keys(ws, gct, make_file, monkeypa
         assert set(d) == spec()["match"]["documents"]
 
 
+def test_restate_matches_the_documented_keys(ws, gct, make_file):
+    from test_match import WHO
+    from test_restate import cp2, record
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    check("restate list", gct("restate", "list", "--json").data)
+    a, b, restated, original = cp2(gct, make_file)
+    check("restate list", gct("restate", "list", "--json").data)
+    check("restate list", gct("restate", "list", "--state", "same", "--json").data)
+    check("restate record", record(gct, original, restated, "--json").data)
+    check("restate show", gct("restate", "show", restated, "--json").data)
+    check("restate show", gct("restate", "show", original, "--json").data)
+    check("restate withdraw", gct("restate", "withdraw", "--original", original, "--restated", restated, *WHO,
+                                  "--json").data)
+    for p in gct("restate", "list", "--json").data["pairs"]:
+        assert set(p["a"]) == set(p["b"]) == {
+            "claim_id", "claim_version_id", "document_id", "page_number", "locator", "period_start", "period_end",
+            "value_text", "unit_text", "unit_key", "number", "value_base", "link", "comparable", "reason", "review"}
+    shown = gct("series", "list", "--json").data
+    check("series list", shown)
+    assert all(set(q) == {"claim", "state", "reason", "restatement"} for s in shown["series"] for p in s["points"]
+               for q in p["pairs"])
+
+
 def test_approve_and_model_match_the_documented_keys(tmp_path, gct, monkeypatch):
     from gct.models import redact
 
@@ -238,7 +263,7 @@ def test_every_command_has_a_documented_section():
         "claims history", "correct",
         "infer", "infer bases", "infer scope", "infer groups", "infer accept", "infer resolve", "infer reject",
         "match", "match metrics", "match review", "match link", "match unlink", "match status", "series list",
-        "series show",
+        "series show", "restate list", "restate show", "restate record", "restate withdraw",
         "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
         "publish build", "publish restore", "publish status",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",

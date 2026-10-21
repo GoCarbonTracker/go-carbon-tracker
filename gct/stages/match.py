@@ -6,19 +6,20 @@ import re
 from collections import Counter
 
 from gct.stages import Stage, correct, infer, run_stage, version_of
+from gct.stages.extract import WESTERN
 from gct.stages.link import EXTRACT_FIRST
 from gct.stages.read import ACTIVE, NOT_ACTIVE, select
 from gct.workspace import registry, runs, store
 from gct.workspace.layout import NOT_FOUND, REFUSED, GctError
 
 METHOD = "match-rules"
-RULES_VERSION = 1
-METRICS_VERSION = 1
+RULES_VERSION = 2  # 2: number_of reads Indian grouping and drops trailing footnote marks (story 4.2)
+METRICS_VERSION = 2  # 2: records the combined-scope list of 4.1 fix 95e3c9e; the list itself is unchanged here
 UNITS_VERSION = 1
 CONFIG = version_of("match", 1, RULES_VERSION, METRICS_VERSION, UNITS_VERSION)
 AMBIGUOUS = "ambiguous"
 
-# Metric list v1: absolute totals only. (key, phrases one of which must appear, phrases none of which may appear).
+# Metric list v2: absolute totals only. (key, phrases one of which must appear, phrases none of which may appear).
 EXCLUDED = ("intensity", "per rupee", "per unit", " per ", "%", "percentage", "ratio", "category")
 WHOLE_WORDS = ("ratio", "category")  # matched as words: "operations" and "generation" contain "ratio"
 METRICS = (
@@ -55,6 +56,17 @@ UNITS = {
 PREFIXES = {"thousand": 1e3, "'000": 1e3, "lakh": 1e5, "crore": 1e7, "million": 1e6, "billion": 1e9}
 FAMILIES = ("tco2e", "tco2", "gj", "kl", "t")
 LEFT_OUT = ("mtco2e", "ml")  # a printed unit left out on purpose stays unknown: no unit from the label either
+
+
+INDIAN = re.compile(r"-?\d{1,2}(?:,\d{2})*,\d{3}(?:\.\d+)?")
+
+
+def number_of(text) -> float | None:
+    """The number printed in a value text, for comparison only: the Western form extract accepts, or Indian grouping
+    (the last group three digits, every earlier one two), after trailing footnote marks are removed. Parentheses
+    never give a sign. The printed text and the claim's value are never rewritten."""
+    s = str(text or "").strip().rstrip("*#†^").strip()
+    return float(s.replace(",", "")) if WESTERN.fullmatch(s) or INDIAN.fullmatch(s) else None
 
 
 def label_of(text) -> str:
@@ -293,11 +305,13 @@ def _series(key: list) -> dict:
 
 
 def _point(c: dict, link: str, comparable: bool, reason=None) -> dict:
-    base = c["value"] * c["unit_factor"] if comparable and c["value"] is not None and c["unit_factor"] else None
+    number = c["value"] if c["value"] is not None else number_of(c["value_text"])
+    base = number * c["unit_factor"] if comparable and number is not None and c["unit_factor"] else None
     return {"claim_id": c["claim_id"], "claim_version_id": c["claim_version_id"], "document_id": c["document_id"],
-            "page_number": c["page_number"], "period_start": c["period"]["start"], "period_end": c["period"]["end"],
-            "value_text": c["value_text"], "unit_text": c["unit_text"], "unit_key": c["unit_key"],
-            "value_base": base, "link": link, "comparable": comparable, "reason": reason, "review": c.get("review")}
+            "page_number": c["page_number"], "locator": c["locator"], "period_start": c["period"]["start"],
+            "period_end": c["period"]["end"], "value_text": c["value_text"], "unit_text": c["unit_text"],
+            "unit_key": c["unit_key"], "number": number, "value_base": base, "link": link, "comparable": comparable,
+            "reason": reason, "review": c.get("review")}
 
 
 def _claims(conn, docs) -> list[dict]:

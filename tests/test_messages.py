@@ -86,8 +86,45 @@ def refusals(ws, tmp_path, make_file):
           "--workspace", ws], 2),
         (["series", "list", "--company", "Nobody", "--workspace", ws], 3),
         (["series", "show", "abc", "--workspace", ws], 3),
+        (["restate", "list", "--company", "Nobody", "--workspace", ws], 3),
+        (["restate", "show", "99", "--workspace", ws], 3),
+        (["restate", "record", "--original", "98", "--restated", "99", "--page", "1", "--quote", "q", *WHO,
+          "--workspace", ws], 3),
+        (["restate", "record", "--original", "98", "--restated", "99", "--page", "1", "--quote", " ", *WHO,
+          "--workspace", ws], 2),
+        (["restate", "record", "--original", "98", "--restated", "99", "--page", "1", "--quote", "q", "--as", "bob",
+          "--capacity", "c", "--rationale", "r", "--workspace", ws], 3),
+        (["restate", "withdraw", "--original", "98", "--restated", "99", *WHO, "--workspace", ws], 3),
+        (["restate", "withdraw", "--original", "98", "--restated", "99", "--as", "ana", "--capacity", "c",
+          "--rationale", " ", "--workspace", ws], 2),
         (["serve", "--no-open", "--workspace", tmp_path / "nowhere"], 3),
     ]
+
+
+def test_restate_refusals_have_cause_next_action_and_no_internals(ws, gct, make_file):
+    from test_restate import QUOTE, cp2
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    a, b, restated, original = cp2(gct, make_file)
+    newer = next(c["id"] for c in gct("claims", "list", "--doc", a, "--json").data["claims"] if c["id"] != restated)
+    names = internal_names(ws)
+    record = ["restate", "record", "--original", original, "--restated", restated, *WHO]
+    cases = [[*record, "--page", 1, "--quote", "not on the page"], [*record, "--page", 9, "--quote", QUOTE],
+             ["restate", "record", "--original", original, "--restated", newer, "--page", 1, "--quote", QUOTE, *WHO],
+             ["restate", "record", "--original", original, "--restated", original, "--page", 1, "--quote", QUOTE, *WHO],
+             ["restate", "withdraw", "--original", original, "--restated", restated, *WHO]]
+    for argv in cases:
+        human, machine = gct(*argv), gct(*argv, "--json")
+        assert human.code == machine.code == 4 and human.out == "", (argv, human.err)
+        assert human.err.startswith("error: ") and "\nnext: " in human.err
+        assert machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in [*INTERNAL_WORDS, *names]:
+                assert word not in text, (argv, word)
+    assert gct(*record, "--page", 1, "--quote", QUOTE).code == 0
+    human = gct(*record, "--page", 1, "--quote", QUOTE)
+    assert human.code == 4 and not any(w in human.err for w in [*INTERNAL_WORDS, *names])
 
 
 def test_every_refusal_has_cause_next_action_and_no_internals(ws, gct, tmp_path, make_file):

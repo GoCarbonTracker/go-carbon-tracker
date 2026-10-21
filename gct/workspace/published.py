@@ -35,8 +35,19 @@ CREATE TABLE series (
 );
 CREATE TABLE series_point (
     series_id TEXT NOT NULL, claim_id INTEGER NOT NULL, claim_version_id INTEGER NOT NULL, period_start TEXT NOT NULL,
-    period_end TEXT NOT NULL, value_text TEXT NOT NULL, unit_text TEXT, unit_key TEXT, value_base REAL,
+    period_end TEXT NOT NULL, value_text TEXT NOT NULL, unit_text TEXT, unit_key TEXT, number REAL, value_base REAL,
     link TEXT NOT NULL, comparable INTEGER NOT NULL, reason TEXT
+);
+CREATE TABLE comparison (
+    series_id TEXT NOT NULL, period_start TEXT NOT NULL, period_end TEXT NOT NULL, claim_a INTEGER NOT NULL,
+    version_a INTEGER NOT NULL, claim_b INTEGER NOT NULL, version_b INTEGER NOT NULL, state TEXT NOT NULL, reason TEXT,
+    restatement_id INTEGER
+);
+CREATE TABLE restatement (
+    id INTEGER PRIMARY KEY, original_version_id INTEGER NOT NULL, restated_version_id INTEGER NOT NULL,
+    series_key TEXT NOT NULL, decision TEXT NOT NULL, evidence_document_id INTEGER NOT NULL, evidence_page INTEGER,
+    evidence_quote TEXT, contributor_name TEXT NOT NULL, contributor_organisation TEXT, capacity TEXT NOT NULL,
+    rationale TEXT NOT NULL, created_at TEXT NOT NULL, binds INTEGER NOT NULL
 );
 CREATE TABLE evidence_ref (
     id INTEGER PRIMARY KEY, claim_version_id INTEGER NOT NULL, document_id INTEGER NOT NULL, page_number INTEGER,
@@ -108,7 +119,7 @@ def history_mark(conn: sqlite3.Connection) -> str:
                   "basis", "basis_scope", "inference", "inference_review",
                   # A claim's state follows the extractions, including one that found nothing on its page.
                   "correction", "claim_seen", "attempt WHERE stage = 'extract'",
-                  "metric_assignment", "match_review")
+                  "metric_assignment", "match_review", "restatement")
     )
 
 
@@ -160,9 +171,23 @@ def _series(matched: dict) -> dict:
                s["boundary_detail"], s["unit_family"], s["period_kind"], s["periods"], s["latest_period_end"])
               for s in matched["series"].values()]
     points = [(s["id"], p["claim_id"], p["claim_version_id"], p["period_start"], p["period_end"], p["value_text"],
-               p["unit_text"], p["unit_key"], p["value_base"], p["link"], int(p["comparable"]), p["reason"])
+               p["unit_text"], p["unit_key"], p["number"], p["value_base"], p["link"], int(p["comparable"]), p["reason"])
               for s in matched["series"].values() for p in s["points"]]
     return {"series": series, "series_point": points}
+
+
+def _comparison(conn: sqlite3.Connection, matched: dict) -> dict:
+    """The pair states of every same-period set (story 4.2) and every restatement row, withdrawn ones included."""
+    from gct.stages import restate  # the stages import this package
+
+    pairs = [(p["series_id"], p["period_start"], p["period_end"], p["a"]["claim_id"], p["a"]["claim_version_id"],
+              p["b"]["claim_id"], p["b"]["claim_version_id"], p["state"], p["reason"],
+              p["restatement"] and p["restatement"]["id"]) for p in restate.pairs(conn, matched)]
+    rows = conn.execute(
+        "SELECT r.id, r.original_version_id, r.restated_version_id, r.series_key, r.decision, r.evidence_document_id,"
+        " r.evidence_page, r.evidence_quote, c.name, c.organisation, r.capacity, r.rationale, r.created_at,"
+        f" {restate.BINDS} FROM restatement r JOIN contributor_version c ON c.id = r.contributor_version_id ORDER BY r.id").fetchall()
+    return {"comparison": pairs, "restatement": rows}
 
 
 def _with_inference(conn: sqlite3.Connection, claims, matched: dict) -> list[tuple]:
@@ -218,7 +243,7 @@ def _read_history(conn: sqlite3.Connection, root: Path):
             f"SELECT {EVIDENCE_COLUMNS} FROM evidence_ref e WHERE e.claim_version_id IN (SELECT v.id {NEWEST_CLAIMS})"
             " ORDER BY e.id"
         ).fetchall()
-        extra = {**_missing(conn, root), **_series(matched)}
+        extra = {**_missing(conn, root), **_series(matched), **_comparison(conn, matched)}
     finally:
         conn.execute("COMMIT")
     return mark, companies, docs, claims, refs, extra
@@ -273,7 +298,7 @@ def build(conn: sqlite3.Connection, root: Path) -> dict:
     built_at = store.now()
     meta = {
         "version": version, "built_at": built_at, "history_mark": mark,
-        "gct_version": __version__, "projection_schema": 6,
+        "gct_version": __version__, "projection_schema": 7,
     }
     _write_projection(version_path(root, version), meta, companies, docs, claims, refs, extra)
     with store.transaction(conn):

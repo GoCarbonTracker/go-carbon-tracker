@@ -130,21 +130,46 @@ As `match link`, with `decision` `not_linked`: the item leaves the queue (or a l
 
 ## match status
 - top: status, companies
-- companies: company, claims, mapped, unmapped, unit_unknown, not_mapped_yet, series, same_period_sets, uncertain_items, states, not_matchable
+- companies: company, claims, mapped, unmapped, unit_unknown, not_mapped_yet, series, same_period_sets, uncertain_items, states, not_matchable, pairs
 
-Counts per company over the newest claim versions of active documents. `mapped` is `{metric key: claims}`; `not_mapped_yet` counts versions `gct match` has not seen. `states` counts claims by match state (`series`, `reviewed`, `uncertain`, `not matchable`), `not_matchable` by reason. `same_period_sets` counts the periods of a series with two or more points.
+Counts per company over the newest claim versions of active documents. `mapped` is `{metric key: claims}`; `not_mapped_yet` counts versions `gct match` has not seen. `states` counts claims by match state (`series`, `reviewed`, `uncertain`, `not matchable`), `not_matchable` by reason. `same_period_sets` counts the periods of a series with two or more points. `pairs` counts the pairs of those sets by state (`same value`, `restatement`, `unresolved conflict`, `not compared`; see `restate list`).
 
 ## series list
 - top: status, series
 - series: id, company_id, metric_key, label, document_id, reporting_boundary, boundary_detail, unit_family, period_kind, periods, latest_period_end, company, points, same_period_sets
 
-One record per series, with `points` holding only the points of its latest period (the newest `period_end`). `metric_key` is null for an unmapped label, which then has `label` (lowercased as matched) and `document_id`; a `unit as printed` series also has `document_id`. `unit_family` is the base unit (`tco2e`, `tco2`, `gj`, `kl`, `t`) or `printed:<unit text lowercased, the word in, brackets and spaces removed, or ->`. `periods` counts the distinct periods. Each point: `claim_id`, `claim_version_id`, `document_id`, `page_number`, `period_start`, `period_end`, `value_text` and `unit_text` as printed, `unit_key`, `value_base` (the value in the base unit, null when the point is not comparable or the value is not a plain Western number), `link` (`rule` or `reviewed`), `comparable` (false for a reviewed link and a `unit as printed` point), `reason` (why not comparable, else null), `review` (null, or `decision`, `contributor`, `organisation`, `capacity`, `rationale`, `created_at`) and `same_period` (how many points of the series share its period). `--metric KEY` and `--company NAME` filter.
+One record per series, with `points` holding only the points of its latest period (the newest `period_end`). `metric_key` is null for an unmapped label, which then has `label` (lowercased as matched) and `document_id`; a `unit as printed` series also has `document_id`. `unit_family` is the base unit (`tco2e`, `tco2`, `gj`, `kl`, `t`) or `printed:<unit text lowercased, the word in, brackets and spaces removed, or ->`. `periods` counts the distinct periods. Each point: `claim_id`, `claim_version_id`, `document_id`, `page_number`, `period_start`, `period_end`, `value_text` and `unit_text` as printed, `unit_key`, `locator`, `number` (the number read from the printed value by match rules 2: the claim's value, else Western or Indian grouping with trailing footnote marks removed; null when none), `value_base` (`number` in the base unit, null when the point is not comparable or has no number), `link` (`rule` or `reviewed`), `comparable` (false for a reviewed link and a `unit as printed` point), `reason` (why not comparable, else null), `review` (null, or `decision`, `contributor`, `organisation`, `capacity`, `rationale`, `created_at`) and `same_period` (how many points of the series share its period) and `pairs` (one per other point of its period: `claim`, `state`, `reason`, `restatement` (the record id or null); see `restate list`). `--metric KEY` and `--company NAME` filter.
 
 ## series show
 - top: status, series
 - series: id, company_id, metric_key, label, document_id, reporting_boundary, boundary_detail, unit_family, period_kind, periods, latest_period_end, company, points, same_period_sets
 
-One series as in `series list`: the points of the latest period, or with `--all` every point, oldest period first. Nothing says whether two values of one period agree. An unknown series is refused (exit 3).
+One series as in `series list`: the points of the latest period, or with `--all` every point, oldest period first. Each point's `pairs` give the state of every pair of its same-period set. An unknown series is refused (exit 3).
+
+## restate list
+- top: status, pairs, hidden
+- pairs: series_id, company_id, company, metric_key, label, reporting_boundary, boundary_detail, period_start, period_end, state, reason, restatement, a, b
+
+One record per pair of points of one same-period set of a series, over the active documents (`--company NAME` for one company). `a` and `b` are the two points as in `series list` (`claim_id, claim_version_id, document_id, page_number, locator, period_start, period_end, value_text, unit_text, unit_key, number, value_base, link, comparable, reason, review`), ordered by document id then claim id for display only (the store never orders reports). `state` is `same value`, `restatement`, `unresolved conflict` or `not compared`; `reason` is set only for `not compared` (`unit as printed`, `reviewed, not comparable`, `no numeric value`, `same table row`). `restatement` is null or the current record: `id, original_version, restated_version, decision, document, page, quote, contributor, organisation, capacity, rationale, created_at`. `--state same|restatement|unresolved|not-compared` hides the other pairs and `hidden` counts them (0 without `--state`). See `docs/restatements.md`.
+
+## restate show
+- top: status, claim, pairs, versions
+- claim: id, document, page_number, version, match_state, match_reason, series_id
+- versions: claim, id, reviews
+
+`pairs` are the pairs (as in `restate list`) the claim's newest version is in. `versions` holds every version of the claim, oldest first, then the other version of each pair and of each restatement row on the claim's versions; `reviews` is every record attached to that version: `inference_reviews`, `corrections` (with `role` `made this version` or `replaced this version`), `match_reviews` (with the series id in `series`), `source_match` (the newest check of each evidence ref, `status` null when not checked) and `restatements` (every row naming the version, withdrawn and superseded ones included, with `role` `original` or `restated`, `current` and `binds`, false when either version it names is not its claim's newest; see `docs/restatements.md`). An unknown claim is refused (exit 3).
+
+## restate record
+- top: status, restatement, pair
+- restatement: id, original_version, restated_version, decision, document, page, quote, contributor, organisation, capacity, rationale, created_at
+
+Records that the `--restated` claim's newest version restates the `--original` claim's newest version, citing `--page` of the restated claim's document and `--quote`, the line as printed there. `pair` is the pair as computed afterwards (state `restatement`). Refused (exit 4): the two claims not in one same-period set of one series, a claim that is not current or whose newest version has not been matched yet, a pair that is `same value` or `not compared`, a page outside the document or not read, a quote not on the page's newest reading (whitespace collapsed, case kept). An unknown claim or contributor exits 3, an empty quote, capacity or rationale exits 2.
+
+## restate withdraw
+- top: status, restatement, pair
+- restatement: id, original_version, restated_version, decision, document, page, quote, contributor, organisation, capacity, rationale, created_at
+
+Adds a `withdrawn` row for the pair of the two claims' newest versions (`page` and `quote` null); `pair` is the pair as computed afterwards, usually `unresolved conflict`, or null when the claims no longer form a pair. Refused (exit 4) when no current `recorded` row names the claims in that order.
 
 ## claims list
 - top: status, document, claims

@@ -26,6 +26,9 @@ def test_every_table_is_append_only(ws, db, gct, make_file):
     gct("match")
     db.execute("INSERT INTO match_review (claim_version_id, series_key, reason, decision, contributor_version_id, capacity,"
                " rationale, created_at) VALUES (2, 'k', 'boundary unknown', 'linked', 1, 'analyst', 'r', 't')")
+    db.execute("INSERT INTO restatement (original_version_id, restated_version_id, series_key, decision,"
+               " evidence_document_id, evidence_page, evidence_quote, contributor_version_id, capacity, rationale,"
+               " created_at) VALUES (1, 2, 'k', 'recorded', 2, 1, 'q', 1, 'analyst', 'r', 't')")
     db.commit()
     gct("expect", "add", "--company", "Acme", "--metric", "water", "--doc", "2")
     gct("pages", "accept", "--doc", "2", "--pages", "1", "--type", "figures", *who)
