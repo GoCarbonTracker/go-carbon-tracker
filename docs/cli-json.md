@@ -197,6 +197,27 @@ Records that the `--restated` claim's newest version restates the `--original` c
 
 Adds a `withdrawn` row for the pair of the two claims' newest versions (`page` and `quote` null); `pair` is the pair as computed afterwards, usually `unresolved conflict`, or null when the claims no longer form a pair. Refused (exit 4) when no current `recorded` row names the claims in that order.
 
+## review company
+- top: status, claim, entry, disagreement
+- claim: id, document, company, version
+- entry: id, ledger, claim_version, contributor, organisation, contributor_version, capacity, scope, reviewed_on, conclusion, outcome, evidence_document, evidence_company, evidence_page, evidence_note, evidence_state, latest, binds, self_declared, evidence_deleted, created_at
+
+Records a company confirmation on the newest version of a current claim of an active document. `claim.company` is the claim's company, read from the claim; `entry.organisation` is the contributor's own, as declared. `entry` is the new row as `review list` shows it: `ledger` `company`; `capacity`, `scope`, `conclusion` and `evidence_note` exactly as typed; `reviewed_on` the `--date` (default today); `outcome` `accepted`, `rejected` or `disputed`; `evidence_document` and `evidence_page` the cited document and page or null, with `evidence_company` (that document's company) and `evidence_state` (its state now: `registered`, `restored`, `archived` or `deleted`; null without a document); `contributor_version` the contributor version recorded; `latest` and `binds` (see `review list`); `self_declared` always true; `evidence_deleted` null unless the claim's document or the evidence document was deleted, else `{"document": N, "at": ...}`. `disagreement` is that of the version after recording. No run is opened. Refused, writing nothing: an unknown claim, contributor or evidence document (exit 3); an empty capacity, scope, conclusion or note, an outcome other than the three, a malformed or future date, no evidence document and no note, a page without a document (exit 2); a claim that is not current, a claim or evidence document that is archived or deleted, a `--version` that is not the claim's newest, a page outside the document or on a spreadsheet (exit 4).
+
+## review auditor
+- top: status, claim, entry, disagreement
+- claim: id, document, company, version
+- entry: id, ledger, claim_version, contributor, organisation, contributor_version, capacity, scope, reviewed_on, conclusion, outcome, evidence_document, evidence_company, evidence_page, evidence_note, evidence_state, latest, binds, self_declared, evidence_deleted, created_at
+
+As `review company`, in the other ledger (`ledger` `auditor`).
+
+## review list
+- top: status, claim, versions
+- claim: id, document, document_state, company, version, state, evidence_deleted
+- versions: id, binds, company_confirmations, auditor_reviews, disagreement
+
+Every version of one claim, oldest first; `claim.version` is the newest, `claim.state` as in `claims list`, `document_state` the state of the claim's document (an archived or deleted document's claim is listed too). `company_confirmations` and `auditor_reviews` are two lists, oldest first, each entry with the keys of `review company`'s `entry`; none is hidden. `latest` is true on a contributor's newest entry in that ledger on that version (by contributor key), false on their earlier ones. `binds` (on the version and on each entry) is true only for the claim's newest version. `disagreement` is null, or `{"company": [...], "auditor": [...]}`, the latest outcomes of each ledger in the order accepted, rejected, disputed, when both are non-empty and differ. An unknown claim is refused (exit 3). See `docs/reviews.md`.
+
 ## claims list
 - top: status, document, claims
 - claims: id, page_number, locator, value_text, value, unit_text, metric_text, period_label, reporting_boundary, boundary_label, method, boxes, source_match, source_match_reason, period, boundary, claim_state, needs_re_review, sheet, cell
@@ -208,9 +229,9 @@ One record per claim, from its newest version. `id` is the claim id that `gct in
 ## claims history
 - top: status, claim, versions
 - claim: id, document, document_state, page_number, locator, state, needs_re_review, evidence_deleted
-- versions: id, method, config_version, run_id, created_at, metric_text, value_text, value, unit_text, period_label, boundary_label, evidence_refs, inferences, reviews, correction, seen
+- versions: id, method, config_version, run_id, created_at, metric_text, value_text, value, unit_text, period_label, boundary_label, evidence_refs, inferences, reviews, correction, seen, company_confirmations, auditor_reviews, disagreement
 
-Every version of one claim, oldest first; nothing is left out. `evidence_deleted` is null unless the claim's document was deleted, else `{"document": N, "at": ...}`: every review and correction listed then keeps its contributor, decision and date, its capacity and rationale read `cleared with document N`, and the version's values are cleared (see `docs/deletion.md`). `document_state` is the state of the claim's document (`registered`, `archived` or `restored`); an archived document's claims keep their whole history. `state` and `needs_re_review` are those of `claims list`. `evidence_refs` are the version's locations, each `id`, `page_number`, `boxes`, `sheet`, `cell` and `source_match` (every check of it, oldest first: `id`, `status`, `reason`, `run_id`, `created_at`). `inferences` and `reviews` are the period and boundary rows of `gct infer` made on this version. `correction` is null for an extracted version, else the record that made it: `id`, `corrects_version`, `fields` (the fields changed), `replaced` (`value_text`, `unit_text`, `metric_text`, `period_label` of the version it corrects), `contributor`, `organisation`, `capacity`, `rationale`, `created_at`. `seen` lists the extractions that found this version: `page_id` (the reading), `config_version` (the extract rules), `run_id`, `created_at`. An unknown claim is refused (exit 3).
+Every version of one claim, oldest first; nothing is left out. `evidence_deleted` is null unless the claim's document was deleted, else `{"document": N, "at": ...}`: every review and correction listed then keeps its contributor, decision and date, its capacity and rationale read `cleared with document N`, and the version's values are cleared (see `docs/deletion.md`). `document_state` is the state of the claim's document (`registered`, `archived` or `restored`); an archived document's claims keep their whole history. `state` and `needs_re_review` are those of `claims list`. `evidence_refs` are the version's locations, each `id`, `page_number`, `boxes`, `sheet`, `cell` and `source_match` (every check of it, oldest first: `id`, `status`, `reason`, `run_id`, `created_at`). `inferences` and `reviews` are the period and boundary rows of `gct infer` made on this version. `correction` is null for an extracted version, else the record that made it: `id`, `corrects_version`, `fields` (the fields changed), `replaced` (`value_text`, `unit_text`, `metric_text`, `period_label` of the version it corrects), `contributor`, `organisation`, `capacity`, `rationale`, `created_at`. `seen` lists the extractions that found this version: `page_id` (the reading), `config_version` (the extract rules), `run_id`, `created_at`. `company_confirmations`, `auditor_reviews` and `disagreement` are those of `review list` for this version. An unknown claim is refused (exit 3).
 
 ## sheet show
 - top: status, document, sheets

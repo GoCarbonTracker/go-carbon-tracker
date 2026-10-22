@@ -106,6 +106,16 @@ When a company prints two figures for the same metric, period and boundary (this
 - `gct restate list [--company NAME] [--state same|restatement|unresolved|not-compared]` lists the pairs, and says how many pairs the filter hid. `gct restate show CLAIM` shows a claim's pairs and every record on its versions. `gct series show` marks each same-period set with its state, `gct match status` counts the pairs by state, and `gct publish build` writes the pair states and every restatement record to the published version.
 - Restatement notes printed in reports are not detected automatically yet.
 
+## Company confirmations and auditor reviews
+
+Someone speaking for the company, or an auditor, can record what they make of one version of a figure. The two are kept in separate ledgers and shown side by side. Details are in `docs/reviews.md`.
+
+- `gct review company CLAIM --version V --outcome accepted|rejected|disputed --scope TEXT --conclusion TEXT --as KEY --capacity TEXT` records a company confirmation; `gct review auditor` with the same options records an auditor review. Evidence is `--evidence-doc ID` (with `--evidence-page N` for a PDF page), `--evidence-note TEXT`, or both; `--date` is the day of the review (default today).
+- `--version` must be the claim's newest version, so nobody confirms a figure they did not see. The conclusion is kept exactly as typed, "verified" included, and attributed to the person who typed it.
+- Identities and capacities are self-declared. GCT does not check them and does not adopt any conclusion as its own.
+- Nothing is overwritten: a later entry is a new row, and a contributor's newest entry on a version is their position. After a correction, earlier entries stay on the earlier version and no longer bind.
+- When the company's and the auditor's positions on a version differ, `gct review list CLAIM` and `gct claims history CLAIM` say so; neither ledger overrides the other. Adding evidence or running any stage never records an entry.
+
 ## Archive
 
 A report that should not count (the wrong file, or one replaced by a corrected edition) can be archived. Archiving takes it out of everything gct works with, keeps all of it, and can be undone. Details are in `docs/archive.md`.

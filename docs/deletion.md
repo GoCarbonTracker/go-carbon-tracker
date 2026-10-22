@@ -21,7 +21,8 @@ step; delete only what must not stay in the workspace.
 
 A document can be deleted when it is `registered`, `restored` or `archived`. A deleted document is refused with the
 message and the next step: deleting it again, restoring it, archiving it and every write on it (corrections, reviews,
-page acceptances, restatement records, expectations).
+page acceptances, restatement records, company confirmations and auditor reviews on its claims or citing it,
+expectations).
 
 ## Order
 
@@ -83,6 +84,7 @@ quotes the page. The classification lives in `gct/stages/deletion.py` (`KEPT`, `
 | `metric_assignment` | assignments of its versions | `metric_key`, `rule`, `unit_key`, `unit_factor` (NULL) | `unit_source` |
 | `match_review` | match reviews of its versions | `series_key` (`''`: it holds the printed label of an unmapped series); `capacity`, `rationale` (`cleared with document N`) | `reason`, `decision` |
 | `restatement` | rows naming one of its versions, either side, or citing it | `series_key`, `evidence_quote` (`''`; NULL stays NULL on a withdrawn row); `capacity`, `rationale` (`cleared with document N`) | `decision`, `evidence_page` |
+| `review_company`, `review_auditor` | company confirmations and auditor reviews on one of its versions, or citing it as evidence (`evidence_document_id`) | `capacity`, `scope`, `conclusion` (`cleared with document N`); `evidence_note` (`cleared with document N`; NULL stays NULL) | `reviewed_on`, `outcome`, `evidence_page` |
 | `expected_item` | none | nothing (the expectation is the user's wording) | `metric_text`, `period_label` |
 | `page_acceptance` | acceptances of its pages | `capacity`, `rationale` (`cleared with document N`) | `page_number`, `content_type` |
 | `gap_confirmation` | confirmations whose checked set names it | `capacity`, `rationale` (`cleared with document N`) | `documents_checked` (document ids, file hashes, reading ids) |
@@ -141,12 +143,14 @@ infer, link or match attempt are the cache key and the result of another documen
 matched in every stage. The `sheet` stage (story 4.3) keys its attempts and lines on ids, so the deleted document's
 are found by that key, never by text: another spreadsheet's sheet attempts stay as they were.
 
-In a published version (`projection_schema` 10) a row whose `document_id`, `evidence_document_id`, `claim_id`,
+In a published version (`projection_schema` 11) a row whose `document_id`, `evidence_document_id`, `claim_id`,
 `claim_a`, `claim_b`, `id` of `claim` or `document`, `claim_version_id`, `original_version_id`,
 `restated_version_id`, `version_a` or `version_b` names the document, one of its claims or one of its claim versions
 is removed, in `document`, `claim` (with its `note`, the spreadsheet row's note cell), `series`, `series_point`,
 `comparison`, `restatement`, `evidence_ref` (with its `sheet` and `cell`), `expected_item_document`,
-`page_acceptance`, `hidden_by_archive` and `sheet_mapping` (every column mapping of a spreadsheet). `meta`, `company`,
+`page_acceptance`, `hidden_by_archive`, `sheet_mapping` (every column mapping of a spreadsheet), `review_company` and
+`review_auditor` (an entry on one of its claims or citing it as evidence; the next build projects a surviving claim's
+entry again with its text cleared and `evidence_state` `deleted`). `meta`, `company`,
 `expected_item`, `gap_confirmation` and `deleted_document` keep their rows (`expected_item.accepted` and the gap
 confirmation's `capacity` and `rationale` are rewritten as above, and `meta.hidden_by_archive` is counted again from
 the `hidden_by_archive` rows left, so an archived document deleted since leaves the counts too).
@@ -160,7 +164,9 @@ correction), `gct restate show` (every version of a deleted document's claim, fr
 record, so a record whose other claim survives shows it from the survivor's side; a restatement record carries the
 marker of either version's document or its evidence document, also when listed under the survivor's version),
 `gct expect list` (a gap
-confirmation that looked in a deleted document) and `gct doc show` (the records on the document itself). Each record
+confirmation that looked in a deleted document), `gct doc show` (the records on the document itself), and
+`gct review list` and `gct claims history` (a company confirmation or auditor review carries the marker of its claim's
+document or its evidence document, whichever was deleted; `docs/reviews.md`). Each record
 keeps its contributor, decision, states and dates; its capacity and rationale read `cleared with document N`.
 `gct match review` lists only the review queue of active documents, so it never shows a deleted document's item; its
 match reviews are listed by `gct restate show CLAIM`.

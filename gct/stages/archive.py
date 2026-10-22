@@ -18,6 +18,10 @@ REVIEWS = {
                    f" OR restated_version_id IN ({VERSIONS})",
     # Every column mapping row of a spreadsheet (story 4.3); all of them are projected while it is active.
     "sheet_mapping": "SELECT COUNT(*) FROM sheet_mapping WHERE document_id = ?",
+    # Company confirmations and auditor reviews on a version of its claims (story 5.1, C7); an entry that only cites
+    # it as evidence stays in the outputs, with the evidence document's state.
+    "review_company": f"SELECT COUNT(*) FROM review_company WHERE claim_version_id IN ({VERSIONS})",
+    "review_auditor": f"SELECT COUNT(*) FROM review_auditor WHERE claim_version_id IN ({VERSIONS})",
 }
 
 

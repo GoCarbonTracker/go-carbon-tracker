@@ -10,7 +10,7 @@ from gct import __version__
 from gct.api import server
 from gct.measure import g2
 from gct.models import adapters, policy
-from gct.stages import archive, correct, deletion, extract, infer, link, match, missing, read, restate, sheet
+from gct.stages import archive, correct, deletion, extract, infer, link, match, missing, read, restate, review, sheet
 from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -149,7 +149,8 @@ def _impact_lines(i: dict) -> list[str]:
         lines.append("  expectations computed from it: " + ", ".join(map(str, i["expected_items"])))
     lines.append(f"  review records kept, no longer in active outputs: {r['inference_review']} inference reviews, "
                  f"{r['correction']} corrections, {r['match_review']} match reviews, {r['page_acceptance']} page "
-                 f"acceptances, {r['restatement']} restatement records, {r['sheet_mapping']} sheet mappings")
+                 f"acceptances, {r['restatement']} restatement records, {r['sheet_mapping']} sheet mappings, "
+                 f"{r['review_company']} company confirmations, {r['review_auditor']} auditor reviews")
     return lines
 
 
@@ -410,7 +411,10 @@ def cmd_claims_history(args) -> None:
     lines = [f"claim {c['id']}  document {c['document']} ({c['document_state']})  p{c['page_number']}  {c['locator']}  "
              f"{c['state']}{_mark(c['evidence_deleted'])}",
              *(f"  needs re-review: {correct.entry_text(e)}" for e in c["needs_re_review"]),
-             *(line for v in h["versions"] for line in _version_lines(v, c["evidence_deleted"]))]
+             *(line for v in h["versions"] for line in [*_version_lines(v, c["evidence_deleted"]), *(
+                 _ledger_lines(v) if any(v[k] for _, _, k in review.LEDGERS.values()) else [])])]
+    if any(v[k] for v in h["versions"] for _, _, k in review.LEDGERS.values()):
+        lines.append(review.SELF_DECLARED)
     _print(args, {"status": "ok", **h}, "\n".join(lines))
 
 
@@ -815,6 +819,61 @@ def cmd_restate_withdraw(args) -> None:
     _print(args, {"status": "ok", **r}, _decided(r))
 
 
+def _entry_line(e: dict) -> str:
+    """One ledger entry, the contributor's words quoted and attributed (C5)."""
+    where = []
+    if e["evidence_document"]:
+        state = "" if e["evidence_state"] in ("registered", "restored") else f", {e['evidence_state']}"
+        where.append(f"document {e['evidence_document']}" + (f" p{e['evidence_page']}" if e["evidence_page"] else "")
+                     + f" ({e['evidence_company']}{state})")
+    if e["evidence_note"] is not None:
+        where.append(f"note \"{e['evidence_note']}\"")
+    org = f" ({e['organisation']})" if e["organisation"] else ""
+    return (f"{review.LEDGERS[e['ledger']][1]} #{e['id']} {e['outcome']} on {e['reviewed_on']} by {e['contributor']}"
+            f"{org}, capacity \"{e['capacity']}\", scope \"{e['scope']}\": \"{e['conclusion']}\"; evidence "
+            + ", ".join(where) + ("" if e["latest"] else " (an earlier position of this contributor)")
+            + ("" if e["binds"] else " (on an earlier version)") + _mark(e["evidence_deleted"], e["created_at"]))
+
+
+def _disagreement_line(version: int, d: dict) -> str:
+    return (f"company confirmation and auditor review disagree on version {version}: company "
+            f"{', '.join(d['company'])}; auditor {', '.join(d['auditor'])}")
+
+
+def _ledger_lines(v: dict, indent: str = "  ") -> list[str]:
+    """Both ledgers of one version as two lists, then their disagreement."""
+    lines = []
+    for _, words, key in review.LEDGERS.values():
+        lines.append(f"{indent}{words}s:" + ("" if v[key] else " none"))
+        lines += [f"{indent}  {_entry_line(e)}" for e in v[key]]
+    if v["disagreement"]:
+        lines.append(indent + _disagreement_line(v["id"], v["disagreement"]))
+    return lines
+
+
+def cmd_review_record(args) -> None:
+    r = review.record(_open(args), args.root, args.ledger, args.claim, args.version, args.outcome, args.scope,
+                      args.conclusion, args.as_, args.capacity, args.evidence_doc, args.evidence_page,
+                      args.evidence_note, args.date)
+    c, e = r["claim"], r["entry"]
+    lines = [f"Recorded {review.LEDGERS[e['ledger']][1]} #{e['id']} on version {c['version']} of claim {c['id']}"
+             f" (document {c['document']}, company {c['company']}):", f"  {_entry_line(e)}"]
+    if r["disagreement"]:
+        lines.append("  " + _disagreement_line(c["version"], r["disagreement"]))
+    _print(args, {"status": "ok", **r}, "\n".join([*lines, review.SELF_DECLARED]))
+
+
+def cmd_review_list(args) -> None:
+    r = review.listing(_open(args, write=False), args.claim)
+    c = r["claim"]
+    lines = [f"claim {c['id']}  document {c['document']} ({c['document_state']})  company {c['company']}  newest version"
+             f" {c['version']}  {c['state']}{_mark(c['evidence_deleted'])}"]
+    for v in r["versions"]:
+        lines += [f"version {v['id']}" + ("" if v["binds"] else " (an earlier version: its entries do not bind)"),
+                  *_ledger_lines(v)]
+    _print(args, {"status": "ok", **r}, "\n".join([*lines, review.SELF_DECLARED]))
+
+
 def _mapping_text(m: dict) -> str:
     cols = ", ".join(f"{r} {m[r]}" for r in sheet.ROLES if m[r])
     declared = [f"year end {m['year_end']}"] * bool(m["year_end"]) + [
@@ -1192,7 +1251,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,claims,sheet,correct,contributor,expect,pages,gap,publish,run,approve,model,measure,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,review,claims,sheet,correct,contributor,expect,pages,gap,publish,run,approve,model,measure,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -1356,6 +1415,26 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--quote", required=True, metavar="TEXT", help="the line exactly as printed on that page")
         attributed(p)
         p.set_defaults(func=func)
+
+    rv = group("review", "company confirmations and auditor reviews of a claim version (self-declared, never GCT's own)")
+    for ledger, help_ in (("company", "record a company confirmation on a current claim's newest version"),
+                          ("auditor", "record an auditor review on a current claim's newest version")):
+        p = rv.add_parser(ledger, parents=[common], help=help_)
+        p.add_argument("claim", type=int, metavar="CLAIM")
+        p.add_argument("--version", type=int, required=True, metavar="V", help="the claim's newest version, as you saw it")
+        p.add_argument("--outcome", required=True, metavar="accepted|rejected|disputed")
+        p.add_argument("--scope", required=True, metavar="TEXT", help="what you looked at, in your words")
+        p.add_argument("--conclusion", required=True, metavar="TEXT", help="your conclusion, in your words")
+        p.add_argument("--as", dest="as_", required=True, metavar="KEY", help="the contributor making this record")
+        p.add_argument("--capacity", required=True, help="the capacity you act in, as you describe it")
+        p.add_argument("--evidence-doc", type=int, metavar="ID", help="a workspace document you relied on")
+        p.add_argument("--evidence-page", type=int, metavar="N", help="its page (PDF only)")
+        p.add_argument("--evidence-note", metavar="TEXT", help="evidence outside the workspace, or a sheet and cell")
+        p.add_argument("--date", metavar="YYYY-MM-DD", help="the day of your review (default: today)")
+        p.set_defaults(func=cmd_review_record, ledger=ledger)
+    lst = rv.add_parser("list", parents=[common], help="every version of one claim with both ledgers' entries")
+    lst.add_argument("claim", type=int, metavar="CLAIM")
+    lst.set_defaults(func=cmd_review_list)
 
     claims = group("claims", "figures extracted from documents")
     lst = claims.add_parser("list", parents=[common], help="list one document's claims with their source location")

@@ -141,7 +141,10 @@ def correct(conn, claim_id: int, key, capacity, rationale, **given) -> dict:
 
 def history(conn, claim_id: int) -> dict:
     """Every version of one claim with its evidence refs and their source-match rows, its inferences and reviews,
-    the correction that made it and the readings that found it."""
+    the correction that made it, the readings that found it and the company confirmations and auditor reviews made on
+    it (story 5.1)."""
+    from gct.stages import review  # review imports this module
+
     c = _claim(conn, claim_id)
     doc = c["document_id"]
     versions = []
@@ -168,6 +171,7 @@ def history(conn, claim_id: int) -> dict:
             "seen": [dict(r) for r in conn.execute(
                 "SELECT page_id, config_version, run_id, created_at FROM claim_seen WHERE claim_version_id = ?"
                 " ORDER BY id", (v["id"],))],
+            **review.entries(conn, v["id"]),
         })
     return {"claim": {"id": claim_id, "document": doc, "document_state": registry.get_document(conn, doc)["state"],
                       "page_number": c["page_number"], "locator": c["locator"],

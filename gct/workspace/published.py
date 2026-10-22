@@ -79,7 +79,14 @@ CREATE TABLE sheet_mapping (
     capacity TEXT NOT NULL, rationale TEXT NOT NULL, created_at TEXT NOT NULL
 );
 CREATE TABLE deleted_document (document_id INTEGER PRIMARY KEY, deleted_at TEXT NOT NULL);
-"""
+""" + "".join(f"""
+CREATE TABLE {t} (
+    id INTEGER PRIMARY KEY, claim_id INTEGER NOT NULL, claim_version_id INTEGER NOT NULL, contributor_name TEXT NOT NULL,
+    contributor_organisation TEXT, contributor_version INTEGER NOT NULL, capacity TEXT NOT NULL, scope TEXT NOT NULL,
+    reviewed_on TEXT NOT NULL, conclusion TEXT NOT NULL, outcome TEXT NOT NULL, evidence_document_id INTEGER,
+    evidence_page INTEGER, evidence_note TEXT, evidence_state TEXT, latest INTEGER NOT NULL, binds INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);""" for t in ("review_company", "review_auditor"))  # story 5.1: one shape, two ledgers
 # Ids and dates only: a reader of any later version (and E7's exports) can tell which ids were deleted (story 4.5).
 DELETED_SQL = "SELECT document_id, at FROM document_state WHERE state = 'deleted' ORDER BY document_id"
 # Contributors project their name and organisation only; the sanitised package (E7) decides what leaves.
@@ -144,7 +151,7 @@ def history_mark(conn: sqlite3.Connection) -> str:
                   "correction", "claim_seen", "attempt WHERE stage = 'extract'",
                   "metric_assignment", "match_review", "restatement", "document_state_change",
                   # A sheet extraction can change a spreadsheet claim's state without adding a version (story 4.3).
-                  "sheet_mapping", "claim_note", "attempt WHERE stage = 'sheet'")
+                  "sheet_mapping", "claim_note", "attempt WHERE stage = 'sheet'", "review_company", "review_auditor")
     )
 
 
@@ -283,12 +290,13 @@ def _read_history(conn: sqlite3.Connection, root: Path):
             f"SELECT {EVIDENCE_COLUMNS} FROM evidence_ref e WHERE e.claim_version_id IN (SELECT v.id {NEWEST_CLAIMS})"
             " ORDER BY e.id"
         ).fetchall()
-        from gct.stages import archive  # the stages import this package
+        from gct.stages import archive, review  # the stages import this package
 
         extra = {**_missing(conn, root), **_series(matched), **_comparison(conn, matched),
                  "hidden_by_archive": [tuple(h.values()) for h in archive.hidden(conn)],
                  "sheet_mapping": conn.execute(SHEET_MAPPING_SQL).fetchall(),
-                 "deleted_document": conn.execute(DELETED_SQL).fetchall()}
+                 "deleted_document": conn.execute(DELETED_SQL).fetchall(),
+                 **{table: review.projected(conn, ledger) for ledger, (table, _, _) in review.LEDGERS.items()}}
     finally:
         conn.execute("COMMIT")
     return mark, companies, docs, claims, refs, extra
@@ -344,7 +352,7 @@ def build(conn: sqlite3.Connection, root: Path) -> dict:
     hid = extra["hidden_by_archive"]
     meta = {
         "version": version, "built_at": built_at, "history_mark": mark,
-        "gct_version": __version__, "projection_schema": 10,
+        "gct_version": __version__, "projection_schema": 11,
         "hidden_by_archive": json.dumps({"documents": len(hid), **{k: sum(h[i] for h in hid) for i, k in (
             (3, "claims"), (4, "evidence_refs"), (5, "review_records"))}}),
         "deleted_documents": len(extra["deleted_document"]),

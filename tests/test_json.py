@@ -182,6 +182,33 @@ def test_restate_matches_the_documented_keys(ws, gct, make_file):
                for q in p["pairs"])
 
 
+def test_review_matches_the_documented_keys(ws, gct, make_file):
+    from test_match import SCOPE_1, ids
+    from test_restate import add
+    from test_review import rec
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana", "--organisation", "Acme audit")
+    doc = add(gct, make_file, "a.pdf", [SCOPE_1])
+    gct("read")
+    gct("extract")
+    claim = ids(gct, doc)[(SCOPE_1[0], "FY 2024-25")]
+    version = gct("claims", "history", claim, "--json").data["versions"][-1]["id"]
+    check("review list", gct("review", "list", claim, "--json").data)
+    check("review company", rec(gct, "company", claim, version, "accepted", "--evidence-doc", doc, "--evidence-page", 1,
+                                "--json").data)
+    check("review auditor", rec(gct, "auditor", claim, version, "disputed", "--json").data)
+    listed = gct("review", "list", claim, "--json").data
+    check("review list", listed)
+    entry = spec()["review company"]["entry"]
+    (v,) = listed["versions"]
+    assert v["disagreement"] == {"company": ["accepted"], "auditor": ["disputed"]}
+    assert all(set(e) == entry for e in v["company_confirmations"] + v["auditor_reviews"])
+    h = gct("claims", "history", claim, "--json").data
+    check("claims history", h)
+    assert all(set(e) == entry for x in h["versions"] for e in x["company_confirmations"] + x["auditor_reviews"])
+
+
 def test_sheet_commands_match_the_documented_keys(ws, gct, make_file):
     from test_match import ready
     from test_sheet import MAP, ROWS, WHO, add, csv_bytes, report, xlsx
@@ -333,7 +360,7 @@ def test_every_command_has_a_documented_section():
         "claims history", "correct",
         "infer", "infer bases", "infer scope", "infer groups", "infer accept", "infer resolve", "infer reject",
         "match", "match metrics", "match review", "match link", "match unlink", "match status", "series list",
-        "series show", "restate list", "restate show", "restate record", "restate withdraw", "sheet show", "sheet map",
+        "series show", "restate list", "restate show", "restate record", "restate withdraw", "review company", "review auditor", "review list", "sheet show", "sheet map",
         "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
         "publish build", "publish restore", "publish status",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",

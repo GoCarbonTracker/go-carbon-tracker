@@ -69,6 +69,9 @@ KEPT = {
     # Story 4.3: a mapping's sheet position, a note's version.
     "sheet_mapping": "id document_id position contributor_version_id created_at",
     "claim_note": "id claim_version_id created_at",
+    # Story 5.1: the two ledgers keep who, when, the outcome and the evidence document and page.
+    **dict.fromkeys(("review_company", "review_auditor"), "id claim_version_id contributor_version_id reviewed_on outcome"
+                                                          " evidence_document_id evidence_page created_at"),
 }
 VERSIONS = "SELECT v.id FROM claim_version v JOIN claim c ON c.id = v.claim_id WHERE c.document_id = :d"
 FREE = {"capacity": ":m", "rationale": ":m"}  # contributor-typed text on a record attached to the document (Codex 190)
@@ -150,9 +153,14 @@ CLEAR = {
         "sheet": "''", "value_col": "''", **FREE,
         **_nulls("metric_col unit_col period_col boundary_col company_col note_col year_end boundary_is boundary_detail")}),
     "claim_note": (f"claim_version_id IN ({VERSIONS})", {"text": "''"}),
+    # A ledger entry on one of its versions, or citing it as evidence (story 5.1, C8): all the contributor typed.
+    **dict.fromkeys(("review_company", "review_auditor"), (
+        f"claim_version_id IN ({VERSIONS}) OR evidence_document_id = :d",
+        {"capacity": ":m", "scope": ":m", "conclusion": ":m",
+         "evidence_note": "CASE WHEN evidence_note IS NULL THEN NULL ELSE :m END"})),
 }
 
-# The published projection (schema 10): a column naming the document, one of its claims or claim versions makes the
+# The published projection (schema 11): a column naming the document, one of its claims or claim versions makes the
 # purge delete the row; content and kept are as above. deleted_document lists ids on purpose.
 PROJECTION = {
     "meta": {"key": "kept", "value": "kept"},
@@ -201,6 +209,11 @@ PROJECTION = {
         ("id", "position", "contributor_name", "contributor_organisation", "created_at"), "kept"), **dict.fromkeys(
         ("sheet", "metric_col", "value_col", "unit_col", "period_col", "boundary_col", "company_col", "note_col",
          "year_end", "boundary_is", "boundary_detail", "capacity", "rationale"), "content")},
+    **dict.fromkeys(("review_company", "review_auditor"), {
+        "claim_id": "claim", "claim_version_id": "version", "evidence_document_id": "document",
+        **dict.fromkeys(("id", "contributor_name", "contributor_organisation", "contributor_version", "reviewed_on",
+                         "outcome", "evidence_page", "evidence_state", "latest", "binds", "created_at"), "kept"),
+        **dict.fromkeys(("capacity", "scope", "conclusion", "evidence_note"), "content")}),
 }
 
 

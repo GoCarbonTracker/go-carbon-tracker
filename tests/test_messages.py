@@ -88,6 +88,7 @@ def refusals(ws, tmp_path, make_file):
         (["series", "show", "abc", "--workspace", ws], 3),
         (["restate", "list", "--company", "Nobody", "--workspace", ws], 3),
         (["restate", "show", "99", "--workspace", ws], 3),
+        (["review", "list", "99", "--workspace", ws], 3),
         (["restate", "record", "--original", "98", "--restated", "99", "--page", "1", "--quote", "q", *WHO,
           "--workspace", ws], 3),
         (["restate", "record", "--original", "98", "--restated", "99", "--page", "1", "--quote", " ", *WHO,
@@ -132,6 +133,23 @@ def test_restate_refusals_have_cause_next_action_and_no_internals(ws, gct, make_
     assert gct(*record, "--page", 1, "--quote", QUOTE).code == 0
     human = gct(*record, "--page", 1, "--quote", QUOTE)
     assert human.code == 4 and not any(w in human.err for w in [*INTERNAL_WORDS, *names])
+
+
+def test_review_refusals_have_cause_next_action_and_no_internals(ws, db, gct, make_file):
+    from test_review import first_claim, refusal_cases
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana", "--organisation", "Acme audit")
+    names = internal_names(ws)
+    assert "review_company" in names and "evidence_note" in names
+    for argv, code in refusal_cases(gct, db, make_file, first_claim(gct, make_file)):
+        human, machine = gct(*argv), gct(*argv, "--json")
+        assert human.code == machine.code == code and human.out == "", (argv, human.out)
+        assert human.err.startswith("error: ") and "\nnext: " in human.err, (argv, human.err)
+        assert machine.data["status"] == "error" and machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in [*INTERNAL_WORDS, *names]:
+                assert word not in text, (argv, word)
 
 
 def test_archive_refusals_have_cause_next_action_and_no_internals(ws, gct, make_file):
