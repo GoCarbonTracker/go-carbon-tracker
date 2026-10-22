@@ -4,9 +4,10 @@ import sqlite3
 
 import pytest
 
+from conftest import make_pdf
 from test_deletion import delete, scan
 from test_match import BOTH, SCOPE_1, WHO, ids, ready
-from test_restate import QUOTE, acme, add, cp2  # noqa: F401 (acme is a fixture)
+from test_restate import QUOTE, acme, add, cp2, page_of  # noqa: F401 (acme is a fixture)
 from test_review import rec
 from gct.workspace import layout, published, runs, store
 
@@ -572,3 +573,31 @@ def test_archive_plan_and_projection_cover_all_four_record_kinds(ws, db, gct, fo
         assert {k: conn.execute(f"SELECT COUNT(*) FROM {k}").fetchone()[0] for k in kinds} == dict.fromkeys(kinds, 1)
     finally:
         conn.close()
+
+
+# P1-1: --company filters rows by company; a row of another company or of a pair that is no candidate now must not crash
+def test_company_filter_with_a_second_company_that_has_adjudications(ws, db, gct, make_file, four):
+    gct("company", "add", "Beta")
+    docs = [gct("doc", "add", make_file(n, make_pdf([page_of(r, periods=p)])), "--company", "Beta", "--json")
+            .data["items"][0]["document"]["id"] for n, r, p in (("c.pdf", ROWS[:1], BOTH), ("d.pdf", OTHER[:1], BOTH[1:]))]
+    ready(gct)
+    pair = next(p for p in gct("restate", "list", "--company", "Beta", "--state", "unresolved", "--json").data["pairs"])
+    mine = four["ghg_scope_1"]
+    adj(gct, *mine, "explained-difference", "--counter-note", "n")
+    assert adj(gct, pair["a"]["claim_id"], pair["b"]["claim_id"], "extraction-error").code == 0
+    got = listing(gct, "--company", "Acme")
+    assert len(got["candidates"]) == 4 and got["earlier"] == []
+    assert [r["state"] for c in got["candidates"] for r in c["adjudications"]] == ["explained_difference"]
+    assert [s["company"] for s in gct("adjudicate", "status", "--company", "Acme", "--json").data["companies"]] == ["Acme"]
+    assert listing(gct, "--company", "Beta")["candidates"][0]["adjudication_state"] == "extraction error"
+
+
+def test_company_filter_with_an_adjudication_that_is_no_candidate_now(ws, db, gct, four):
+    s1 = four["ghg_scope_1"]
+    adj(gct, *s1, "explained-difference", "--counter-note", "n")
+    assert gct("correct", s1[1], "--value", "1,100", *WHO).code == 0  # now A's value: the pair is no candidate
+    ready(gct)
+    got = listing(gct, "--company", "Acme")
+    assert [r["state"] for r in got["earlier"]] == ["explained_difference"]
+    assert [s["company"] for s in gct("adjudicate", "status", "--company", "Acme", "--json").data["companies"]] == ["Acme"]
+    assert gct("adjudicate", "status", "--company", "Acme").code == 0

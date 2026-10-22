@@ -61,12 +61,13 @@ def _record(conn, r) -> dict:
                                      None)}
 
 
-def _active_rows(conn) -> list[dict]:
-    """Every adjudication row whose two claims' documents are active (C7), oldest first."""
+def _active_rows(conn, company_id=None) -> list[dict]:
+    """Every adjudication row (of one company when given) whose two claims' documents are active (C7), oldest first."""
     docs = {d["id"]: d["state"] for d in registry.list_documents(conn)}
     claims = dict(conn.execute("SELECT id, document_id FROM claim"))
     return [_record(conn, r) for r in conn.execute(ROWS + " ORDER BY a.id").fetchall()
-            if all(docs[claims[c]] in ACTIVE for c in (r["low_claim_id"], r["high_claim_id"]))]
+            if company_id in (None, r["company_id"])
+            and all(docs[claims[c]] in ACTIVE for c in (r["low_claim_id"], r["high_claim_id"]))]
 
 
 def _shown(rows: list[dict]) -> str:
@@ -82,7 +83,7 @@ def listed(conn, company=None, state=None, claim=None) -> dict:
     if claim is not None:
         registry.require_active(conn, restate._claim(conn, claim)["document_id"])
     every = restate.compare(conn, company)
-    rows = _active_rows(conn)
+    rows = _active_rows(conn, company and registry._find_company(conn, company)["id"])
     by = {}
     for r in rows:
         by.setdefault(frozenset((r["low_claim"], r["high_claim"])), []).append(r)
@@ -94,9 +95,6 @@ def listed(conn, company=None, state=None, claim=None) -> dict:
             candidates.append({**p, "adjudications": mine, "adjudication_state": _shown(mine)})
         else:
             others[key] = p["state"]
-    if company is not None:
-        cid = registry._find_company(conn, company)["id"]
-        by = {k: v for k, v in by.items() if v[0]["company_id"] == cid}
     if claim is not None:
         candidates = [c for c in candidates if claim in (c["a"]["claim_id"], c["b"]["claim_id"])]
         by = {k: v for k, v in by.items() if claim in k}
