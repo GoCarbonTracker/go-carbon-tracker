@@ -257,9 +257,31 @@ def test_resume_and_retry_match_the_documented_keys(tmp_path, gct, make_file, mo
     assert set(gct("run", "retry", 5, *w, "--json").data) == {"status", "run_id", "of_run", "items"}
 
 
+def test_archive_and_restore_match_the_documented_keys(ws, gct, make_file):
+    from test_match import SCOPE_1, WHO, add, ready
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    a = add(gct, make_file, "a.pdf", [SCOPE_1])
+    add(gct, make_file, "b.pdf", [["Total Scope 1 emissions", "tCO2e", "1,150"]], periods=("FY 2023-24",))
+    ready(gct)
+    plan = gct("doc", "archive", a, "--plan", "--json").data
+    check("doc archive", plan)
+    (s,), (p,) = plan["impact"]["series"], plan["impact"]["same_period_sets"]
+    assert set(s) == {"id", "metric_key", "label", "unit_family", "reporting_boundary", "points", "points_left"}
+    assert set(p) == {"series", "period_start", "period_end", "points", "points_left"}
+    check("doc show", gct("doc", "show", a, "--json").data)
+    check("doc archive", gct("doc", "archive", a, *WHO, "--json").data)
+    check("doc show", gct("doc", "show", a, "--json").data)
+    check("doc list", gct("doc", "list", "--active", "--json").data)
+    check("claims history", gct("claims", "history", 1, "--json").data)
+    check("doc restore", gct("doc", "restore", a, *WHO, "--json").data)
+
+
 def test_every_command_has_a_documented_section():
     assert set(spec()) == {
-        "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc pages", "read", "extract", "link", "claims list",
+        "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc archive", "doc restore",
+        "doc pages", "read", "extract", "link", "claims list",
         "claims history", "correct",
         "infer", "infer bases", "infer scope", "infer groups", "infer accept", "infer resolve", "infer reject",
         "match", "match metrics", "match review", "match link", "match unlink", "match status", "series list",

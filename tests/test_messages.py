@@ -98,6 +98,9 @@ def refusals(ws, tmp_path, make_file):
         (["restate", "withdraw", "--original", "98", "--restated", "99", "--as", "ana", "--capacity", "c",
           "--rationale", " ", "--workspace", ws], 2),
         (["serve", "--no-open", "--workspace", tmp_path / "nowhere"], 3),
+        (["doc", "archive", "99", *WHO, "--workspace", ws], 3),
+        (["doc", "archive", "99", "--plan", "--workspace", ws], 3),
+        (["doc", "restore", "99", *WHO, "--workspace", ws], 3),
     ]
 
 
@@ -125,6 +128,30 @@ def test_restate_refusals_have_cause_next_action_and_no_internals(ws, gct, make_
     assert gct(*record, "--page", 1, "--quote", QUOTE).code == 0
     human = gct(*record, "--page", 1, "--quote", QUOTE)
     assert human.code == 4 and not any(w in human.err for w in [*INTERNAL_WORDS, *names])
+
+
+def test_archive_refusals_have_cause_next_action_and_no_internals(ws, gct, make_file):
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    gct("doc", "add", make_file("a.pdf", PDF), "--company", "Acme")
+    gct("doc", "add", make_file("b.pdf", PDF + b"b"), "--company", "Acme")
+    assert gct("doc", "archive", "1", *WHO).code == 0
+    names = internal_names(ws)
+    for argv, code in ((["doc", "archive", "1", *WHO], 4), (["doc", "archive", "1", "--plan"], 4),
+                       (["doc", "restore", "2", *WHO], 4), (["doc", "archive", "2"], 2),
+                       (["doc", "archive", "2", "--as", "bob", "--capacity", "c", "--rationale", "r"], 3),
+                       (["pages", "accept", "--doc", "1", "--pages", "1", "--type", "figures", *WHO], 4)):
+        human = gct(*argv)
+        assert human.code == code and human.out == "", argv
+        assert human.err.startswith("error: ") and "\nnext: " in human.err, (argv, human.err)
+        machine = gct(*argv, "--json")
+        assert machine.code == code and machine.data["status"] == "error"
+        assert machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in INTERNAL_WORDS:
+                assert word not in text, (argv, word)
+            for name in names:
+                assert name not in text, (argv, name)
 
 
 def test_every_refusal_has_cause_next_action_and_no_internals(ws, gct, tmp_path, make_file):

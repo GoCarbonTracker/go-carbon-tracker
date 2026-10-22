@@ -152,6 +152,68 @@ def list_documents(conn, company: str | None = None) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+# Archive and restore (story 4.4): one document_state row and one document_state_change row naming the contributor.
+
+def _restore_next(doc_id: int) -> str:
+    return f"Restore it with: gct doc restore {doc_id}"
+
+
+def require_active(conn, doc_id: int) -> dict:
+    """The document, or the refusal of a write on an archived one."""
+    doc = show_document(conn, doc_id)
+    if doc["state"] == "archived":
+        raise GctError(REFUSED, f"Document {doc_id} is archived.", _restore_next(doc_id))
+    return doc
+
+
+def state_change(conn, doc_id: int) -> dict | None:
+    """Who made the document's newest state, when and why; None for a registration."""
+    row = conn.execute(
+        "SELECT s.state, s.at, c.name, c.organisation, x.capacity, x.rationale FROM document_state s"
+        " JOIN document_state_change x ON x.document_state_id = s.id"
+        " JOIN contributor_version c ON c.id = x.contributor_version_id"
+        " WHERE s.id = (SELECT MAX(id) FROM document_state WHERE document_id = ?)", (doc_id,)).fetchone()
+    return row and {"state": row["state"], "at": row["at"], "contributor": row["name"],
+                    "organisation": row["organisation"], "capacity": row["capacity"], "rationale": row["rationale"]}
+
+
+def check_archive(conn, doc_id: int) -> dict:
+    """The document, or the refusal: only an active document can be archived."""
+    doc = show_document(conn, doc_id)
+    if doc["state"] == "archived":
+        raise GctError(REFUSED, f"Document {doc_id} is already archived.", _restore_next(doc_id))
+    if doc["state"] not in ("registered", "restored"):
+        raise GctError(REFUSED, f"Document {doc_id} is {doc['state']}, so it cannot be archived.", "List documents with: gct doc list")
+    return doc
+
+
+def _change(conn, doc_id: int, state: str, key, capacity, rationale) -> dict:
+    from gct.stages.infer import _who  # the stages import this module
+
+    who, capacity, rationale = _who(conn, key, capacity, rationale)
+    with store.transaction(conn):
+        stamp = store.now()
+        sid = conn.execute("INSERT INTO document_state (document_id, state, at) VALUES (?, ?, ?)",
+                           (doc_id, state, stamp)).lastrowid
+        conn.execute("INSERT INTO document_state_change (document_state_id, contributor_version_id, capacity, rationale,"
+                     " created_at) VALUES (?, ?, ?, ?, ?)", (sid, who["version"], capacity, rationale, stamp))
+    return state_change(conn, doc_id)
+
+
+def archive(conn, doc_id: int, key, capacity, rationale) -> dict:
+    """Mark an active document archived. Nothing else is written, moved or removed."""
+    check_archive(conn, doc_id)
+    return _change(conn, doc_id, "archived", key, capacity, rationale)
+
+
+def restore(conn, doc_id: int, key, capacity, rationale) -> dict:
+    """Make an archived document active again."""
+    if show_document(conn, doc_id)["state"] != "archived":
+        raise GctError(REFUSED, f"Document {doc_id} is not archived, so there is nothing to restore.",
+                       "List the archived documents with: gct doc list")
+    return _change(conn, doc_id, "restored", key, capacity, rationale)
+
+
 def unreadable(src) -> GctError:
     return GctError(REFUSED, f"The file {src} could not be read.",
                     "Close any program that has it open, check its permissions, then add it again.")

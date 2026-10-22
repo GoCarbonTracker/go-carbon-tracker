@@ -22,6 +22,7 @@ CHARTS = "charts not read"
 EARLIER = "accepted on an earlier reading"
 PRINTED = "wording printed but no figure extracted"
 OTHER_PERIOD = "wording printed; figures found only for other or missing period labels"
+NO_ACTIVE = "no active document in its declared set"
 LIST = "See the expectations with: gct expect list"
 
 
@@ -159,9 +160,15 @@ def _readiness(conn, root, docs) -> tuple[list, list, list]:
 
 # Expectations (D1): declared by the user with literal wording and a fixed document set.
 
-def _documents(conn, item_id: int) -> list[dict]:
-    return [registry.show_document(conn, i) for (i,) in conn.execute(
+def declared(conn, item_id: int) -> list[int]:
+    """The ids of the expectation's declared set, archived ones included."""
+    return [i for (i,) in conn.execute(
         "SELECT document_id FROM expected_item_document WHERE expected_item_id = ? ORDER BY document_id", (item_id,))]
+
+
+def _documents(conn, item_id: int) -> list[dict]:
+    """The active documents of the expectation's set: an archived one leaves it until restored."""
+    return [d for i in declared(conn, item_id) if (d := registry.show_document(conn, i))["state"] in ACTIVE]
 
 
 def _claims(conn, item, doc_ids) -> list[dict]:
@@ -211,6 +218,9 @@ def state(conn, root, item_id: int, confirmed=True) -> dict:
     if claims:
         return out
     reasons, accepted, snapshot = _readiness(conn, root, docs)
+    if not docs:  # every declared document is archived: nothing was looked in, so it is never "not found"
+        reasons.append({"type": "document", "reason": NO_ACTIVE, "count": conn.execute(
+            "SELECT COUNT(*) FROM expected_item_document WHERE expected_item_id = ?", (item_id,)).fetchone()[0]})
     # Decision U: printed wording is never "not found". The guard checks the wording only, never the period, so
     # a page whose claims carry the wording under other or no period labels gets its own reason.
     want = _clean(item["metric_text"]).casefold()
@@ -242,8 +252,8 @@ def add_expectation(conn, root, company: str, metric: str, period=None, doc_ids=
     co = registry._find_company(conn, company)
     metric = _text(metric, "metric wording", f'gct expect add --company "{co["name"]}" --metric "scope 1 emissions"')
     if doc_ids:
-        docs = [registry.show_document(conn, i) for i in dict.fromkeys(doc_ids)]
-        other = [d["id"] for d in docs if d["company"] != co["name"]]
+        docs = [registry.require_active(conn, i) for i in dict.fromkeys(doc_ids)]
+        other =[d["id"] for d in docs if d["company"] != co["name"]]
         if other:
             raise GctError(REFUSED, f"Document {other[0]} belongs to another company.",
                            f"List {co['name']}'s documents with: gct doc list --company \"{co['name']}\"")
@@ -293,7 +303,7 @@ def accept_pages(conn, root, doc_id: int, spec: str, type_: str, key: str, capac
     who = contributor(conn, key)
     capacity = _text(capacity, "capacity", '--capacity "sustainability analyst"')
     rationale = _text(rationale, "rationale", '--rationale "page checked by eye: no chart holds the figure"')
-    doc = registry.show_document(conn, doc_id)
+    doc = registry.require_active(conn, doc_id)
     n, why = page_count(root, doc)
     if n is None:
         raise GctError(REFUSED, f"Document {doc_id} has no pages to accept ({why}).", "Only PDF documents that open have pages.")
@@ -345,6 +355,9 @@ def confirm_gap(conn, root, item_id: int, key: str, capacity: str, rationale: st
                 f" other than {s['period_label']}, or none"] if OTHER_PERIOD in printed else []
         raise GctError(REFUSED, f"Expectation {item_id} cannot be confirmed as a gap: {'; '.join(why)}.",
                        "Check those pages; a correction step comes in a later version. " + LIST)
+    if any(r["reason"] == NO_ACTIVE for r in s["reasons"]):  # read, retry and accept all skip an archived document
+        raise GctError(REFUSED, f"Expectation {item_id} cannot be confirmed as a gap: no document in its declared set"
+                                " is active.", f"Restore one with: gct doc restore {min(declared(conn, item_id))}. " + LIST)
     if s["state"] != NOT_FOUND_IN:
         types = sorted({r["type"] for r in s["reasons"]})
         raise GctError(REFUSED, f"Expectation {item_id} cannot be confirmed as a gap: processing is incomplete for "

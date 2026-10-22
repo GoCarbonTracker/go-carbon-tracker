@@ -47,7 +47,7 @@ def test_migration_7_applies_to_a_version_6_workspace(tmp_path, gct):
     c.close()
     assert gct("company", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 13
+    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 14
     c.close()
 
 

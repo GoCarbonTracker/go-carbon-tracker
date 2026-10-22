@@ -22,21 +22,38 @@ nested record (or of each record in the nested list) under that key.
 - top: status, items
 - items: source, company, action, document, cause, next_action, cached
 
-`status` is `ok` when every item was registered or a duplicate (and always with `--plan`), else `partial` (exit 4), which adds `cause` and `next_action` at the top; `next_action` names the sources that were not added. `action` is `registered`, `duplicate`, `refused` or `failed`; with `--plan` it is `would register`, `would fetch`, `duplicate` or `refused`. `document` has the keys of `doc show` for `registered` and `duplicate` (null for a duplicate of an earlier item in the same plan), null otherwise. `cause` and `next_action` are set only for `refused` and `failed`. `cached` is true when a URL was already fetched by an earlier command and was not downloaded again.
+`status` is `ok` when every item was registered or a duplicate (and always with `--plan`), else `partial` (exit 4), which adds `cause` and `next_action` at the top; `next_action` names the sources that were not added. `action` is `registered`, `duplicate`, `refused` or `failed`; with `--plan` it is `would register`, `would fetch`, `duplicate` or `refused`. `document` has the keys of `doc show` for `registered` and `duplicate` (null for a duplicate of an earlier item in the same plan), null otherwise. `cause` and `next_action` are set only for `refused` and `failed`, except that a `duplicate` of an archived document has `next_action` `Restore it with: gct doc restore N`. `cached` is true when a URL was already fetched by an earlier command and was not downloaded again.
 
 ## doc list
-- top: status, documents
+- top: status, documents, hidden_by_archive
 - documents: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state
 
+`state` is `registered`, `archived` or `restored`. With `--active` archived documents are left out and `hidden_by_archive` counts them; without it every document is listed and `hidden_by_archive` is 0.
+
 ## doc show
-- top: status, document
+- top: status, document, state_change
 - document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state
 
+`state_change` is null for a registered document, else who made its newest state (`archived` or `restored`), when and why: `state`, `at`, `contributor`, `organisation`, `capacity`, `rationale`.
+
+## doc archive
+- top: status, document, impact, state_change
+- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state
+- impact: claims, evidence_refs, review_records, series, same_period_sets, uncertain_items, expected_items
+
+`impact` is what leaves the active outputs, computed before the archive is stored, so `--plan` and the archive itself give the same `impact`. `claims` counts the newest version of each of the document's claims and `evidence_refs` their locations. `review_records` counts, per kind, the records that stay stored but leave the active outputs: `inference_review`, `correction`, `match_review` (on any version of the document's claims), `page_acceptance` (on its pages) and `restatement` (rows naming any version of its claims as original or restated). `series` lists each series the document has points in: `id`, `metric_key`, `label`, `unit_family`, `reporting_boundary`, `points` (the document's) and `points_left`. `same_period_sets` lists each period of a series that holds more than one value and loses one: `series`, `period_start`, `period_end`, `points`, `points_left`. `uncertain_items` counts the document's items in the match review queue, `expected_items` lists the ids of the expectations whose state is computed from it. With `--plan` nothing is stored and `state_change` is null; otherwise it is the record stored (see `doc show`). Archiving an archived document is refused (exit 4), as is archiving without `--as`, `--capacity` and `--rationale` (exit 2).
+
+## doc restore
+- top: status, document, state_change
+- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state
+
+`state_change` is the `restored` record stored (see `doc show`). Restoring a document that is not archived is refused (exit 4).
+
 ## doc pages
-- top: status, document, pages
+- top: status, document, document_state, pages
 - pages: page_number, rung, method, width, height, words, tables, flags, artifact
 
-One record per page number, from its newest reading. `document` is the id. `flags` lists the quality codes (`no_text`, `fragmented_text`, `sparse_tables`). `artifact` is the SHA-256 of the reading file `artifacts/<first two characters>/<sha256>.json`. An unread document gives an empty `pages` list.
+One record per page number, from its newest reading. `document` is the id, `document_state` its state (`registered`, `archived` or `restored`). `flags` lists the quality codes (`no_text`, `fragmented_text`, `sparse_tables`). `artifact` is the SHA-256 of the reading file `artifacts/<first two characters>/<sha256>.json`. An unread document gives an empty `pages` list.
 
 ## read
 - top: status, documents
@@ -179,10 +196,10 @@ One record per claim, from its newest version. `id` is the claim id that `gct in
 
 ## claims history
 - top: status, claim, versions
-- claim: id, document, page_number, locator, state, needs_re_review
+- claim: id, document, document_state, page_number, locator, state, needs_re_review
 - versions: id, method, config_version, run_id, created_at, metric_text, value_text, value, unit_text, period_label, boundary_label, evidence_refs, inferences, reviews, correction, seen
 
-Every version of one claim, oldest first; nothing is left out. `state` and `needs_re_review` are those of `claims list`. `evidence_refs` are the version's locations, each `id`, `page_number`, `boxes` and `source_match` (every check of it, oldest first: `id`, `status`, `reason`, `run_id`, `created_at`). `inferences` and `reviews` are the period and boundary rows of `gct infer` made on this version. `correction` is null for an extracted version, else the record that made it: `id`, `corrects_version`, `fields` (the fields changed), `replaced` (`value_text`, `unit_text`, `metric_text`, `period_label` of the version it corrects), `contributor`, `organisation`, `capacity`, `rationale`, `created_at`. `seen` lists the extractions that found this version: `page_id` (the reading), `config_version` (the extract rules), `run_id`, `created_at`. An unknown claim is refused (exit 3).
+Every version of one claim, oldest first; nothing is left out. `document_state` is the state of the claim's document (`registered`, `archived` or `restored`); an archived document's claims keep their whole history. `state` and `needs_re_review` are those of `claims list`. `evidence_refs` are the version's locations, each `id`, `page_number`, `boxes` and `source_match` (every check of it, oldest first: `id`, `status`, `reason`, `run_id`, `created_at`). `inferences` and `reviews` are the period and boundary rows of `gct infer` made on this version. `correction` is null for an extracted version, else the record that made it: `id`, `corrects_version`, `fields` (the fields changed), `replaced` (`value_text`, `unit_text`, `metric_text`, `period_label` of the version it corrects), `contributor`, `organisation`, `capacity`, `rationale`, `created_at`. `seen` lists the extractions that found this version: `page_id` (the reading), `config_version` (the extract rules), `run_id`, `created_at`. An unknown claim is refused (exit 3).
 
 ## correct
 - top: status, claim, version, correction
@@ -232,7 +249,7 @@ One record per expectation, as for `expect add`, computed when asked.
 ## publish build
 - top: status, version, built_at, history_mark, companies, documents
 
-In the published version (`projection_schema` 4), a claim's `period_kind`, `period_start`, `period_end`, `reporting_boundary` and `boundary_detail` hold only accepted or resolved values, else what was extracted. A proposal is in `proposed_period_kind`, `proposed_period_start`, `proposed_period_end`, `proposed_reporting_boundary` and `proposed_boundary_detail`. `period_state` and `boundary_state` are `resolved`, `accepted`, `proposed`, `unresolved` or `extracted`. `period_basis` and `boundary_basis` (`{"page", "wording"}` as JSON, or null) are filled for a proposal as well as for an accepted value, so read them together with the state: while the state is `proposed` the main values stay empty. From `projection_schema` 6 (story 4.1) a claim also has `metric_key` (the assigned key, null when unmapped), `metric_rule`, `unit_key`, `unit_factor`, `series_id`, `match_state` (`series`, `reviewed`, `uncertain` or `not matchable`) and `match_reason`, and the tables `series` and `series_point` hold the series of `gct series list` and their points (a time series is `series_point` ordered by `period_end`).
+In the published version (`projection_schema` 4), a claim's `period_kind`, `period_start`, `period_end`, `reporting_boundary` and `boundary_detail` hold only accepted or resolved values, else what was extracted. A proposal is in `proposed_period_kind`, `proposed_period_start`, `proposed_period_end`, `proposed_reporting_boundary` and `proposed_boundary_detail`. `period_state` and `boundary_state` are `resolved`, `accepted`, `proposed`, `unresolved` or `extracted`. `period_basis` and `boundary_basis` (`{"page", "wording"}` as JSON, or null) are filled for a proposal as well as for an accepted value, so read them together with the state: while the state is `proposed` the main values stay empty. From `projection_schema` 6 (story 4.1) a claim also has `metric_key` (the assigned key, null when unmapped), `metric_rule`, `unit_key`, `unit_factor`, `series_id`, `match_state` (`series`, `reviewed`, `uncertain` or `not matchable`) and `match_reason`, and the tables `series` and `series_point` hold the series of `gct series list` and their points (a time series is `series_point` ordered by `period_end`). From `projection_schema` 8 (story 4.4) the table `hidden_by_archive` has one row per archived document (`document_id`, `logical_name`, `archived_at`, `claims`, `evidence_refs`, `review_records`, counted as in `doc archive`), and `meta` key `hidden_by_archive` holds the totals as JSON (`documents`, `claims`, `evidence_refs`, `review_records`). An archived document, its claims, their locations and series points are not in the other tables, and `expected_item_document` lists only active documents.
 
 ## publish restore
 - top: status, version, built_at, history_mark, companies, documents

@@ -83,7 +83,7 @@ def test_migration_12_applies_to_a_version_11_workspace(tmp_path, gct):
     c.close()
     assert gct("contributor", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 13
+    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 14
     c.close()
 
 
@@ -457,7 +457,7 @@ def test_projection_schema_6(ws, db, gct, make_file, acme):
             conn.close()
 
     meta, claims, ss, points = build()
-    assert meta["projection_schema"] == "7"
+    assert meta["projection_schema"] == "8"
     assert {c["match_state"] for c in claims} == {"series", "uncertain", "not matchable"} and all(c["match_state"] for c in claims)
     scope = next(c for c in claims if c["document_id"] == a and c["period_label"] == "FY 2024-25" and c["unit_text"] == "tCO2e")
     assert (scope["metric_text"], scope["metric_key"], scope["metric_rule"], scope["unit_key"], scope["unit_factor"]) == (

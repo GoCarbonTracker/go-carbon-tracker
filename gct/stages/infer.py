@@ -397,7 +397,8 @@ def infer(conn, root, ids=(), company=None, notes=()) -> tuple[int | None, list[
         return None, []
     with runs.run(conn, "infer") as run_id:
         runs.record(conn, run_id, {"ids": list(ids), "company": company}, notes)
-        out = _infer(conn, root, run_id, docs)
+        out = [_doc(d, "skipped", NOT_ACTIVE) for d in docs if d["state"] not in ACTIVE]
+        out += _infer(conn, root, run_id, [d for d in docs if d["state"] in ACTIVE])
     return run_id, out
 
 
@@ -532,6 +533,7 @@ def scope(conn, root, basis_id: int, pages: str, key: str, capacity: str, ration
     b = conn.execute("SELECT * FROM basis WHERE id = ?", (basis_id,)).fetchone()
     if b is None:
         raise GctError(NOT_FOUND, f"There is no statement #{basis_id}.", "See the statements with: gct infer bases")
+    registry.require_active(conn, b["document_id"])
     if b["kind"] != "reporting_boundary":
         raise GctError(REFUSED, f"Statement #{basis_id} is a fiscal year end. Only a boundary statement covers a page range.",
                        "See the boundary statements with: gct infer bases")
@@ -634,6 +636,7 @@ def _claim(conn, claim_id: int, f: str):
 def reject_claim(conn, claim_id: int, f: str, key, capacity, rationale) -> dict:
     who, capacity, rationale = _who(conn, key, capacity, rationale)
     c, _, inf, rev = _claim(conn, claim_id, f)
+    registry.require_active(conn, c["document_id"])
     # A deliberate claim-by-claim rejection may follow an acceptance or a resolution; rejecting twice adds nothing.
     if inf is None or inf["state"] != "proposed" or (rev and rev["decision"] == "rejected"):
         raise GctError(REFUSED, f"Claim {claim_id} has no proposed {f} to reject.",
@@ -668,6 +671,7 @@ def resolve(conn, claim_id: int, f: str, key, capacity, rationale, kind=None, st
         values = (None, None, None, boundary, _clean(detail) or None)
     who, capacity, rationale = _who(conn, key, capacity, rationale)
     c, _, inf, _ = _claim(conn, claim_id, f)
+    registry.require_active(conn, c["document_id"])
     with store.transaction(conn):
         conn.execute("INSERT INTO inference_review (inference_id, claim_version_id, field, decision, period_kind,"
                      " period_start, period_end, boundary, boundary_detail, contributor_version_id, capacity, rationale,"

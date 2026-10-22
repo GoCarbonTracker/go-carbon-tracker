@@ -106,9 +106,20 @@ When a company prints two figures for the same metric, period and boundary (this
 - `gct restate list [--company NAME] [--state same|restatement|unresolved|not-compared]` lists the pairs, and says how many pairs the filter hid. `gct restate show CLAIM` shows a claim's pairs and every record on its versions. `gct series show` marks each same-period set with its state, `gct match status` counts the pairs by state, and `gct publish build` writes the pair states and every restatement record to the published version.
 - Restatement notes printed in reports are not detected automatically yet.
 
+## Archive
+
+A report that should not count (the wrong file, or one replaced by a corrected edition) can be archived. Archiving takes it out of everything gct works with, keeps all of it, and can be undone. Details are in `docs/archive.md`.
+
+- `gct doc archive ID --plan` shows what would drop out, and stores nothing: its claims and their locations, the series it has figures in and how many it gives each, the periods that would go from two values to one, its items in the review queue, the expectations that look in it, and the review records made on it (period and boundary reviews, corrections, match reviews, page acceptances, restatement records). Those records are kept; they just stop showing.
+- `gct doc archive ID --as KEY --capacity TEXT --rationale TEXT` archives it and prints the same summary. `gct doc restore ID` with the same three options brings it back. Nothing is deleted or moved: the file, every claim and version, every reading and every review stay where they are, and one record says who archived or restored it, when and why.
+- An archived document is left out of `gct read`, `extract`, `link`, `infer` and `match`; named by id it is reported as skipped. Its figures leave the series, the comparison pairs, the review queue, `gct match status` and the expectations. Correcting one of its figures, resolving or rejecting a period or boundary, declaring a boundary's pages, recording or withdrawing a restatement on one of its figures, accepting its pages and naming it in a new expectation are refused until it is restored. An expectation whose documents are all archived is never a confirmable gap: it reads `processing incomplete or failed` with the reason `no active document in its declared set`. `gct claims history`, `gct doc show`, `gct doc pages` and `gct restate show` still work and say it is archived.
+- Series, review items and states are worked out each time you ask, so a restore brings every output back exactly as it was.
+- `gct doc list` shows each document's state; `--active` hides archived ones and says how many it hid. `gct doc show` names who archived it, when and why.
+- `gct publish build` leaves an archived document and its figures out and lists each one it hid with its counts, so a view built on it can say how much is hidden. An older published version made current again with `gct publish restore` can still show a document that is archived now.
+
 ## What does not exist yet
 
-OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, a review interface (only the page acceptance, gap confirmation, infer review and correction commands exist), reports, review in the viewer beyond correcting a figure, archive and delete.
+OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, a review interface (only the page acceptance, gap confirmation, infer review and correction commands exist), reports, review in the viewer beyond correcting a figure, delete.
 
 ## Setup
 

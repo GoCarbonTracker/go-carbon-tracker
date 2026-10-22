@@ -68,13 +68,19 @@ CREATE TABLE page_acceptance (
     contributor_name TEXT NOT NULL, contributor_organisation TEXT, capacity TEXT NOT NULL, rationale TEXT NOT NULL,
     current INTEGER NOT NULL, created_at TEXT NOT NULL
 );
+CREATE TABLE hidden_by_archive (
+    document_id INTEGER PRIMARY KEY, logical_name TEXT NOT NULL, archived_at TEXT NOT NULL, claims INTEGER NOT NULL,
+    evidence_refs INTEGER NOT NULL, review_records INTEGER NOT NULL
+);
 """
 # Contributors project their name and organisation only; the sanitised package (E7) decides what leaves.
-ACCEPTANCE_SQL = """
+# Acceptances of an archived document leave with it (counted in hidden_by_archive).
+ACCEPTANCE_SQL = f"""
 SELECT a.id, a.document_id, a.page_number, a.content_type, c.name, c.organisation, a.capacity, a.rationale,
        a.artifact_id IS (SELECT p.artifact_id FROM page p WHERE p.document_id = a.document_id
                          AND p.page_number = a.page_number ORDER BY p.id DESC LIMIT 1), a.created_at
-FROM page_acceptance a JOIN contributor_version c ON c.id = a.contributor_version_id ORDER BY a.id
+FROM page_acceptance a JOIN contributor_version c ON c.id = a.contributor_version_id
+JOIN document d ON d.id = a.document_id WHERE {ACTIVE} IN ('registered', 'restored') ORDER BY a.id
 """
 COMPANY_COLUMNS = "id, name, sector_ref, sector_version"
 DOCUMENT_COLUMNS = "id, company_id, logical_name, version, sha256, kind, file_type, privacy, size_bytes"
@@ -119,7 +125,7 @@ def history_mark(conn: sqlite3.Connection) -> str:
                   "basis", "basis_scope", "inference", "inference_review",
                   # A claim's state follows the extractions, including one that found nothing on its page.
                   "correction", "claim_seen", "attempt WHERE stage = 'extract'",
-                  "metric_assignment", "match_review", "restatement")
+                  "metric_assignment", "match_review", "restatement", "document_state_change")
     )
 
 
@@ -186,7 +192,12 @@ def _comparison(conn: sqlite3.Connection, matched: dict) -> dict:
     rows = conn.execute(
         "SELECT r.id, r.original_version_id, r.restated_version_id, r.series_key, r.decision, r.evidence_document_id,"
         " r.evidence_page, r.evidence_quote, c.name, c.organisation, r.capacity, r.rationale, r.created_at,"
-        f" {restate.BINDS} FROM restatement r JOIN contributor_version c ON c.id = r.contributor_version_id ORDER BY r.id").fetchall()
+        f" {restate.BINDS} FROM restatement r JOIN contributor_version c ON c.id = r.contributor_version_id"
+        # A row naming a claim version of an archived document leaves with it; comparison pairs come from
+        # match.compute, which already reads active documents only.
+        " WHERE (SELECT COUNT(*) FROM claim_version v JOIN claim k ON k.id = v.claim_id JOIN document d ON d.id = k.document_id"
+        f" WHERE v.id IN (r.original_version_id, r.restated_version_id) AND {ACTIVE} IN ('registered', 'restored')) = 2"
+        " ORDER BY r.id").fetchall()
     return {"comparison": pairs, "restatement": rows}
 
 
@@ -243,7 +254,10 @@ def _read_history(conn: sqlite3.Connection, root: Path):
             f"SELECT {EVIDENCE_COLUMNS} FROM evidence_ref e WHERE e.claim_version_id IN (SELECT v.id {NEWEST_CLAIMS})"
             " ORDER BY e.id"
         ).fetchall()
-        extra = {**_missing(conn, root), **_series(matched), **_comparison(conn, matched)}
+        from gct.stages import archive  # the stages import this package
+
+        extra = {**_missing(conn, root), **_series(matched), **_comparison(conn, matched),
+                 "hidden_by_archive": [tuple(h.values()) for h in archive.hidden(conn)]}
     finally:
         conn.execute("COMMIT")
     return mark, companies, docs, claims, refs, extra
@@ -296,9 +310,12 @@ def build(conn: sqlite3.Connection, root: Path) -> dict:
     version = (conn.execute("SELECT MAX(version) FROM published_version").fetchone()[0] or 0) + 1
     mark, companies, docs, claims, refs, extra = _read_history(conn, root)
     built_at = store.now()
+    hid = extra["hidden_by_archive"]
     meta = {
         "version": version, "built_at": built_at, "history_mark": mark,
-        "gct_version": __version__, "projection_schema": 7,
+        "gct_version": __version__, "projection_schema": 8,
+        "hidden_by_archive": json.dumps({"documents": len(hid), **{k: sum(h[i] for h in hid) for i, k in (
+            (3, "claims"), (4, "evidence_refs"), (5, "review_records"))}}),
     }
     _write_projection(version_path(root, version), meta, companies, docs, claims, refs, extra)
     with store.transaction(conn):

@@ -119,7 +119,8 @@ def link(conn, root, ids=(), company=None, notes=()) -> tuple[int | None, list[d
         return None, []
     with runs.run(conn, "link") as run_id:
         runs.record(conn, run_id, {"ids": list(ids), "company": company}, notes)
-        out = _link(conn, root, run_id, docs)
+        out = [_doc(d, "skipped", NOT_ACTIVE) for d in docs if d["state"] not in ACTIVE]
+        out += _link(conn, root, run_id, [d for d in docs if d["state"] in ACTIVE])
     return run_id, out
 
 

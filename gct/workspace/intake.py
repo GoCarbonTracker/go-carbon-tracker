@@ -83,6 +83,11 @@ def _item(source, company, action, document=None, cause=None, next_action=None, 
             "cause": cause, "next_action": next_action, "cached": cached}
 
 
+def _restore(doc) -> str | None:
+    """The next step for a duplicate of an archived document, else None."""
+    return registry._restore_next(doc["id"]) if doc and doc["state"] == "archived" else None
+
+
 def _entries(sources, name):
     """(source, refusal) per item: URLs and files as given, folders expanded to their recognised direct children."""
     out = []
@@ -124,7 +129,8 @@ def plan(conn, sources, company, name=None) -> list[dict]:
             continue
         digest = registry._hash_file(Path(source))
         dup = registry.find_duplicate(conn, co["id"], digest)
-        items.append(_item(source, co["name"], "duplicate" if dup or digest in seen else "would register", dup))
+        items.append(_item(source, co["name"], "duplicate" if dup or digest in seen else "would register", dup,
+                           next_action=_restore(dup)))
         seen.add(digest)
     return items
 
@@ -171,5 +177,6 @@ def add(conn, root, sources, company, kind="report", privacy="private", name=Non
                 continue
             outcome = "ok" if status == "ok" else "duplicate"
             runs.event(conn, run_id, "item", stage="register", item=src, outcome=outcome)
-            items.append(_item(src, co["name"], "registered" if status == "ok" else "duplicate", doc, cached=cached))
+            items.append(_item(src, co["name"], "registered" if status == "ok" else "duplicate", doc, cached=cached,
+                               next_action=_restore(doc) if status != "ok" else None))
     return run_id, items

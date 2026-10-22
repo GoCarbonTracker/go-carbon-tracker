@@ -10,7 +10,7 @@ from gct import __version__
 from gct.api import server
 from gct.measure import g2
 from gct.models import adapters, policy
-from gct.stages import correct, extract, infer, link, match, missing, read, restate
+from gct.stages import archive, correct, extract, infer, link, match, missing, read, restate
 from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -65,7 +65,8 @@ def _item_line(i: dict) -> str:
     if i["action"] == "registered":
         return f"registered {d['id']}: {d['logical_name']} (version {d['version']}, {d['privacy']})"
     if i["action"] == "duplicate":
-        return f"duplicate of {d['id']}: {i['source']}" if d else f"duplicate: {i['source']}"
+        line = f"duplicate of {d['id']}: {i['source']}" if d else f"duplicate: {i['source']}"
+        return line + (f"\nIt is archived. {i['next_action']}" if i["next_action"] else "")
     if i["cause"]:
         return f"{i['action']}: {i['source']} — {i['cause']}"
     return f"{i['action']}: {i['source']}"
@@ -98,12 +99,68 @@ def _doc_add_out(args, items, plan=False, head=None, extra=None) -> int:
 
 def cmd_doc_list(args) -> None:
     docs = registry.list_documents(_open(args, write=False), args.company)
-    _print(args, {"status": "ok", "documents": docs}, "\n".join(_doc_line(d) for d in docs) or "No documents yet.")
+    shown = [d for d in docs if d["state"] != "archived"] if args.active else docs
+    hidden = len(docs) - len(shown)
+    text = "\n".join(_doc_line(d) for d in shown) or "No documents yet."
+    if hidden:
+        text += f"\n{hidden} archived document{'s' * (hidden > 1)} hidden. Show every document with: gct doc list"
+    _print(args, {"status": "ok", "documents": shown, "hidden_by_archive": hidden}, text)
+
+
+def _change_line(c: dict) -> str:
+    org = f", {c['organisation']}" if c["organisation"] else ""
+    return f"{c['state']} by {c['contributor']}{org} ({c['capacity']}) at {c['at']}: {c['rationale']}"
 
 
 def cmd_doc_show(args) -> None:
-    doc = registry.show_document(_open(args, write=False), args.id)
-    _print(args, {"status": "ok", "document": doc}, "\n".join(f"{k}: {v}" for k, v in doc.items()))
+    conn = _open(args, write=False)
+    doc = registry.show_document(conn, args.id)
+    change = registry.state_change(conn, args.id)
+    lines = [f"{k}: {v}" for k, v in doc.items()] + ([_change_line(change)] if change else [])
+    _print(args, {"status": "ok", "document": doc, "state_change": change}, "\n".join(lines))
+
+
+def _impact_lines(i: dict) -> list[str]:
+    r = i["review_records"]
+    lines = [f"  {i['claims']} claims, {i['evidence_refs']} evidence references"]
+    lines += [f"  series {s['id']} ({s['metric_key'] or s['label']}, {s['unit_family']}, {s['reporting_boundary']}): "
+              f"{s['points']} of {s['points'] + s['points_left']} points" for s in i["series"]]
+    lines += [f"  same-period set in series {s['series']}, {s['period_start']}..{s['period_end']}: "
+              f"{s['points']} values become {s['points_left']}" for s in i["same_period_sets"]]
+    lines.append(f"  {i['uncertain_items']} uncertain items")
+    if i["expected_items"]:
+        lines.append("  expectations computed from it: " + ", ".join(map(str, i["expected_items"])))
+    lines.append(f"  review records kept, no longer in active outputs: {r['inference_review']} inference reviews, "
+                 f"{r['correction']} corrections, {r['match_review']} match reviews, {r['page_acceptance']} page "
+                 f"acceptances, {r['restatement']} restatement records")
+    return lines
+
+
+def cmd_doc_archive(args) -> None:
+    conn = _open(args, write=not args.plan)
+    impact = archive.impact(conn, args.id)
+    doc = registry.show_document(conn, args.id)
+    head = f"Archiving document {args.id} ({doc['logical_name']}) takes out of the active outputs:"
+    if args.plan:
+        _print(args, {"status": "ok", "document": doc, "impact": impact, "state_change": None},
+               "\n".join([head, *_impact_lines(impact), "Nothing was stored."]))
+        return
+    missing_flags = [f for f, v in (("--as", args.as_), ("--capacity", args.capacity), ("--rationale", args.rationale)) if v is None]
+    if missing_flags:
+        raise GctError(layout.USAGE, f"Archiving needs {', '.join(missing_flags)}.",
+                       f"Give them, for example: gct doc archive {args.id} --as KEY --capacity TEXT --rationale TEXT,"
+                       f" or see the impact first with: gct doc archive {args.id} --plan")
+    change = registry.archive(conn, args.id, args.as_, args.capacity, args.rationale)
+    _print(args, {"status": "ok", "document": registry.show_document(conn, args.id), "impact": impact, "state_change": change},
+           "\n".join([head, *_impact_lines(impact), f"Archived: {_change_line(change)}",
+                      f"Its file and history are kept. Restore it with: gct doc restore {args.id}"]))
+
+
+def cmd_doc_restore(args) -> None:
+    conn = _open(args)
+    change = registry.restore(conn, args.id, args.as_, args.capacity, args.rationale)
+    _print(args, {"status": "ok", "document": registry.show_document(conn, args.id), "state_change": change},
+           f"Restored document {args.id}: {_change_line(change)}")
 
 
 def _counts(flags: dict) -> str:
@@ -151,9 +208,13 @@ def _read_out(args, docs, head=None, extra=None) -> int:
 
 
 def cmd_doc_pages(args) -> None:
-    ps = read.pages(_open(args, write=False), args.id)
+    conn = _open(args, write=False)
+    ps = read.pages(conn, args.id)
+    state = registry.show_document(conn, args.id)["state"]
+    head = [f"Document {args.id} is archived."] if state == "archived" else []
     if not ps:
-        _print(args, {"status": "ok", "document": args.id, "pages": []}, f"No pages read yet. Run: gct read {args.id}")
+        _print(args, {"status": "ok", "document": args.id, "document_state": state, "pages": []},
+               "\n".join([*head, f"No pages read yet. Run: gct read {args.id}"]))
         return
     flags = Counter(f for p in ps for f in p["flags"])
     lines = [
@@ -161,8 +222,8 @@ def cmd_doc_pages(args) -> None:
         f"flags {', '.join(p['flags']) or 'none'}"
         for p in ps
     ]
-    text = "\n".join([*lines, f"Flagged pages: {_counts(flags)}", f"{flags['no_text']} pages without text"])
-    _print(args, {"status": "ok", "document": args.id, "pages": ps}, text)
+    text = "\n".join([*head, *lines, f"Flagged pages: {_counts(flags)}", f"{flags['no_text']} pages without text"])
+    _print(args, {"status": "ok", "document": args.id, "document_state": state, "pages": ps}, text)
 
 
 EXTRACT_TOTALS = ("pages", "extracted", "cached", "failed", "figures", "no_box")
@@ -270,7 +331,7 @@ def _version_lines(v: dict) -> list[str]:
 def cmd_claims_history(args) -> None:
     h = correct.history(_open(args, write=False), args.claim)
     c = h["claim"]
-    lines = [f"claim {c['id']}  document {c['document']}  p{c['page_number']}  {c['locator']}  {c['state']}",
+    lines = [f"claim {c['id']}  document {c['document']} ({c['document_state']})  p{c['page_number']}  {c['locator']}  {c['state']}",
              *(f"  needs re-review: {correct.entry_text(e)}" for e in c["needs_re_review"]),
              *(line for v in h["versions"] for line in _version_lines(v))]
     _print(args, {"status": "ok", **h}, "\n".join(lines))
@@ -635,11 +696,12 @@ def _review_lines(v: dict) -> list[str]:
 def cmd_restate_show(args) -> None:
     r = restate.show(_open(args, write=False), args.claim)
     c = r["claim"]
-    head = (f"claim {c['id']}  document {c['document']} p{c['page_number']}  version {c['version']}  {c['match_state']}"
-            + (f" ({c['match_reason']})" if c["match_reason"] else ""))
+    # Only a claim of an archived document has no match state.
     why = (c["match_state"] + (f" ({c['match_reason']})" if c["match_reason"] else "") if c["match_state"]
-           else "its document is not active")
-    none = "No pairs: the claim shares no period." if c["series_id"] else f"No pairs: the claim is in no series: {why}."
+           else f"Document {c['document']} is archived.")
+    head = f"claim {c['id']}  document {c['document']} p{c['page_number']}  version {c['version']}  {why}"
+    none = "No pairs: the claim shares no period." if c["series_id"] else (
+        f"No pairs: the claim is in no series: {why}." if c["match_state"] else "No pairs.")
     lines = [head, *(_restate_line(p) for p in r["pairs"])] if r["pairs"] else [head, none]
     _print(args, {"status": "ok", **r}, "\n".join([*lines, "Records:", *(x for v in r["versions"] for x in _review_lines(v))]))
 
@@ -681,16 +743,23 @@ def cmd_contributor_list(args) -> None:
            "\n".join(map(_contributor_line, cs)) or "No contributors yet. Add one with: gct contributor add KEY --name NAME")
 
 
-def _expect_lines(e: dict) -> list[str]:
-    head = (f"{e['id']}  {e['company']}  \"{e['metric_text']}\"  {e['period_label'] or '-'}  "
-            f"documents {', '.join(map(str, e['documents']))}")
+def _reason_line(r: dict) -> str:
+    if r["reason"] == missing.NO_ACTIVE:
+        return f"  {r['type']}: {r['reason']} ({r['count']} declared)"
+    return (f"  {r['type']}: {r['count']} {'documents' if r['type'] == 'document' else 'pages'}, {r['reason']}"
+            + (f" ({', '.join(r['pages'])})" if "pages" in r else ""))
+
+
+def _expect_lines(e: dict, archived=()) -> list[str]:
+    """archived: the declared documents, given when none of them is active."""
+    docs = ", ".join(map(str, e["documents"])) if e["documents"] or not archived else (
+        f"none active (archived: {', '.join(map(str, archived))})")
+    head = f"{e['id']}  {e['company']}  \"{e['metric_text']}\"  {e['period_label'] or '-'}  documents {docs}"
     if e["found"]:
         lines = [f"{head}  found: {len(e['claims'])} claims"]
     else:
         lines = [f"{head}  {e['state']}"]
-        lines += [f"  {r['type']}: {r['count']} {'documents' if r['type'] == 'document' else 'pages'}, {r['reason']}"
-                  + (f" ({', '.join(r['pages'])})" if "pages" in r else "")
-                  for r in e["reasons"] if r["type"] != "confirmation"]
+        lines += [_reason_line(r) for r in e["reasons"] if r["type"] != "confirmation"]
         lines += [f"  {a['type']}: {a['count']} pages {a['accepted']}" for a in e["accepted"]]
     c = e["confirmation"]
     if c:
@@ -710,8 +779,10 @@ LITERAL = ("Matching uses the literal wording, so the same figure under differen
 
 
 def cmd_expect_list(args) -> None:
-    es = missing.expectations(_open(args, write=False), args.root, args.company)
-    text = "\n".join([*(line for e in es for line in _expect_lines(e)), LITERAL] if es else [])
+    conn = _open(args, write=False)
+    es = missing.expectations(conn, args.root, args.company)
+    text = "\n".join([*(line for e in es for line in _expect_lines(
+        e, () if e["documents"] else missing.declared(conn, e["id"]))), LITERAL] if es else [])
     _print(args, {"status": "ok", "expectations": es},
            text or 'No expectations yet. Add one with: gct expect add --company NAME --metric "WORDING"')
 
@@ -1025,6 +1096,7 @@ def build_parser() -> argparse.ArgumentParser:
     add.set_defaults(func=cmd_doc_add)
     lst = doc.add_parser("list", parents=[common], help="list documents")
     lst.add_argument("--company")
+    lst.add_argument("--active", action="store_true", help="hide archived documents and say how many were hidden")
     lst.set_defaults(func=cmd_doc_list)
     show = doc.add_parser("show", parents=[common], help="show one document")
     show.add_argument("id", type=int)
@@ -1032,6 +1104,19 @@ def build_parser() -> argparse.ArgumentParser:
     pages = doc.add_parser("pages", parents=[common], help="show how each page of one document was read")
     pages.add_argument("id", type=int)
     pages.set_defaults(func=cmd_doc_pages)
+    arc = doc.add_parser("archive", parents=[common], help="take a document out of every active output; its file and history are kept")
+    arc.add_argument("id", type=int)
+    arc.add_argument("--plan", action="store_true", help="show what would drop out of the active outputs and store nothing")
+    arc.add_argument("--as", dest="as_", metavar="KEY", help="the contributor making this record (needed without --plan)")
+    arc.add_argument("--capacity", help="the capacity you act in, as you describe it (needed without --plan)")
+    arc.add_argument("--rationale", help="why (needed without --plan)")
+    arc.set_defaults(func=cmd_doc_archive)
+    rst = doc.add_parser("restore", parents=[common], help="bring an archived document back into the active outputs")
+    rst.add_argument("id", type=int)
+    rst.add_argument("--as", dest="as_", required=True, metavar="KEY", help="the contributor making this record")
+    rst.add_argument("--capacity", required=True, help="the capacity you act in, as you describe it")
+    rst.add_argument("--rationale", required=True, help="why")
+    rst.set_defaults(func=cmd_doc_restore)
 
     rd = top.add_parser("read", parents=[common], help="read every page of PDF documents (text, words, tables)")
     rd.add_argument("ids", nargs="*", type=int, metavar="ID", help="documents to read (default: every active document)")

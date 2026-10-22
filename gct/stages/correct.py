@@ -7,7 +7,7 @@ from gct.stages import extract
 from gct.stages.infer import _who
 from gct.stages.missing import _text
 from gct.stages.read import NEWEST_SQL
-from gct.workspace import runs, store
+from gct.workspace import registry, runs, store
 from gct.workspace.layout import NOT_FOUND, REFUSED, USAGE, GctError
 
 METHOD = "correction"
@@ -99,6 +99,7 @@ def correct(conn, claim_id: int, key, capacity, rationale, **given) -> dict:
                        f'Give at least one of --value, --unit, --metric or --period-label, for example: '
                        f'gct correct {claim_id} --value "1,234" --as KEY --capacity TEXT --rationale TEXT')
     c = _claim(conn, claim_id)
+    registry.require_active(conn, c["document_id"])
     for col, flag, words in FIELDS:
         if col in given:
             given[col] = _text(given[col], words, f'{flag} "the {words} as printed"')
@@ -166,6 +167,7 @@ def history(conn, claim_id: int) -> dict:
                 "SELECT page_id, config_version, run_id, created_at FROM claim_seen WHERE claim_version_id = ?"
                 " ORDER BY id", (v["id"],))],
         })
-    return {"claim": {"id": claim_id, "document": doc, "page_number": c["page_number"], "locator": c["locator"],
+    return {"claim": {"id": claim_id, "document": doc, "document_state": registry.get_document(conn, doc)["state"],
+                      "page_number": c["page_number"], "locator": c["locator"],
                       "state": states(conn, doc)[claim_id], "needs_re_review": re_review(conn, doc).get(claim_id, [])},
             "versions": versions}

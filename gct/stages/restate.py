@@ -182,6 +182,8 @@ def record(conn, root, original: int, restated: int, page: int, quote, key, capa
     document that prints the restated figure. Only for a pair that is an unresolved conflict now."""
     who, capacity, rationale = _who(conn, key, capacity, rationale)
     quote = " ".join(_text(quote, "quote", '--quote "the line exactly as printed"').split())
+    for cid in (original, restated):
+        registry.require_active(conn, _claim(conn, cid)["document_id"])
     p = _pair(conn, original, restated)
     if p["state"] != UNRESOLVED:
         what = p["state"] + (f" ({p['reason']})" if p["reason"] else "")
@@ -221,6 +223,8 @@ def withdraw(conn, original: int, restated: int, key, capacity, rationale) -> di
     """Withdraw the current record naming the two claims' newest versions; the pair is computed again."""
     who, capacity, rationale = _who(conn, key, capacity, rationale)
     one, two = _claim(conn, original), _claim(conn, restated)
+    for c in (one, two):
+        registry.require_active(conn, c["document_id"])
     row = _current_row(conn, one["version"], two["version"])
     if row is None or row["decision"] != "recorded":
         raise GctError(REFUSED, f"No current restatement record names claim {original} as original and claim {restated}"

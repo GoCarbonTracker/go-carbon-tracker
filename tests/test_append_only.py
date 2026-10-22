@@ -33,6 +33,7 @@ def test_every_table_is_append_only(ws, db, gct, make_file):
     gct("expect", "add", "--company", "Acme", "--metric", "water", "--doc", "2")
     gct("pages", "accept", "--doc", "2", "--pages", "1", "--type", "figures", *who)
     gct("gap", "confirm", "1", *who)
+    assert gct("doc", "archive", "1", *who).code == 0
     for _ in range(3):  # three builds, so published_purge also holds a row
         gct("publish", "build")
     gct("approve", "spend", "1")
