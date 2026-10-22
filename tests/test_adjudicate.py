@@ -601,3 +601,20 @@ def test_company_filter_with_an_adjudication_that_is_no_candidate_now(ws, db, gc
     assert [r["state"] for r in got["earlier"]] == ["explained_difference"]
     assert [s["company"] for s in gct("adjudicate", "status", "--company", "Acme", "--json").data["companies"]] == ["Acme"]
     assert gct("adjudicate", "status", "--company", "Acme").code == 0
+
+
+# P2-1: from the active side the row stays in the show commands, marked with the other document's state
+def test_history_and_restate_show_mark_an_archived_other_document(ws, db, gct, four):
+    a_claim, b_claim = four["ghg_scope_1"]
+    row = adj(gct, a_claim, b_claim, "reviewer-confirmed-issue", "--json").data["adjudication"]
+    seen = gct("claims", "history", b_claim, "--json").data["versions"][-1]["adjudications"][0]
+    assert seen["other_document_state"] == "registered" and "other document" not in gct("claims", "history", b_claim).out
+    assert gct("doc", "archive", four["a"], *WHO).code == 0
+    mark = "; other document archived"
+    versions = gct("claims", "history", b_claim, "--json").data["versions"]
+    assert [(r["id"], r["other_document_state"]) for v in versions for r in v["adjudications"]] == [(row["id"], "archived")]
+    assert [l for l in gct("claims", "history", b_claim).out.splitlines() if f"adjudication #{row['id']}" in l][0].endswith(mark)
+    shown = gct("restate", "show", b_claim, "--json").data["versions"]
+    assert [(r["id"], r["other_document_state"]) for v in shown if v["claim"] == b_claim
+            for r in v["reviews"]["adjudications"]] == [(row["id"], "archived")]
+    assert any(l.endswith(mark) for l in gct("restate", "show", b_claim).out.splitlines() if f"adjudication #{row['id']}" in l)

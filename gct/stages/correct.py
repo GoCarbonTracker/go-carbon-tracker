@@ -220,11 +220,16 @@ def records_on(conn, version_id: int) -> dict:
     5.1), the reviewer flags on it and the adjudications naming it on either side (story 5.3)."""
     from gct.stages import adjudicate, review  # both import this module
 
+    (claim,) = conn.execute("SELECT claim_id FROM claim_version WHERE id = ?", (version_id,)).fetchone()
+    adjudications = []
+    for r in conn.execute(adjudicate.ROWS + " WHERE ? IN (a.low_version_id, a.high_version_id) ORDER BY a.id", (version_id,)):
+        (other,) = conn.execute("SELECT document_id FROM claim WHERE id = ?",
+                                (r["high_claim_id"] if r["low_claim_id"] == claim else r["low_claim_id"],)).fetchone()
+        adjudications.append({**adjudicate._record(conn, r), "other_document_state": adjudicate._state_of(conn, other)})
     return {**review.entries(conn, version_id),
             "reviewer_flags": [adjudicate._flag(r) for r in conn.execute(
                 adjudicate.FLAGS + " WHERE f.claim_version_id = ? ORDER BY f.id", (version_id,))],
-            "adjudications": [adjudicate._record(conn, r) for r in conn.execute(
-                adjudicate.ROWS + " WHERE ? IN (a.low_version_id, a.high_version_id) ORDER BY a.id", (version_id,))]}
+            "adjudications": adjudications}
 
 
 def history(conn, claim_id: int) -> dict:

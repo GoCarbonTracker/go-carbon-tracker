@@ -911,6 +911,8 @@ def _adjudication_text(r: dict) -> str:
             f" by {_who_text(r)}, capacity \"{r['capacity']}\": \"{r['rationale']}\"{_quoted('procedure', r['procedure'])}"
             f"{counter}{_quoted('counter-evidence note', r['counter_note'])}{_quoted('follow-up', r['follow_up'])}"
             f"{_quoted('closure reason', r['closure_reason'])}" + ("" if r["binds"] else " (on an earlier version)")
+            + (f"; other document {r['other_document_state']}"
+               if r.get("other_document_state", "registered") not in adjudicate.ACTIVE else "")
             + _mark(r["evidence_deleted"], r["created_at"]))
 
 
