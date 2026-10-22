@@ -98,8 +98,13 @@ and the claim lists what needs doing again (`needs re-review`):
 - as before, a correction and an accepted or resolved period or boundary review.
 
 An entry clears once anyone records the same kind on the newest version (an adjudication: on the two claims' newest
-versions). A corrected claim is in no pair until its period and boundary are accepted again and `gct match` runs, so
-its adjudication entry appears only then; a pair that has become a restatement or the same value asks for none.
+versions). A corrected claim is in no pair until its period and boundary are accepted again (`gct infer accept` or
+`gct infer resolve`) and `gct match` runs, so its adjudication entry appears only then; a pair that has become a
+restatement or the same value asks for none.
+
+After `gct correct`, the adjudication entry is therefore not listed at once: the claim shows its other entries
+immediately, but the adjudication one appears only after the corrected claim is paired again. Until then the earlier
+adjudication stays under its version with `binds: false` and nothing asks for a new one.
 
 `gct review pending [--company NAME] [--doc ID]` lists these entries for the claims of active documents, grouped by
 kind, each with the command that renews it:
@@ -141,7 +146,7 @@ gct highlight list CLAIM
 
 ## What GCT does not do
 
-GCT does not authenticate contributors, check their capacity or affiliation, read the cited evidence to see whether it supports the conclusion (it only
-checks that the document is active and the page is in it), weigh
-one entry against another, or present any entry as its own certification or assurance. Settling a disagreement is
-not part of this step.
+GCT does not authenticate contributors, check their capacity or affiliation, read the cited evidence to see whether
+it supports the conclusion (it only checks that the document is active and the page is in it), weigh one entry against
+another, or present any entry as its own certification or assurance. Settling a disagreement is not part of this
+step.

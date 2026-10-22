@@ -89,8 +89,9 @@ marked `(on an earlier version)`.
 
 Archiving the document of either claim takes its adjudications, and the flags on its claims, out of `adjudicate list`,
 `adjudicate status` and the published version. `claims history` and `restate show` keep the row on the other claim and
-mark the other side: the line ends `; other document archived` and the JSON record carries `other_document_state`. The rows stay stored,
-are counted in the archive impact and `hidden_by_archive`, and come back on restore. An adjudication citing an archived counter document stays listed, with the document's state.
+mark the other side: the line ends `; other document archived` and the JSON record carries `other_document_state`.
+The rows stay stored, are counted in the archive impact and `hidden_by_archive`, and come back on restore. An
+adjudication citing an archived counter document stays listed, with the document's state.
 
 Deleting a document clears the text (rationale, procedure, capacity, notes, follow-up, closure reason) of every
 adjudication naming one of its claims or citing it, and of the flags on its claims, to `cleared with document N`;
