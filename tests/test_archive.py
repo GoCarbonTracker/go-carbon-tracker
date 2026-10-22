@@ -310,7 +310,7 @@ def test_projection_hides_archived_documents_and_counts_them(ws, db, gct, two):
     gct("expect", "add", "--company", "Acme", "--metric", "scope 1 emissions")
     gct("pages", "accept", "--doc", b, "--pages", "1", "--type", "figures", *WHO)
     p = built(gct, ws)
-    assert {m["key"]: m["value"] for m in p["meta"]}["projection_schema"] == "12"
+    assert {m["key"]: m["value"] for m in p["meta"]}["projection_schema"] == "13"
     assert p["hidden_by_archive"] == [] and b in {x["id"] for x in p["document"]}
     assert [x["document_id"] for x in p["page_acceptance"]] == [b]
     mark = published.history_mark(db)

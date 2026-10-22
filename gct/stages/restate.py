@@ -6,7 +6,7 @@ from collections import Counter
 from itertools import combinations
 from pathlib import Path
 
-from gct.stages import match
+from gct.stages import correct, match
 from gct.stages.infer import _who
 from gct.stages.missing import _text, page_count
 from gct.stages.read import NEWEST_SQL
@@ -247,7 +247,8 @@ def withdraw(conn, original: int, restated: int, key, capacity, rationale) -> di
 
 def reviews(conn, version_id: int) -> dict:
     """The period and boundary reviews, corrections (making or replacing this version), match reviews, the newest
-    source match of each evidence ref and the restatement rows naming the version, each oldest first."""
+    source match of each evidence ref, the restatement rows naming the version and the company confirmations, auditor
+    reviews, reviewer flags and adjudications naming it (correct.records_on), each oldest first."""
     who = "c.name AS contributor, c.organisation, r.capacity, r.rationale, r.created_at"
     join = "JOIN contributor_version c ON c.id = r.contributor_version_id"
     current = {r["id"] for r in conn.execute(CURRENT)}
@@ -278,6 +279,7 @@ def reviews(conn, version_id: int) -> dict:
                                   r["original_version_id"], r["restated_version_id"], r["evidence_document_id"])))), None)}
                          for r in conn.execute(
             RECORDS + " WHERE ? IN (r.original_version_id, r.restated_version_id) ORDER BY r.id", (version_id,))],
+        **correct.records_on(conn, version_id),
     }
 
 
@@ -299,7 +301,8 @@ def show(conn, claim_id: int) -> dict:
                              (json.dumps([cid for cid, _ in own + sorted(others)]),)))
     return {"claim": {"id": claim_id, "document": c["document_id"], "page_number": c["page_number"],
                       "version": c["version"], "match_state": m and m["state"], "match_reason": m and m["reason"],
-                      "series_id": m and m["series_id"], "evidence_deleted": registry.evidence_deleted(conn, c["document_id"])},
+                      "series_id": m and m["series_id"], "evidence_deleted": registry.evidence_deleted(conn, c["document_id"]),
+                      "needs_re_review": correct.re_review(conn, c["document_id"]).get(claim_id, [])},
             "pairs": mine,
             "versions": [{"claim": cid, "id": v, "reviews": reviews(conn, v),
                           "evidence_deleted": registry.evidence_deleted(conn, docs[cid])} for cid, v in own + sorted(others)]}

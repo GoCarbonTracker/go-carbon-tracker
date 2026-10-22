@@ -388,7 +388,7 @@ def build(conn: sqlite3.Connection, root: Path) -> dict:
     hid = extra["hidden_by_archive"]
     meta = {
         "version": version, "built_at": built_at, "history_mark": mark,
-        "gct_version": __version__, "projection_schema": 12,
+        "gct_version": __version__, "projection_schema": 13,
         "hidden_by_archive": json.dumps({"documents": len(hid), **{k: sum(h[i] for h in hid) for i, k in (
             (3, "claims"), (4, "evidence_refs"), (5, "review_records"))}}),
         "deleted_documents": len(extra["deleted_document"]),

@@ -199,7 +199,7 @@ def test_publish_carries_the_newest_status(ws, db, doc, gct):
     conn = published.open_version(path)
     rows = dict(conn.execute("SELECT c.locator, e.source_match || '|' || COALESCE(e.source_match_reason, '')"
                              " FROM evidence_ref e JOIN claim c ON c.claim_version_id = e.claim_version_id"))
-    assert conn.execute("SELECT value FROM meta WHERE key = 'projection_schema'").fetchone()[0] == "12"
+    assert conn.execute("SELECT value FROM meta WHERE key = 'projection_schema'").fetchone()[0] == "13"
     conn.close()
     assert rows["t0r1c1"] == "cited|box does not reproduce the figure" and rows["t0r1c2"] == "matched|"
     assert v1["history_mark"] != v["history_mark"]

@@ -409,7 +409,7 @@ def test_projection_schema_7(ws, db, gct, make_file, acme):
             conn.close()
 
     meta, comparison, rows = build()
-    assert meta["projection_schema"] == "12" and rows == []
+    assert meta["projection_schema"] == "13" and rows == []
     (c,) = comparison
     assert (c["claim_a"], c["claim_b"], c["state"], c["reason"], c["restatement_id"]) == (
         restated, original, "unresolved conflict", None, None)

@@ -145,7 +145,7 @@ infer, link or match attempt are the cache key and the result of another documen
 matched in every stage. The `sheet` stage (story 4.3) keys its attempts and lines on ids, so the deleted document's
 are found by that key, never by text: another spreadsheet's sheet attempts stay as they were.
 
-In a published version (`projection_schema` 12) a row whose `document_id`, `evidence_document_id`,
+In a published version (`projection_schema` 13) a row whose `document_id`, `evidence_document_id`,
 `counter_document_id`, `claim_id`, `low_claim_id`, `high_claim_id`, `claim_a`, `claim_b`, `id` of `claim` or
 `document`, `claim_version_id`, `original_version_id`, `restated_version_id`, `low_version_id`, `high_version_id`,
 `version_a` or `version_b` names the document, one of its claims or one of its claim versions is removed, in

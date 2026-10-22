@@ -160,6 +160,8 @@ An `unresolved conflict` pair is an inconsistency candidate: two different figur
 - `gct flag raise CLAIM --version V ...` and `gct flag withdraw` record a reviewer's concern on the claim's newest version; `gct flag list` shows them. gct never raises a flag itself.
 - `gct adjudicate status` counts candidates per company by state. gct never counts an unreviewed candidate as a confirmed issue and never calls one a contradiction. Identities and capacities are self-declared, and gct does not adopt any conclusion as its own.
 
+When a newer version replaces the figure people reviewed (a correction, a new reading or a new spreadsheet mapping), their company confirmations, auditor reviews, raised reviewer flags and adjudications stay on the version they were made on, and the claim is listed as needing re-review of each, beside corrections and period and boundary reviews. `gct review pending [--company NAME] [--doc ID]` lists every such claim of an active document, grouped by kind, with the command that records it again on the newest version; gct never carries a record forward itself. Details are under "Renewed review" in `docs/reviews.md`.
+
 ## What does not exist yet
 
 OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, a review interface (only the page acceptance, gap confirmation, infer review, correction, adjudication and reviewer flag commands exist), reports, review in the viewer beyond correcting a figure.

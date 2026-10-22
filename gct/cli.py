@@ -412,9 +412,9 @@ def cmd_claims_history(args) -> None:
     lines = [f"claim {c['id']}  document {c['document']} ({c['document_state']})  p{c['page_number']}  {c['locator']}  "
              f"{c['state']}{_mark(c['evidence_deleted'])}",
              *(f"  needs re-review: {correct.entry_text(e)}" for e in c["needs_re_review"]),
-             *(line for v in h["versions"] for line in [*_version_lines(v, c["evidence_deleted"]), *(
-                 _ledger_lines(v) if any(v[k] for _, _, k in review.LEDGERS.values()) else [])])]
-    if any(v[k] for v in h["versions"] for _, _, k in review.LEDGERS.values()):
+             *(line for v in h["versions"] for line in [*_version_lines(v, c["evidence_deleted"]),
+                                                       *_records_lines(v, c["evidence_deleted"])])]
+    if any(_records_lines(v) for v in h["versions"]):
         lines.append(review.SELF_DECLARED)
     _print(args, {"status": "ok", **h}, "\n".join(lines))
 
@@ -784,7 +784,8 @@ def _review_lines(v: dict, cells: dict) -> list[str]:
               + (f" ({x['reason']})" if x["reason"] else "") for x in r["source_match"]),
             *(f"    {_record_text(x)}" + ("" if x["current"] else " (superseded)")
               + ("" if x["binds"] else " (on an earlier version)") + _mark(x["evidence_deleted"], x["created_at"])
-              for x in r["restatements"])]
+              for x in r["restatements"]),
+            *_records_lines({**r, "id": v["id"]}, m, "    ")]
 
 
 def cmd_restate_show(args) -> None:
@@ -800,7 +801,10 @@ def cmd_restate_show(args) -> None:
     none = "No pairs: the claim shares no period." if c["series_id"] else (
         f"No pairs: the claim is in no series: {why}." if c["match_state"] else "No pairs.")
     lines = [head, *map(_restate_line, _located(conn, r["pairs"]))] if r["pairs"] else [head, none]
-    _print(args, {"status": "ok", **r}, "\n".join([*lines, "Records:", *(x for v in r["versions"] for x in _review_lines(v, cells))]))
+    needs = [f"needs re-review: {correct.entry_text(e)}" for e in c["needs_re_review"]]
+    self_declared = [review.SELF_DECLARED] * any(_records_lines({**v["reviews"], "id": v["id"]}) for v in r["versions"])
+    _print(args, {"status": "ok", **r}, "\n".join([*lines, *needs, "Records:", *(x for v in r["versions"] for x in _review_lines(v, cells)),
+                                                   *self_declared]))
 
 
 def _decided(r: dict) -> str:
@@ -852,6 +856,14 @@ def _ledger_lines(v: dict, indent: str = "  ") -> list[str]:
     return lines
 
 
+def _records_lines(v: dict, mark: dict | None = None, indent: str = "  ") -> list[str]:
+    """The contributors' records of one version (correct.records_on): both ledgers when either has an entry, then the
+    reviewer flags and the adjudications naming it. mark: the evidence-deleted marker of the version's document."""
+    ledgers = _ledger_lines(v, indent) if any(v[k] for _, _, k in review.LEDGERS.values()) else []
+    return [*ledgers, *(f"{indent}{_flag_text(f)}{_mark(mark, f['created_at'])}" for f in v["reviewer_flags"]),
+            *(f"{indent}{_adjudication_text(a)}" for a in v["adjudications"])]
+
+
 def cmd_review_record(args) -> None:
     r = review.record(_open(args), args.root, args.ledger, args.claim, args.version, args.outcome, args.scope,
                       args.conclusion, args.as_, args.capacity, args.evidence_doc, args.evidence_page,
@@ -873,6 +885,16 @@ def cmd_review_list(args) -> None:
         lines += [f"version {v['id']}" + ("" if v["binds"] else " (an earlier version: its entries do not bind)"),
                   *_ledger_lines(v)]
     _print(args, {"status": "ok", **r}, "\n".join([*lines, review.SELF_DECLARED]))
+
+
+def cmd_review_pending(args) -> None:
+    kinds = correct.pending(_open(args, write=False), args.company, args.doc)
+    lines = [x for k in kinds for x in (f"{k['kind']}:", *(
+        f"  claim {e['claim']} (document {e['document']}, {e['company']}) version {e['version']}: "
+        f"{correct.entry_text(e['entry'])}\n    renew: {e['renew']}" for e in k["entries"]))]
+    if any(k["kind"] in correct.E5 for k in kinds):
+        lines.append(review.SELF_DECLARED)
+    _print(args, {"status": "ok", "kinds": kinds}, "\n".join(lines) or "No claim needs renewed review.")
 def _quoted(label: str, text) -> str:
     return f'; {label} "{text}"' if text is not None else ""
 
@@ -1512,6 +1534,11 @@ def build_parser() -> argparse.ArgumentParser:
     lst = rv.add_parser("list", parents=[common], help="every version of one claim with both ledgers' entries")
     lst.add_argument("claim", type=int, metavar="CLAIM")
     lst.set_defaults(func=cmd_review_list)
+    pend = rv.add_parser("pending", parents=[common],
+                         help="claims whose newest version lost a record made on an earlier one, and how to renew it")
+    pend.add_argument("--company")
+    pend.add_argument("--doc", type=int, metavar="ID")
+    pend.set_defaults(func=cmd_review_pending)
     adj = group("adjudicate", "inconsistency candidates (unresolved conflicts) and what a reviewer recorded about them")
     lst = adj.add_parser("list", parents=[common], help="each candidate with its state and every adjudication of its claims")
     lst.add_argument("--company")

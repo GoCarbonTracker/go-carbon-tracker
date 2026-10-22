@@ -79,8 +79,8 @@ def test_migration_17_upgrades_a_4_5_workspace_and_both_tables_are_append_only(t
     gct("contributor", "add", "ana", "--name", "Ana")
     doc = add(gct, make_file, "a.pdf", [SCOPE_1])
     assert gct("read").code == 0 and gct("extract").code == 0
-    claim = ids(gct, doc)[(SCOPE_1[0], "FY 2024-25")]
     db = sqlite3.connect(root / "workspace.db")
+    claim = db.execute("SELECT claim_id FROM claim_version WHERE period_label = 'FY 2024-25'").fetchone()[0]
     assert db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 16
     monkeypatch.setattr(store, "migrate", real)
     r = gct("review", "list", claim)
@@ -429,7 +429,7 @@ def test_projection_schema_11(ws, db, gct, make_file, one):
         (a,) = [dict(r) for r in conn.execute("SELECT * FROM review_auditor")]
     finally:
         conn.close()
-    assert meta["projection_schema"] == "12"
+    assert meta["projection_schema"] == "13"
     assert list(c) == list(a) == ["id", "claim_id", "claim_version_id", "contributor_name", "contributor_organisation",
                                   "contributor_version", "capacity", "scope", "reviewed_on", "conclusion", "outcome",
                                   "evidence_document_id", "evidence_page", "evidence_note", "evidence_state", "latest",

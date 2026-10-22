@@ -207,6 +207,33 @@ def test_review_matches_the_documented_keys(ws, gct, make_file):
     h = gct("claims", "history", claim, "--json").data
     check("claims history", h)
     assert all(set(e) == entry for x in h["versions"] for e in x["company_confirmations"] + x["auditor_reviews"])
+
+
+def test_review_pending_matches_the_documented_keys(ws, gct, make_file):
+    from test_match import WHO
+    from test_restate import cp2
+    from test_review import rec
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    check("review pending", gct("review", "pending", "--json").data)
+    _, _, restated, original = cp2(gct, make_file)
+    version = gct("claims", "history", restated, "--json").data["versions"][-1]["id"]
+    assert rec(gct, "auditor", restated, version).code == 0
+    assert gct("flag", "raise", restated, "--version", version, *WHO).code == 0
+    assert gct("correct", restated, "--value", "1,101", *WHO).code == 0
+    shown = gct("review", "pending", "--json").data
+    check("review pending", shown)
+    assert [k["kind"] for k in shown["kinds"]][-2:] == ["auditor review", "reviewer flag"]
+    assert all(set(e) == {"claim", "document", "company", "version", "entry", "renew"} and set(e["entry"]) == {
+        "kind", "id", "version"} for k in shown["kinds"] for e in k["entries"])
+    h = gct("claims", "history", restated, "--json").data
+    check("claims history", h)
+    flags = set(spec()["flag list"]["flags"])
+    assert [set(f) for v in h["versions"] for f in v["reviewer_flags"]] == [flags]
+    check("restate show", gct("restate", "show", restated, "--json").data)
+
+
 def test_adjudicate_and_flag_match_the_documented_keys(ws, gct, make_file):
     from test_match import WHO
     from test_restate import QUOTE, cp2
@@ -388,7 +415,7 @@ def test_every_command_has_a_documented_section():
         "claims history", "correct",
         "infer", "infer bases", "infer scope", "infer groups", "infer accept", "infer resolve", "infer reject",
         "match", "match metrics", "match review", "match link", "match unlink", "match status", "series list",
-        "series show", "restate list", "restate show", "restate record", "restate withdraw", "review company", "review auditor", "review list", "sheet show", "sheet map",
+        "series show", "restate list", "restate show", "restate record", "restate withdraw", "review company", "review auditor", "review list", "review pending", "sheet show", "sheet map",
         "adjudicate list", "adjudicate record", "adjudicate status", "flag raise", "flag withdraw", "flag list",
         "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
         "publish build", "publish restore", "publish status",

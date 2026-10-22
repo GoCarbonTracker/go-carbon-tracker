@@ -89,6 +89,8 @@ def refusals(ws, tmp_path, make_file):
         (["restate", "list", "--company", "Nobody", "--workspace", ws], 3),
         (["restate", "show", "99", "--workspace", ws], 3),
         (["review", "list", "99", "--workspace", ws], 3),
+        (["review", "pending", "--doc", "99", "--workspace", ws], 3),
+        (["review", "pending", "--company", "Nobody", "--workspace", ws], 3),
         (["restate", "record", "--original", "98", "--restated", "99", "--page", "1", "--quote", "q", *WHO,
           "--workspace", ws], 3),
         (["restate", "record", "--original", "98", "--restated", "99", "--page", "1", "--quote", " ", *WHO,
@@ -192,6 +194,36 @@ def test_adjudicate_and_flag_messages_have_no_internals(ws, gct, make_file):
             gct("adjudicate", "list", "--claim", restated), gct("adjudicate", "status"), gct("flag", "list")]
     for r in done:
         assert r.code == 0 and not any(w in r.out for w in [*INTERNAL_WORDS, *names]), r.out
+
+
+def test_renewed_review_messages_have_no_internals(ws, gct, make_file):
+    from test_restate import cp2
+    from test_review import rec
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    a, _, restated, original = cp2(gct, make_file)
+    version = gct("claims", "history", restated, "--json").data["versions"][-1]["id"]
+    assert rec(gct, "company", restated, version).code == 0
+    assert gct("flag", "raise", restated, "--version", version, *WHO).code == 0
+    assert gct("adjudicate", "record", original, restated, "--state", "extraction-error", "--procedure", "p",
+               *WHO).code == 0
+    assert gct("correct", restated, "--value", "1,101", *WHO).code == 0
+    names = internal_names(ws)
+    done = [gct("review", "pending"), gct("claims", "history", restated), gct("claims", "list", "--doc", a)]
+    assert "needs re-review: company confirmation #" in done[1].out
+    for r in done:
+        assert r.code == 0 and not any(w in r.out for w in [*INTERNAL_WORDS, *names]), r.out
+    # restate show: the lines of story 5.2 (its correction line prints the changed fields as stored, story 4.2)
+    shown = [x for x in gct("restate", "show", restated).out.splitlines() if "re-review" in x or " flag #" in x
+             or "adjudication #" in x or "confirmation #" in x]
+    assert len(shown) >= 5 and not any(w in x for x in shown for w in [*INTERNAL_WORDS, *names]), shown
+    assert gct("doc", "archive", a, *WHO).code == 0
+    human, machine = gct("review", "pending", "--doc", a), gct("review", "pending", "--doc", a, "--json")
+    assert human.code == machine.code == 4 and human.err.startswith("error: ") and "\nnext: " in human.err
+    assert machine.data["cause"] and machine.data["next_action"]
+    for text in (human.err, machine.out):
+        assert not any(w in text for w in [*INTERNAL_WORDS, *names]), text
 
 
 def test_archive_refusals_have_cause_next_action_and_no_internals(ws, gct, make_file):

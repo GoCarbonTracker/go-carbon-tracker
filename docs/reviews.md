@@ -70,7 +70,7 @@ entry: uploading evidence never confirms a claim.
   "conclusion"; evidence ...`.
 - `evidence_state` is the evidence document's state now (`registered`, `restored`, `archived` or `deleted`; null for
   a note only).
-- `gct publish build` (`projection_schema` 12) writes both ledgers as `review_company` and `review_auditor`, with
+- `gct publish build` (`projection_schema` 13) writes both ledgers as `review_company` and `review_auditor`, with
   `latest`, `binds` and `evidence_state`, for the claims of active documents.
 
 ## Archive and deletion
@@ -83,6 +83,38 @@ entry: uploading evidence never confirms a claim.
   outcome, page and dates; its capacity, scope, conclusion and note read `cleared with document N`, and every listing
   adds `evidence deleted (document N, date)`. It leaves the published versions on disk; an entry on a surviving claim
   is published again by the next build with its text cleared. See `docs/deletion.md`.
+
+## Renewed review
+
+A record holds for the claim version it was made on. When a correction, a new reading or a new spreadsheet mapping
+makes a newer version, nothing recorded earlier moves: the earlier rows stay under their version with `binds: false`,
+and the claim lists what needs doing again (`needs re-review`):
+
+- a company confirmation or an auditor review, whatever its outcome, while the newest version has none of that kind;
+- a reviewer flag whose contributor's newest row on the earlier version is `raised`, while the newest version has no
+  flag;
+- an adjudication, while the two claims' newest versions form an `unresolved conflict` with no adjudication on them;
+  both claims are listed, each entry naming the other side (`with claim C version W`);
+- as before, a correction and an accepted or resolved period or boundary review.
+
+An entry clears once anyone records the same kind on the newest version (an adjudication: on the two claims' newest
+versions). A corrected claim is in no pair until its period and boundary are accepted again and `gct match` runs, so
+its adjudication entry appears only then; a pair that has become a restatement or the same value asks for none.
+
+`gct review pending [--company NAME] [--doc ID]` lists these entries for the claims of active documents, grouped by
+kind, each with the command that renews it:
+
+```
+company confirmation:
+  claim 12 (document 3, Acme) version 41: company confirmation #5 on version 17
+    renew: gct review company 12 --version 41 --outcome accepted|rejected|disputed --scope TEXT ...
+```
+
+`gct claims history`, `gct restate show`, `gct claims list`, the local service's claim history and the published
+`needs_re_review` (`projection_schema` 13) carry the same entries; `gct claims history` and `gct restate show` also
+list every reviewer flag and adjudication naming each version. An archived document's claims leave the list and come
+back unchanged on restore; a deleted document's claims leave it and their kept rows carry the deletion marker. GCT
+never renews a record itself and never copies one to a newer version.
 
 ## What GCT does not do
 
