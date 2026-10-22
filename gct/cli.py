@@ -10,7 +10,7 @@ from gct import __version__
 from gct.api import server
 from gct.measure import g2
 from gct.models import adapters, policy
-from gct.stages import archive, correct, extract, infer, link, match, missing, read, restate, sheet
+from gct.stages import archive, correct, deletion, extract, infer, link, match, missing, read, restate, sheet
 from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -38,7 +38,15 @@ def _open(args, write=True):
 
 
 def _doc_line(d: dict) -> str:
-    return f"{d['id']}  {d['company']}  {d['logical_name']}  v{d['version']}  {d['privacy']}  {d['state']}"
+    return (f"{d['id']}  {d['company']}  {d['logical_name']}  v{d['version']}  {d['privacy']}  {d['state']}"
+            + (f" {d['deleted_at'][:10]}" if d["deleted_at"] else ""))
+
+
+def _mark(m: dict | None, made: str | None = None) -> str:
+    """The marker of a record whose evidence was deleted (story 4.5, P5), after the record's own date when given."""
+    if not m:
+        return ""
+    return (f"  made {made}" if made else "") + f"  evidence deleted (document {m['document']}, {m['at'][:10]})"
 
 
 def cmd_init(args) -> None:
@@ -99,12 +107,13 @@ def _doc_add_out(args, items, plan=False, head=None, extra=None) -> int:
 
 def cmd_doc_list(args) -> None:
     docs = registry.list_documents(_open(args, write=False), args.company)
-    shown = [d for d in docs if d["state"] != "archived"] if args.active else docs
-    hidden = len(docs) - len(shown)
+    shown = [d for d in docs if d["state"] in read.ACTIVE] if args.active else docs
+    hidden = Counter(d["state"] for d in docs if args.active and d["state"] not in read.ACTIVE)
     text = "\n".join(_doc_line(d) for d in shown) or "No documents yet."
-    if hidden:
-        text += f"\n{hidden} archived document{'s' * (hidden > 1)} hidden. Show every document with: gct doc list"
-    _print(args, {"status": "ok", "documents": shown, "hidden_by_archive": hidden}, text)
+    for state, n in sorted(hidden.items()):
+        text += f"\n{n} {state} document{'s' * (n > 1)} hidden. Show every document with: gct doc list"
+    _print(args, {"status": "ok", "documents": shown, "hidden_by_archive": hidden["archived"],
+                  "hidden_deleted": hidden["deleted"]}, text)
 
 
 def _change_line(c: dict) -> str:
@@ -116,8 +125,16 @@ def cmd_doc_show(args) -> None:
     conn = _open(args, write=False)
     doc = registry.show_document(conn, args.id)
     change = registry.state_change(conn, args.id)
+    gone = deletion.status(conn, args.id)
     lines = [f"{k}: {v}" for k, v in doc.items()] + ([_change_line(change)] if change else [])
-    _print(args, {"status": "ok", "document": doc, "state_change": change}, "\n".join(lines))
+    if gone:
+        lines.append(f"Deletion steps done: {', '.join(gone['steps'])}")
+        if gone["pending"]:
+            lines.append(f"Pending: {', '.join(gone['pending'])}. Finish with: gct doc delete {args.id} --confirm "
+                         f"{deletion.token(doc)}")
+        lines += [f"{r['kind']} #{r['id']} {r['what']} by {r['contributor']} ({r['capacity']}) at {r['created_at']}: "
+                  f"{r['rationale']}{_mark(r['evidence_deleted'])}" for r in gone["records"]]
+    _print(args, {"status": "ok", "document": doc, "state_change": change, "deletion": gone}, "\n".join(lines))
 
 
 def _impact_lines(i: dict) -> list[str]:
@@ -161,6 +178,46 @@ def cmd_doc_restore(args) -> None:
     change = registry.restore(conn, args.id, args.as_, args.capacity, args.rationale)
     _print(args, {"status": "ok", "document": registry.show_document(conn, args.id), "state_change": change},
            f"Restored document {args.id}: {_change_line(change)}")
+
+
+def _plan_lines(p: dict) -> list[str]:
+    doc, f, n = p["document"], p["files"], p["document"]["id"]
+    lines = [f"Deleting document {n} ({doc['logical_name']}) takes it out of every active output:",
+             *_impact_lines(p["impact"]),
+             "Its content is cleared for good; the rows stay, so the records that cite them still resolve:",
+             *(f"  {t.replace('_', ' ')}: {k} rows" for t, k in p["clears"].items()),
+             "Kept: the company, contributors, expectations, other documents and everything of theirs, and every review"
+             f" record above with its contributor, decision and date; its capacity and rationale read"
+             f" \"{deletion.MARKER.format(n)}\".",
+             "Files removed: " + ", ".join([
+                 "the original file" if f["files"]["remove"] else "none of the original (another document has the same file)",
+                 f"{f['artifacts']['remove']} reading files ({f['artifacts']['keep']} kept, used by another document)",
+                 "its page images" if f["renders"]["remove"] else
+                 "none of its page images (another document has the same file)" if f["renders"]["keep"] else
+                 "no page images"]),
+             "Published versions it is removed from: " + (", ".join(map(str, p["versions"])) or "none"),
+             p["warning"], deletion.OWN_TEXT, f"Confirmation token: {p['token']}"]
+    return lines
+
+
+def cmd_doc_delete(args) -> int:
+    conn = _open(args, write=args.confirm is not None)
+    if args.confirm is None:
+        p = deletion.plan(conn, args.root, args.id)
+        cause = "Nothing was deleted: deleting needs the confirmation token."
+        next_action = (f"Delete it with: gct doc delete {args.id} --confirm {p['token']} --as KEY --capacity TEXT"
+                       " --rationale TEXT")
+        _print(args, {"status": "plan", "cause": cause, "next_action": next_action, **p}, "\n".join(_plan_lines(p)))
+        if not args.json:
+            print(f"error: {cause}\nnext: {next_action}", file=sys.stderr)
+        return layout.REFUSED
+    gone = deletion.delete(conn, args.root, args.id, args.confirm, args.as_, args.capacity, args.rationale)
+    change = registry.state_change(conn, args.id)
+    _print(args, {"status": "ok", "document": registry.show_document(conn, args.id), "state_change": change,
+                  "deletion": gone},
+           f"Deleted document {args.id}: {_change_line(change)}\nSteps done: {', '.join(gone['steps'])}\n"
+           f"{deletion.WARNING}")
+    return 0
 
 
 def _counts(flags: dict) -> str:
@@ -287,8 +344,10 @@ def _boundary_text(b: dict) -> str:
 
 
 def _where(e: dict) -> str:
-    """A source location: the sheet and cell of a spreadsheet, else the page."""
-    return f"sheet {e['sheet']} cell {e['cell']}" if e["sheet"] else f"p{e['page_number']}"
+    """A source location: the sheet and cell of a spreadsheet (both cleared by a deletion: ''), else the page."""
+    if e["sheet"] is None:
+        return f"p{e['page_number']}"
+    return f"sheet {e['sheet']} cell {e['cell']}" if e["sheet"] else "sheet and cell cleared"
 
 
 def _claim_line(c: dict) -> str:
@@ -320,21 +379,23 @@ def _fields(c: dict) -> str:
     return ", ".join(words[f] for f in c["fields"])
 
 
-def _version_lines(v: dict) -> list[str]:
+def _version_lines(v: dict, mark: dict | None = None) -> list[str]:
+    """mark: the evidence-deleted marker added to each contributor record of a deleted document's claim."""
     head = (f"version {v['id']}  {v['method']}  run {v['run_id']}  {v['created_at']}  {v['value_text']}  "
             f"{v['unit_text'] or '-'}  {v['metric_text'] or '-'}  {v['period_label'] or '-'}"
             + (f"  {v['boundary_label']}" if v["boundary_label"] else ""))
     lines = [head]
     if c := v["correction"]:
         lines.append(f"  correction #{c['id']} of version {c['corrects_version']} ({_fields(c)}) by "
-                     f"{c['contributor']} ({c['capacity']}): {c['rationale']}; replaced {c['replaced']['value_text']}")
+                     f"{c['contributor']} ({c['capacity']}): {c['rationale']}; replaced "
+                     f"{c['replaced']['value_text']}{_mark(mark, c['created_at'])}")
     for e in v["evidence_refs"]:
         matches = ", ".join(s["status"] + (f" ({s['reason']})" if s["reason"] else "") for s in e["source_match"])
         lines.append(f"  location {_where(e)}: {matches or 'not checked: gct link'}")
     lines += [f"  {i['field']} inference #{i['id']}: {i['state']}" + (f" ({i['reason']})" if i["reason"] else "")
               for i in v["inferences"]]
     lines += [f"  {r['field']} review #{r['id']}: {r['decision']} by {r['contributor']} ({r['capacity']}): {r['rationale']}"
-              for r in v["reviews"]]
+              f"{_mark(mark, r['created_at'])}" for r in v["reviews"]]
     lines += [f"  found by extraction in run {s['run_id']} of reading {s['page_id']}" for s in v["seen"]]
     return lines
 
@@ -346,9 +407,10 @@ def cmd_claims_history(args) -> None:
     for v in h["versions"]:  # a spreadsheet location is its sheet and cell (story 4.3)
         v["evidence_refs"] = [{**e, **where[e["id"]]} for e in v["evidence_refs"]]
     c = h["claim"]
-    lines = [f"claim {c['id']}  document {c['document']} ({c['document_state']})  p{c['page_number']}  {c['locator']}  {c['state']}",
+    lines = [f"claim {c['id']}  document {c['document']} ({c['document_state']})  p{c['page_number']}  {c['locator']}  "
+             f"{c['state']}{_mark(c['evidence_deleted'])}",
              *(f"  needs re-review: {correct.entry_text(e)}" for e in c["needs_re_review"]),
-             *(line for v in h["versions"] for line in _version_lines(v))]
+             *(line for v in h["versions"] for line in _version_lines(v, c["evidence_deleted"]))]
     _print(args, {"status": "ok", **h}, "\n".join(lines))
 
 
@@ -705,18 +767,19 @@ def _record_text(r: dict) -> str:
 
 def _review_lines(v: dict, cells: dict) -> list[str]:
     """cells: the sheet and cell of each evidence reference of the claim (sheet.cells)."""
-    r = v["reviews"]
-    return [f"  claim {v['claim']} version {v['id']}:",
+    r, m = v["reviews"], v["evidence_deleted"]
+    return [f"  claim {v['claim']} version {v['id']}:{_mark(m)}",
             *(f"    {x['field']} review #{x['id']} {x['decision']} by {x['contributor']} ({x['capacity']}): {x['rationale']}"
-              for x in r["inference_reviews"]),
+              f"{_mark(m, x['created_at'])}" for x in r["inference_reviews"]),
             *(f"    correction #{x['id']} {x['role']} ({', '.join(x['fields'])}) by {x['contributor']} ({x['capacity']}):"
-              f" {x['rationale']}" for x in r["corrections"]),
-            *(f"    match review #{x['id']} {x['decision']} series {x['series']} by {x['contributor']} ({x['capacity']}):"
-              f" {x['rationale']}" for x in r["match_reviews"]),
+              f" {x['rationale']}{_mark(m, x['created_at'])}" for x in r["corrections"]),
+            *(f"    match review #{x['id']} {x['decision']} series {x['series'] or '-'} by {x['contributor']}"
+              f" ({x['capacity']}): {x['rationale']}{_mark(m, x['created_at'])}" for x in r["match_reviews"]),
             *(f"    location {_where({**x, **cells[x['evidence_ref']]})}: {x['status'] or 'not checked: gct link'}"
               + (f" ({x['reason']})" if x["reason"] else "") for x in r["source_match"]),
             *(f"    {_record_text(x)}" + ("" if x["current"] else " (superseded)")
-              + ("" if x["binds"] else " (on an earlier version)") for x in r["restatements"])]
+              + ("" if x["binds"] else " (on an earlier version)") + _mark(x["evidence_deleted"], x["created_at"])
+              for x in r["restatements"])]
 
 
 def cmd_restate_show(args) -> None:
@@ -724,9 +787,9 @@ def cmd_restate_show(args) -> None:
     r = restate.show(conn, args.claim)
     c = r["claim"]
     cells = {k: x for v in r["versions"] for k, x in sheet.cells(conn, v["claim"]).items()}
-    # Only a claim of an archived document has no match state.
+    # Only a claim of an archived or deleted document has no match state.
     why = (c["match_state"] + (f" ({c['match_reason']})" if c["match_reason"] else "") if c["match_state"]
-           else f"Document {c['document']} is archived.")
+           else f"Document {c['document']} was deleted." if c["evidence_deleted"] else f"Document {c['document']} is archived.")
     head = (f"claim {c['id']}  document {c['document']} {_where({**c, **sheet.refs(conn, [c['id']])[c['id']]})}  "
             f"version {c['version']}  {why}")
     none = "No pairs: the claim shares no period." if c["series_id"] else (
@@ -761,7 +824,10 @@ def _mapping_text(m: dict) -> str:
 
 
 def cmd_sheet_show(args) -> None:
-    ss = sheet.show(_open(args, write=False), args.root, args.doc)
+    conn = _open(args, write=False)
+    if registry.evidence_deleted(conn, args.doc):  # its file and mappings were cleared (story 4.5)
+        raise registry.was_deleted(args.doc)
+    ss = sheet.show(conn, args.root, args.doc)
     lines = []
     for s in ss:
         lines += [f"sheet {s['position']} {s['name']}: " + (_mapping_text(s["mapping"]) if s["mapping"] else sheet.NO_MAPPING),
@@ -805,10 +871,13 @@ def _reason_line(r: dict) -> str:
             + (f" ({', '.join(r['pages'])})" if "pages" in r else ""))
 
 
-def _expect_lines(e: dict, archived=()) -> list[str]:
-    """archived: the declared documents, given when none of them is active."""
-    docs = ", ".join(map(str, e["documents"])) if e["documents"] or not archived else (
-        f"none active (archived: {', '.join(map(str, archived))})")
+def _expect_lines(e: dict, declared=()) -> list[str]:
+    """declared: (id, state) of the declared documents, given when none of them is active."""
+    by = {}
+    for i, state in declared:
+        by.setdefault(state, []).append(str(i))
+    docs = ", ".join(map(str, e["documents"])) if e["documents"] or not declared else (
+        "none active (" + "; ".join(f"{s}: {', '.join(ids)}" for s, ids in by.items()) + ")")
     head = f"{e['id']}  {e['company']}  \"{e['metric_text']}\"  {e['period_label'] or '-'}  documents {docs}"
     if e["found"]:
         lines = [f"{head}  found: {len(e['claims'])} claims"]
@@ -820,7 +889,8 @@ def _expect_lines(e: dict, archived=()) -> list[str]:
     if c:
         why = next((r["reason"] for r in e["reasons"] if r["type"] == "confirmation"), "the figure is found now")
         lines.append(f"  gap confirmation #{c['id']} by {c['contributor']} ({c['capacity']}): "
-                     + (c["rationale"] if c["current"] else f"{why}, not current"))
+                     + (c["rationale"] if c["current"] else f"{why}, not current")
+                     + _mark(c["evidence_deleted"], c["created_at"]))
     return lines
 
 
@@ -837,7 +907,8 @@ def cmd_expect_list(args) -> None:
     conn = _open(args, write=False)
     es = missing.expectations(conn, args.root, args.company)
     text = "\n".join([*(line for e in es for line in _expect_lines(
-        e, () if e["documents"] else missing.declared(conn, e["id"]))), LITERAL] if es else [])
+        e, () if e["documents"] else [(i, registry.show_document(conn, i)["state"])
+                                      for i in missing.declared(conn, e["id"])])), LITERAL] if es else [])
     _print(args, {"status": "ok", "expectations": es},
            text or 'No expectations yet. Add one with: gct expect add --company NAME --metric "WORDING"')
 
@@ -1173,6 +1244,14 @@ def build_parser() -> argparse.ArgumentParser:
     rst.add_argument("--capacity", required=True, help="the capacity you act in, as you describe it")
     rst.add_argument("--rationale", required=True, help="why")
     rst.set_defaults(func=cmd_doc_restore)
+    dele = doc.add_parser("delete", parents=[common],
+                          help="remove a document's content for good; without --confirm, show what goes and what stays")
+    dele.add_argument("id", type=int)
+    dele.add_argument("--confirm", metavar="TOKEN", help="the confirmation token the plan prints")
+    dele.add_argument("--as", dest="as_", metavar="KEY", help="the contributor making this record (needed with --confirm)")
+    dele.add_argument("--capacity", help="the capacity you act in (needed with --confirm); do not quote the document")
+    dele.add_argument("--rationale", help="why (needed with --confirm); do not quote the document")
+    dele.set_defaults(func=cmd_doc_delete)
 
     rd = top.add_parser("read", parents=[common], help="read every page of PDF documents (text, words, tables)")
     rd.add_argument("ids", nargs="*", type=int, metavar="ID", help="documents to read (default: every active document)")

@@ -129,9 +129,20 @@ Your own evidence, such as a metering export, can be added beside the reports as
 - `--year-end MM-DD` and `--boundary-is standalone|consolidated|subsidiary_set` on `gct sheet map` declare the sheet's fiscal year end and reporting boundary. `gct infer` turns them into proposals like any report's statements, and they take effect only after `gct infer accept`. The printed boundary column is kept as printed and never becomes a boundary on its own.
 - Once accepted, spreadsheet figures join the series of the same metric from the reports (`gct match`, `gct series show`). The spreadsheet run of `gct extract` is a `sheet` run, which `gct run resume` and `gct run retry` accept. `gct publish build` adds each mapping and each row's note.
 
+## Deleting a document
+
+A document that must not stay in the workspace (sent by mistake, or one you no longer have the right to keep) can be deleted for good. Unlike archive, this cannot be undone. Details are in `docs/deletion.md`.
+
+- `gct doc delete ID` shows what deleting it would do, and stores nothing: what leaves the active outputs, how much of its text is cleared, what is kept, which files go and which stay because another document uses the same file, which published versions it is taken out of, and a confirmation token.
+- `gct doc delete ID --confirm TOKEN --as KEY --capacity TEXT --rationale TEXT` deletes it. Its figures, labels, periods, statements, quotes, readings, page images, original file and its name (for a spreadsheet also its sheet names, column mappings and notes) are removed from the workspace and from the published versions still on disk, so going back to an older version never brings it back. Do not quote the document in your own rationale: it is kept.
+- Reviews other people made on it stay, with who made them, the decision and the date, and say `evidence deleted (document N, date)`. What they typed about it (capacity and rationale) is cleared, since it often quotes the page.
+- If a file is held open by another program, the deletion stops after what it could do and says which steps are left; `gct doc show ID` lists them and running the same `--confirm` command again finishes them.
+- Copies already exported or shared, including files in `exports/`, cannot be recalled. Neither can backups or copies outside the workspace.
+- Adding the same file again later registers a new document; nothing of the deleted one comes back.
+
 ## What does not exist yet
 
-OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, a review interface (only the page acceptance, gap confirmation, infer review and correction commands exist), reports, review in the viewer beyond correcting a figure, delete.
+OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, a review interface (only the page acceptance, gap confirmation, infer review and correction commands exist), reports, review in the viewer beyond correcting a figure.
 
 ## Setup
 

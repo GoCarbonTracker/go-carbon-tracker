@@ -176,7 +176,7 @@ def add(conn, root, sources, company, kind="report", privacy="private", name=Non
                 items.append(_item(src, co["name"], "refused", None, e.cause, e.next_action))
                 continue
             outcome = "ok" if status == "ok" else "duplicate"
-            runs.event(conn, run_id, "item", stage="register", item=src, outcome=outcome)
+            runs.event(conn, run_id, "item", stage="register", item=src, outcome=outcome, message=f"document {doc['id']}")
             items.append(_item(src, co["name"], "registered" if status == "ok" else "duplicate", doc, cached=cached,
                                next_action=_restore(doc) if status != "ok" else None))
     return run_id, items

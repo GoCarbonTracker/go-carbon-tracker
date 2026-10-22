@@ -304,9 +304,31 @@ def test_archive_and_restore_match_the_documented_keys(ws, gct, make_file):
     check("doc restore", gct("doc", "restore", a, *WHO, "--json").data)
 
 
+def test_delete_matches_the_documented_keys(ws, gct, make_file):
+    from test_match import SCOPE_1, WHO, add, ready
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    a = add(gct, make_file, "a.pdf", [SCOPE_1])
+    ready(gct)
+    plan = gct("doc", "delete", a, "--json")
+    assert plan.code == 4 and plan.data["status"] == "plan"
+    check("doc delete", plan.data)
+    assert set(plan.data["document"]) == spec()["doc show"]["document"]
+    assert set(plan.data["impact"]) == spec()["doc archive"]["impact"]
+    assert set(plan.data["files"]) == {"files", "artifacts", "renders"}
+    done = gct("doc", "delete", a, "--confirm", plan.data["token"], *WHO, "--json").data
+    check("doc show", done)
+    assert set(done["deletion"]) == {"at", "steps", "pending", "records"}
+    check("doc show", gct("doc", "show", a, "--json").data)
+    check("doc list", gct("doc", "list", "--active", "--json").data)
+    check("claims history", gct("claims", "history", 1, "--json").data)
+
+
 def test_every_command_has_a_documented_section():
     assert set(spec()) == {
         "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc archive", "doc restore",
+        "doc delete",
         "doc pages", "read", "extract", "link", "claims list",
         "claims history", "correct",
         "infer", "infer bases", "infer scope", "infer groups", "infer accept", "infer resolve", "infer reject",

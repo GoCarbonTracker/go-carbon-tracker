@@ -73,7 +73,7 @@ def test_migration_13_applies_to_a_version_12_workspace(tmp_path, gct):
     c.close()
     assert gct("restate", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 15
+    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 16
     c.close()
 
 
@@ -409,7 +409,7 @@ def test_projection_schema_7(ws, db, gct, make_file, acme):
             conn.close()
 
     meta, comparison, rows = build()
-    assert meta["projection_schema"] == "9" and rows == []
+    assert meta["projection_schema"] == "10" and rows == []
     (c,) = comparison
     assert (c["claim_a"], c["claim_b"], c["state"], c["reason"], c["restatement_id"]) == (
         restated, original, "unresolved conflict", None, None)

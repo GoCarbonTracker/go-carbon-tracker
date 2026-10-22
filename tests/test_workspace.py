@@ -87,6 +87,8 @@ EXPECTED_COLUMNS = {
         "rationale", "created_at",
     ],
     "claim_note": ["id", "claim_version_id", "text", "created_at"],
+    "document_deletion": ["id", "document_state_id", "plan", "created_at"],
+    "document_deletion_step": ["id", "deletion_id", "step", "detail", "created_at"],
 }
 VALUES = ("period_kind", "period_start", "period_end", "boundary", "boundary_detail")
 NULLABLE = {("company", "sector_ref"), ("company", "sector_version"), ("document", "source"), ("document_state", "note")} | {
@@ -127,7 +129,7 @@ def test_tables_and_columns(db):
 
 
 def test_schema_version_row_and_workspace_row(db):
-    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     row = db.execute("SELECT * FROM workspace").fetchone()
     assert row["id"] == 1 and row["gct_version"]
 

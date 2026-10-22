@@ -1,7 +1,7 @@
 # CLI JSON output
 
 Every command prints one JSON object on stdout when `--json` is given. `status` is one of
-`ok`, `partial`, `exists`, `already_initialised`, `error`. The lines below are checked by
+`ok`, `partial`, `exists`, `already_initialised`, `plan` (`doc delete` without `--confirm`), `error`. The lines below are checked by
 `tests/test_json.py`: `top` lists the keys of the object, any other name lists the keys of the
 nested record (or of each record in the nested list) under that key.
 
@@ -25,27 +25,32 @@ nested record (or of each record in the nested list) under that key.
 `status` is `ok` when every item was registered or a duplicate (and always with `--plan`), else `partial` (exit 4), which adds `cause` and `next_action` at the top; `next_action` names the sources that were not added. `action` is `registered`, `duplicate`, `refused` or `failed`; with `--plan` it is `would register`, `would fetch`, `duplicate` or `refused`. `document` has the keys of `doc show` for `registered` and `duplicate` (null for a duplicate of an earlier item in the same plan), null otherwise. `cause` and `next_action` are set only for `refused` and `failed`, except that a `duplicate` of an archived document has `next_action` `Restore it with: gct doc restore N`. `cached` is true when a URL was already fetched by an earlier command and was not downloaded again.
 
 ## doc list
-- top: status, documents, hidden_by_archive
-- documents: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state
+- top: status, documents, hidden_by_archive, hidden_deleted
+- documents: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state, deleted_at
 
-`state` is `registered`, `archived` or `restored`. With `--active` archived documents are left out and `hidden_by_archive` counts them; without it every document is listed and `hidden_by_archive` is 0.
+`state` is `registered`, `archived`, `restored` or `deleted`; `deleted_at` is when a deleted document was deleted, else null (every record with these keys has it). With `--active` archived and deleted documents are left out and `hidden_by_archive` and `hidden_deleted` count them; without it every document is listed and both are 0.
 
 ## doc show
-- top: status, document, state_change
-- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state
+- top: status, document, state_change, deletion
+- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state, deleted_at
 
-`state_change` is null for a registered document, else who made its newest state (`archived` or `restored`), when and why: `state`, `at`, `contributor`, `organisation`, `capacity`, `rationale`.
+`state_change` is null for a registered document, else who made its newest state (`archived`, `restored` or `deleted`), when and why: `state`, `at`, `contributor`, `organisation`, `capacity`, `rationale`. `deletion` is null unless the document was deleted, else `at`, `steps` (done, in order: `database`, `files`, `artifacts`, `renders`, `published`, `vacuum`), `pending` (the steps not done yet; finish them with `gct doc delete N --confirm TOKEN`) and `records`: the contributor records on the document itself that stay (`kind` `page acceptance`, `basis scope`, `sheet mapping` or `state change`, `id`, `what`, `contributor`, `organisation`, `capacity`, `rationale` (both read `cleared with document N`), `created_at`, `evidence_deleted`). A deleted document's `logical_name` reads `cleared with document N` and its `source` is null.
+
+## doc delete
+- top: status, cause, next_action, document, impact, clears, files, versions, warning, token
+
+Without `--confirm` nothing is stored: `status` is `plan` and the exit code is 4, with `cause` and `next_action` (the command that deletes, with the token). `document` has the keys of `doc show`; `impact` is that of `doc archive` (for an archived document only its counts and expectations, the rest empty, as it already gives no active points); `clears` counts per table the rows whose content is cleared (tables with none are left out); `files` gives, for `files` (the original), `artifacts` (reading files) and `renders` (page images), the number to `remove` and to `keep` because a document not deleted uses them; `versions` lists the published versions purged; `warning` is the export warning; `token` is the first 12 characters of the document's SHA-256. With `--confirm TOKEN --as KEY --capacity TEXT --rationale TEXT` the result has the keys of `doc show` (`status` `ok`). A wrong token or a deleted document with nothing pending is refused (exit 4), missing contributor flags exit 2. When a step fails (a file held open), the database step and the tombstone stand, the error names the pending steps (exit 4), and the same command with only `--confirm TOKEN` finishes them. See `docs/deletion.md`.
 
 ## doc archive
 - top: status, document, impact, state_change
-- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state
+- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state, deleted_at
 - impact: claims, evidence_refs, review_records, series, same_period_sets, uncertain_items, expected_items
 
 `impact` is what leaves the active outputs, computed before the archive is stored, so `--plan` and the archive itself give the same `impact`. `claims` counts the newest version of each of the document's claims and `evidence_refs` their locations. `review_records` counts, per kind, the records that stay stored but leave the active outputs: `inference_review`, `correction`, `match_review` (on any version of the document's claims), `page_acceptance` (on its pages), `restatement` (rows naming any version of its claims as original or restated) and `sheet_mapping` (every column mapping row of a spreadsheet). `series` lists each series the document has points in: `id`, `metric_key`, `label`, `unit_family`, `reporting_boundary`, `points` (the document's) and `points_left`. `same_period_sets` lists each period of a series that holds more than one value and loses one: `series`, `period_start`, `period_end`, `points`, `points_left`. `uncertain_items` counts the document's items in the match review queue, `expected_items` lists the ids of the expectations whose state is computed from it. With `--plan` nothing is stored and `state_change` is null; otherwise it is the record stored (see `doc show`). Archiving an archived document is refused (exit 4), as is archiving without `--as`, `--capacity` and `--rationale` (exit 2).
 
 ## doc restore
 - top: status, document, state_change
-- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state
+- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state, deleted_at
 
 `state_change` is the `restored` record stored (see `doc show`). Restoring a document that is not archived is refused (exit 4).
 
@@ -173,8 +178,10 @@ One record per pair of points of one same-period set of a series, over the activ
 
 ## restate show
 - top: status, claim, pairs, versions
-- claim: id, document, page_number, version, match_state, match_reason, series_id
-- versions: claim, id, reviews
+- claim: id, document, page_number, version, match_state, match_reason, series_id, evidence_deleted
+- versions: claim, id, reviews, evidence_deleted
+
+`evidence_deleted` (on the claim and on each version, which may belong to another claim) is null unless that claim's document was deleted, else `{"document": N, "at": ...}`; each entry of `restatements` has its own `evidence_deleted`, set when either version it names or its evidence document was deleted; a match review of a deleted document has `series` null (its key is cleared), and a restatement record naming it has an empty `quote`.
 
 `pairs` are the pairs (as in `restate list`) the claim's newest version is in. `versions` holds every version of the claim, oldest first, then the other version of each pair and of each restatement row on the claim's versions; `reviews` is every record attached to that version: `inference_reviews`, `corrections` (with `role` `made this version` or `replaced this version`), `match_reviews` (with the series id in `series`), `source_match` (the newest check of each evidence ref, `status` null when not checked) and `restatements` (every row naming the version, withdrawn and superseded ones included, with `role` `original` or `restated`, `current` and `binds`, false when either version it names is not its claim's newest; see `docs/restatements.md`). An unknown claim is refused (exit 3).
 
@@ -200,16 +207,16 @@ One record per claim, from its newest version. `id` is the claim id that `gct in
 
 ## claims history
 - top: status, claim, versions
-- claim: id, document, document_state, page_number, locator, state, needs_re_review
+- claim: id, document, document_state, page_number, locator, state, needs_re_review, evidence_deleted
 - versions: id, method, config_version, run_id, created_at, metric_text, value_text, value, unit_text, period_label, boundary_label, evidence_refs, inferences, reviews, correction, seen
 
-Every version of one claim, oldest first; nothing is left out. `document_state` is the state of the claim's document (`registered`, `archived` or `restored`); an archived document's claims keep their whole history. `state` and `needs_re_review` are those of `claims list`. `evidence_refs` are the version's locations, each `id`, `page_number`, `boxes`, `sheet`, `cell` and `source_match` (every check of it, oldest first: `id`, `status`, `reason`, `run_id`, `created_at`). `inferences` and `reviews` are the period and boundary rows of `gct infer` made on this version. `correction` is null for an extracted version, else the record that made it: `id`, `corrects_version`, `fields` (the fields changed), `replaced` (`value_text`, `unit_text`, `metric_text`, `period_label` of the version it corrects), `contributor`, `organisation`, `capacity`, `rationale`, `created_at`. `seen` lists the extractions that found this version: `page_id` (the reading), `config_version` (the extract rules), `run_id`, `created_at`. An unknown claim is refused (exit 3).
+Every version of one claim, oldest first; nothing is left out. `evidence_deleted` is null unless the claim's document was deleted, else `{"document": N, "at": ...}`: every review and correction listed then keeps its contributor, decision and date, its capacity and rationale read `cleared with document N`, and the version's values are cleared (see `docs/deletion.md`). `document_state` is the state of the claim's document (`registered`, `archived` or `restored`); an archived document's claims keep their whole history. `state` and `needs_re_review` are those of `claims list`. `evidence_refs` are the version's locations, each `id`, `page_number`, `boxes`, `sheet`, `cell` and `source_match` (every check of it, oldest first: `id`, `status`, `reason`, `run_id`, `created_at`). `inferences` and `reviews` are the period and boundary rows of `gct infer` made on this version. `correction` is null for an extracted version, else the record that made it: `id`, `corrects_version`, `fields` (the fields changed), `replaced` (`value_text`, `unit_text`, `metric_text`, `period_label` of the version it corrects), `contributor`, `organisation`, `capacity`, `rationale`, `created_at`. `seen` lists the extractions that found this version: `page_id` (the reading), `config_version` (the extract rules), `run_id`, `created_at`. An unknown claim is refused (exit 3).
 
 ## sheet show
 - top: status, document, sheets
 - sheets: name, position, header, rows, mapping
 
-One record per sheet of a CSV or XLSX document, in workbook order (a CSV is one sheet named after its file, position 1). `header` is row 1 as stored; `rows` the first five data rows, each `row` (the spreadsheet row number) and `cells`, every row as wide as the widest. `mapping` is the sheet's current mapping with the keys of `sheet map`, or null (`no confirmed mapping`). A PDF document is refused (exit 4).
+One record per sheet of a CSV or XLSX document, in workbook order (a CSV is one sheet named after its file, position 1). `header` is row 1 as stored; `rows` the first five data rows, each `row` (the spreadsheet row number) and `cells`, every row as wide as the widest. `mapping` is the sheet's current mapping with the keys of `sheet map`, or null (`no confirmed mapping`). A PDF document is refused (exit 4), as is a deleted one (its mappings are listed by `doc show`).
 
 ## sheet map
 - top: status, mapping
@@ -244,7 +251,7 @@ The newest version of each contributor, by key.
 - top: status, expectation
 - expectation: id, company, metric_text, period_label, documents, found, claims, state, reasons, accepted, confirmation
 
-`metric_text` is the wording as typed, whitespace collapsed; `period_label` as typed or null. `documents` lists the ids of the fixed document set. `found` is true when the newest version of a `current` claim (see `claims list`) on the set has a metric wording containing `metric_text` (case-insensitive) and, when given, the same period label as printed; `claims` then lists them (`id`, `document_id`, `page_number`, `metric_text`, `value_text`, `unit_text`, `period_label`) and `state` is null. Otherwise `state` is `processing incomplete or failed`, `not found in successfully processed material` or `confirmed disclosure gap`. `reasons` lists what keeps pages from being ready, as `{type, reason, count}`: `type` is `text`, `tables` or `figures` with `count` pages and `reason` `not read`, `read failed`, a quality flag, `charts not read` or `accepted on an earlier reading`; or `text` with `reason` `wording printed but no figure extracted` (no claim on those pages carries the wording) or `wording printed; figures found only for other or missing period labels` (claims there carry the wording but not the expected period label), `count` pages and `pages` listing them as `"document:page"`; either keeps the item out of state 2 (exact wording only, ignoring case and extra spaces; the period is never looked for on the page); or `document` with `count` documents and `reason` `not opened` or `not a PDF`; or `confirmation`, naming an earlier gap confirmation that `was made on older readings` or `no longer holds: processing incomplete`. `accepted` lists pages counted as ready by a reviewer's acceptance, as `{type, accepted, count}` with `accepted` `accepted by <name> (<capacity>)`; they are never counted as checked. `confirmation` is null or the newest gap confirmation: `id`, `contributor`, `organisation`, `capacity`, `rationale`, `created_at`, `current` (false once the readings it was made on are no longer the newest, the state is no longer `not found in successfully processed material`, or the item is found; a found item still shows its newest confirmation).
+`metric_text` is the wording as typed, whitespace collapsed; `period_label` as typed or null. `documents` lists the ids of the fixed document set. `found` is true when the newest version of a `current` claim (see `claims list`) on the set has a metric wording containing `metric_text` (case-insensitive) and, when given, the same period label as printed; `claims` then lists them (`id`, `document_id`, `page_number`, `metric_text`, `value_text`, `unit_text`, `period_label`) and `state` is null. Otherwise `state` is `processing incomplete or failed`, `not found in successfully processed material` or `confirmed disclosure gap`. `reasons` lists what keeps pages from being ready, as `{type, reason, count}`: `type` is `text`, `tables` or `figures` with `count` pages and `reason` `not read`, `read failed`, a quality flag, `charts not read` or `accepted on an earlier reading`; or `text` with `reason` `wording printed but no figure extracted` (no claim on those pages carries the wording) or `wording printed; figures found only for other or missing period labels` (claims there carry the wording but not the expected period label), `count` pages and `pages` listing them as `"document:page"`; either keeps the item out of state 2 (exact wording only, ignoring case and extra spaces; the period is never looked for on the page); or `document` with `count` documents and `reason` `not opened` or `not a PDF`; or `confirmation`, naming an earlier gap confirmation that `was made on older readings` or `no longer holds: processing incomplete`. `accepted` lists pages counted as ready by a reviewer's acceptance, as `{type, accepted, count}` with `accepted` `accepted by <name> (<capacity>)`; they are never counted as checked. `confirmation` is null or the newest gap confirmation: `id`, `contributor`, `organisation`, `capacity`, `rationale`, `created_at`, `current` (false once the readings it was made on are no longer the newest, the state is no longer `not found in successfully processed material`, or the item is found; a found item still shows its newest confirmation), `evidence_deleted` (null, or `{"document": N, "at": ...}` when a document it looked in was deleted; its capacity and rationale then read `cleared with document N`).
 
 ## expect list
 - top: status, expectations

@@ -78,7 +78,10 @@ CREATE TABLE sheet_mapping (
     year_end TEXT, boundary_is TEXT, boundary_detail TEXT, contributor_name TEXT NOT NULL, contributor_organisation TEXT,
     capacity TEXT NOT NULL, rationale TEXT NOT NULL, created_at TEXT NOT NULL
 );
+CREATE TABLE deleted_document (document_id INTEGER PRIMARY KEY, deleted_at TEXT NOT NULL);
 """
+# Ids and dates only: a reader of any later version (and E7's exports) can tell which ids were deleted (story 4.5).
+DELETED_SQL = "SELECT document_id, at FROM document_state WHERE state = 'deleted' ORDER BY document_id"
 # Contributors project their name and organisation only; the sanitised package (E7) decides what leaves.
 # Acceptances of an archived document leave with it (counted in hidden_by_archive).
 ACCEPTANCE_SQL = f"""
@@ -160,12 +163,21 @@ def current_version(conn: sqlite3.Connection, root: Path) -> tuple[int, Path] | 
     return None if current is None else (current, version_path(root, current))
 
 
-def _info(conn: sqlite3.Connection, version: int) -> dict:
-    row = conn.execute(
+def _info(conn: sqlite3.Connection, root: Path, version: int) -> dict:
+    """The version's record, with the companies and documents its file holds now (a deletion purges some)."""
+    info = dict(conn.execute(
         "SELECT version, built_at, history_mark, companies, documents FROM published_version WHERE version = ?",
         (version,),
-    ).fetchone()
-    return dict(row)
+    ).fetchone())
+    path = version_path(root, version)
+    if path.is_file():
+        ver = open_version(path)
+        try:
+            info["companies"], info["documents"] = (ver.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                                                    for t in ("company", "document"))
+        finally:
+            ver.close()
+    return info
 
 
 def _missing(conn: sqlite3.Connection, root: Path) -> dict:
@@ -275,7 +287,8 @@ def _read_history(conn: sqlite3.Connection, root: Path):
 
         extra = {**_missing(conn, root), **_series(matched), **_comparison(conn, matched),
                  "hidden_by_archive": [tuple(h.values()) for h in archive.hidden(conn)],
-                 "sheet_mapping": conn.execute(SHEET_MAPPING_SQL).fetchall()}
+                 "sheet_mapping": conn.execute(SHEET_MAPPING_SQL).fetchall(),
+                 "deleted_document": conn.execute(DELETED_SQL).fetchall()}
     finally:
         conn.execute("COMMIT")
     return mark, companies, docs, claims, refs, extra
@@ -331,9 +344,10 @@ def build(conn: sqlite3.Connection, root: Path) -> dict:
     hid = extra["hidden_by_archive"]
     meta = {
         "version": version, "built_at": built_at, "history_mark": mark,
-        "gct_version": __version__, "projection_schema": 9,
+        "gct_version": __version__, "projection_schema": 10,
         "hidden_by_archive": json.dumps({"documents": len(hid), **{k: sum(h[i] for h in hid) for i, k in (
             (3, "claims"), (4, "evidence_refs"), (5, "review_records"))}}),
+        "deleted_documents": len(extra["deleted_document"]),
     }
     _write_projection(version_path(root, version), meta, companies, docs, claims, refs, extra)
     with store.transaction(conn):
@@ -346,13 +360,14 @@ def build(conn: sqlite3.Connection, root: Path) -> dict:
             "INSERT INTO published_pointer (version, action, at) VALUES (?, 'build', ?)", (version, built_at)
         )
     _retain(conn, root)
-    return _info(conn, version)
+    return _info(conn, root, version)
 
 
 def _retain(conn: sqlite3.Connection, root: Path) -> None:
-    """Keep the files of the current and previous version only. A file that cannot be removed waits."""
+    """Keep the files of the current and previous version only. A file that cannot be removed waits. A version purged
+    of a deleted document (reason deletion) still has its file, so only retention rows count as gone."""
     keep = set(pointers(conn))
-    purged = {r[0] for r in conn.execute("SELECT version FROM published_purge")}
+    purged = {r[0] for r in conn.execute("SELECT version FROM published_purge WHERE reason = 'retention'")}
     gone = []
     for (v,) in conn.execute("SELECT version FROM published_version ORDER BY version").fetchall():
         if v in keep or v in purged:
@@ -368,6 +383,51 @@ def _retain(conn: sqlite3.Connection, root: Path) -> None:
                 "INSERT INTO published_purge (version, reason, at) VALUES (?, 'retention', ?)",
                 [(v, store.now()) for v in gone],
             )
+
+
+def purge(path: Path, doc_id: int, claims: list, versions: list, gaps: list, marker: str) -> None:
+    """Remove a deleted document from one retained version file (story 4.5, AD-9): every row naming the document, one
+    of its claims or claim versions (comparison pairs included), the series it alone made, and the contributor text
+    the deletion cleared (gap confirmations by id, the acceptance lines of expectations that declared it, which also
+    clears another document's lines of those expectations). Then VACUUM, so freed pages do not keep the text. A file
+    of an older projection schema is purged in the tables and columns it has."""
+    from gct.stages.deletion import PROJECTION  # the stages import this package
+
+    ids = {"document": [doc_id], "claim": claims, "version": versions}
+    out = sqlite3.connect(path, isolation_level=None)
+    try:
+        cols = {t: {r[1] for r in out.execute(f"PRAGMA table_info({t})")}
+                for (t,) in out.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+        out.execute("BEGIN IMMEDIATE")
+        try:
+            if "accepted" in cols.get("expected_item", ()) and "expected_item_document" in cols:
+                for i, accepted in out.execute(
+                        "SELECT id, accepted FROM expected_item WHERE id IN (SELECT expected_item_id FROM"
+                        " expected_item_document WHERE document_id = ?)", (doc_id,)).fetchall():
+                    out.execute("UPDATE expected_item SET accepted = ? WHERE id = ?",
+                                (json.dumps([{**a, "accepted": marker} for a in json.loads(accepted)]), i))
+            for table, roles in PROJECTION.items():
+                for col, role in roles.items():
+                    if col in cols.get(table, ()) and role in ids:
+                        out.execute(f"DELETE FROM {table} WHERE {col} IN (SELECT value FROM json_each(?))",
+                                    (json.dumps(ids[role]),))
+            if "hidden_by_archive" in cols:  # an archived document deleted since leaves the meta counts too
+                n, *sums = out.execute("SELECT COUNT(*), COALESCE(SUM(claims), 0), COALESCE(SUM(evidence_refs), 0),"
+                                       " COALESCE(SUM(review_records), 0) FROM hidden_by_archive").fetchone()
+                out.execute("UPDATE meta SET value = ? WHERE key = 'hidden_by_archive'", (json.dumps(
+                    {"documents": n, **dict(zip(("claims", "evidence_refs", "review_records"), sums))}),))
+            if "gap_confirmation" in cols:
+                out.execute("UPDATE gap_confirmation SET capacity = ?, rationale = ? WHERE id IN"
+                            " (SELECT value FROM json_each(?))", (marker, marker, json.dumps(gaps)))
+            if "series_point" in cols:
+                out.execute("DELETE FROM series WHERE id NOT IN (SELECT series_id FROM series_point)")
+            out.execute("COMMIT")
+        except BaseException:
+            out.execute("ROLLBACK")
+            raise
+        out.execute("VACUUM")
+    finally:
+        out.close()
 
 
 def _holds_deleted(conn: sqlite3.Connection, path: Path) -> bool:
@@ -404,7 +464,7 @@ def restore(conn: sqlite3.Connection, root: Path) -> dict:
         conn.execute(
             "INSERT INTO published_pointer (version, action, at) VALUES (?, 'restore', ?)", (previous, store.now())
         )
-    return _info(conn, previous)
+    return _info(conn, root, previous)
 
 
 def status(conn: sqlite3.Connection, root: Path) -> dict:
@@ -413,7 +473,7 @@ def status(conn: sqlite3.Connection, root: Path) -> dict:
         r[0] for r in conn.execute("SELECT version FROM published_version ORDER BY version")
         if version_path(root, r[0]).is_file()
     ]
-    info = _info(conn, current) if current is not None else {
+    info = _info(conn, root, current) if current is not None else {
         "version": None, "built_at": None, "history_mark": None, "companies": None, "documents": None,
     }
     return {

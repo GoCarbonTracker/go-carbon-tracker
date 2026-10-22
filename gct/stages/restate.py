@@ -27,6 +27,9 @@ RECORDS = f"""
 SELECT r.*, c.name, c.organisation, {BINDS} AS binds FROM restatement r
 JOIN contributor_version c ON c.id = r.contributor_version_id
 """
+# The documents of a restatement row: either version's and the evidence document (its marker, story 4.5 P5).
+SIDES = ("SELECT c.document_id FROM claim_version v JOIN claim c ON c.id = v.claim_id WHERE v.id IN (?, ?)"
+         " UNION SELECT ?")
 CURRENT = RECORDS + " WHERE r.id IN (SELECT MAX(id) FROM restatement GROUP BY original_version_id, restated_version_id)"
 
 
@@ -259,8 +262,10 @@ def reviews(conn, version_id: int) -> dict:
             f"SELECT r.id, r.claim_version_id AS version, r.corrects_version_id AS corrects_version, r.fields, {who}"
             f" FROM correction r {join} WHERE ? IN (r.claim_version_id, r.corrects_version_id) ORDER BY r.id",
             (version_id,))],
+        # A deleted document's review has its series key cleared (it can hold the printed label).
         "match_reviews": [{**{k: r[k] for k in r.keys() if k != "series_key"},
-                           "series": match.series_id(json.loads(r["series_key"]))} for r in conn.execute(
+                           "series": match.series_id(json.loads(r["series_key"])) if r["series_key"] else None}
+                          for r in conn.execute(
             f"SELECT r.id, r.series_key, r.reason, r.decision, {who} FROM match_review r {join}"
             " WHERE r.claim_version_id = ? ORDER BY r.id", (version_id,))],
         "source_match": [dict(r) for r in conn.execute(
@@ -268,7 +273,10 @@ def reviews(conn, version_id: int) -> dict:
             " LEFT JOIN source_match s ON s.id = (SELECT MAX(id) FROM source_match WHERE evidence_ref_id = e.id)"
             " WHERE e.claim_version_id = ? ORDER BY e.id", (version_id,))],
         "restatements": [{**_record(r), "role": "original" if r["original_version_id"] == version_id else "restated",
-                          "current": r["id"] in current, "binds": bool(r["binds"])} for r in conn.execute(
+                          "current": r["id"] in current, "binds": bool(r["binds"]), "evidence_deleted": next(filter(None, (
+                              registry.evidence_deleted(conn, d) for (d,) in conn.execute(SIDES, (
+                                  r["original_version_id"], r["restated_version_id"], r["evidence_document_id"])))), None)}
+                         for r in conn.execute(
             RECORDS + " WHERE ? IN (r.original_version_id, r.restated_version_id) ORDER BY r.id", (version_id,))],
     }
 
@@ -287,8 +295,11 @@ def show(conn, claim_id: int) -> dict:
         " JOIN claim_version o ON o.id IN (r.original_version_id, r.restated_version_id)"
         " JOIN claim_version v ON v.id IN (r.original_version_id, r.restated_version_id)"
         " WHERE o.claim_id = ? AND v.claim_id != ?", (claim_id, claim_id))}
+    docs = dict(conn.execute("SELECT id, document_id FROM claim WHERE id IN (SELECT value FROM json_each(?))",
+                             (json.dumps([cid for cid, _ in own + sorted(others)]),)))
     return {"claim": {"id": claim_id, "document": c["document_id"], "page_number": c["page_number"],
                       "version": c["version"], "match_state": m and m["state"], "match_reason": m and m["reason"],
-                      "series_id": m and m["series_id"]},
+                      "series_id": m and m["series_id"], "evidence_deleted": registry.evidence_deleted(conn, c["document_id"])},
             "pairs": mine,
-            "versions": [{"claim": cid, "id": v, "reviews": reviews(conn, v)} for cid, v in own + sorted(others)]}
+            "versions": [{"claim": cid, "id": v, "reviews": reviews(conn, v),
+                          "evidence_deleted": registry.evidence_deleted(conn, docs[cid])} for cid, v in own + sorted(others)]}

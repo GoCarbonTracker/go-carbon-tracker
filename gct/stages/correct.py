@@ -171,5 +171,6 @@ def history(conn, claim_id: int) -> dict:
         })
     return {"claim": {"id": claim_id, "document": doc, "document_state": registry.get_document(conn, doc)["state"],
                       "page_number": c["page_number"], "locator": c["locator"],
-                      "state": states(conn, doc)[claim_id], "needs_re_review": re_review(conn, doc).get(claim_id, [])},
+                      "state": states(conn, doc)[claim_id], "needs_re_review": re_review(conn, doc).get(claim_id, []),
+                      "evidence_deleted": registry.evidence_deleted(conn, doc)},
             "versions": versions}

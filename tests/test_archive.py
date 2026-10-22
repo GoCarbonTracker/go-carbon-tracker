@@ -63,10 +63,10 @@ def test_migrations_13_14_then_15_apply_to_a_version_12_workspace(tmp_path, gct)
     c.close()
     assert gct("doc", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-4:] == [12, 13, 14, 15]
+    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-5:] == [12, 13, 14, 15, 16]
     (run,) = runs.list_runs(c)
     assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == [
-        "applied migration 13", "applied migration 14", "applied migration 15"]
+        "applied migration 13", "applied migration 14", "applied migration 15", "applied migration 16"]
     assert {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} >= {
         "restatement", "document_state_change", "sheet_mapping", "claim_note"}
     c.close()
@@ -307,7 +307,7 @@ def test_projection_hides_archived_documents_and_counts_them(ws, db, gct, two):
     gct("expect", "add", "--company", "Acme", "--metric", "scope 1 emissions")
     gct("pages", "accept", "--doc", b, "--pages", "1", "--type", "figures", *WHO)
     p = built(gct, ws)
-    assert {m["key"]: m["value"] for m in p["meta"]}["projection_schema"] == "9"
+    assert {m["key"]: m["value"] for m in p["meta"]}["projection_schema"] == "10"
     assert p["hidden_by_archive"] == [] and b in {x["id"] for x in p["document"]}
     assert [x["document_id"] for x in p["page_acceptance"]] == [b]
     mark = published.history_mark(db)

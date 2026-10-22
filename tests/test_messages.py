@@ -103,6 +103,8 @@ def refusals(ws, tmp_path, make_file):
         (["doc", "archive", "99", *WHO, "--workspace", ws], 3),
         (["doc", "archive", "99", "--plan", "--workspace", ws], 3),
         (["doc", "restore", "99", *WHO, "--workspace", ws], 3),
+        (["doc", "delete", "99", "--workspace", ws], 3),
+        (["doc", "delete", "99", "--confirm", "abc", *WHO, "--workspace", ws], 3),
     ]
 
 
@@ -154,6 +156,36 @@ def test_archive_refusals_have_cause_next_action_and_no_internals(ws, gct, make_
                 assert word not in text, (argv, word)
             for name in names:
                 assert name not in text, (argv, name)
+
+
+def test_delete_refusals_have_cause_next_action_and_no_internals(ws, gct, make_file):
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    gct("doc", "add", make_file("a.pdf", PDF), "--company", "Acme")
+    gct("doc", "add", make_file("b.pdf", PDF + b"b"), "--company", "Acme")
+    conn = sqlite3.connect(ws / "workspace.db")
+    first, token = (s[:12] for (s,) in conn.execute("SELECT sha256 FROM document ORDER BY id"))
+    conn.close()
+    assert gct("doc", "delete", "1", "--confirm", first, *WHO).code == 0
+    names = internal_names(ws)
+    for argv, code in ((["doc", "delete", "2", "--confirm", "000000000000", *WHO], 4),
+                       (["doc", "delete", "2", "--confirm", token, "--as", "ana"], 2),
+                       (["doc", "delete", "2", "--confirm", token, "--as", "bob", "--capacity", "c", "--rationale", "r"], 3),
+                       (["doc", "delete", "1"], 4), (["doc", "delete", "1", "--confirm", first, *WHO], 4),
+                       (["doc", "restore", "1", *WHO], 4), (["doc", "archive", "1", *WHO], 4),
+                       (["pages", "accept", "--doc", "1", "--pages", "1", "--type", "figures", *WHO], 4)):
+        human = gct(*argv)
+        assert human.code == code and human.out == "", (argv, human.out)
+        assert human.err.startswith("error: ") and "\nnext: " in human.err, (argv, human.err)
+        machine = gct(*argv, "--json")
+        assert machine.code == code and machine.data["status"] == "error"
+        assert machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in [*INTERNAL_WORDS, *names]:
+                assert word not in text, (argv, word)
+    plan = gct("doc", "delete", "2")  # the plan is printed, then the refusal says nothing was deleted
+    assert plan.code == 4 and plan.err.startswith("error: Nothing was deleted") and "\nnext: " in plan.err
+    assert gct("doc", "delete", "2", "--json").data["status"] == "plan"
 
 
 def test_every_refusal_has_cause_next_action_and_no_internals(ws, gct, tmp_path, make_file):

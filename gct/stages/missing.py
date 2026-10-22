@@ -212,9 +212,12 @@ def state(conn, root, item_id: int, confirmed=True) -> dict:
         "SELECT g.*, c.name, c.organisation FROM gap_confirmation g JOIN contributor_version c"
         " ON c.id = g.contributor_version_id WHERE g.expected_item_id = ? ORDER BY g.id DESC LIMIT 1", (item_id,)).fetchone()
     if gap:
+        # A confirmation that looked in a document since deleted carries the marker (story 4.5, P5).
+        marks = (registry.evidence_deleted(conn, d["id"]) for d in json.loads(gap["documents_checked"]))
         out["confirmation"] = {"id": gap["id"], "contributor": gap["name"], "organisation": gap["organisation"],
                                "capacity": gap["capacity"], "rationale": gap["rationale"],
-                               "created_at": gap["created_at"], "current": False}
+                               "created_at": gap["created_at"], "current": False,
+                               "evidence_deleted": next(filter(None, marks), None)}
     if claims:
         return out
     reasons, accepted, snapshot = _readiness(conn, root, docs)
@@ -356,8 +359,10 @@ def confirm_gap(conn, root, item_id: int, key: str, capacity: str, rationale: st
         raise GctError(REFUSED, f"Expectation {item_id} cannot be confirmed as a gap: {'; '.join(why)}.",
                        "Check those pages; a correction step comes in a later version. " + LIST)
     if any(r["reason"] == NO_ACTIVE for r in s["reasons"]):  # read, retry and accept all skip an archived document
+        archived = [i for i in declared(conn, item_id) if registry.show_document(conn, i)["state"] == "archived"]
         raise GctError(REFUSED, f"Expectation {item_id} cannot be confirmed as a gap: no document in its declared set"
-                                " is active.", f"Restore one with: gct doc restore {min(declared(conn, item_id))}. " + LIST)
+                                " is active.", (f"Restore one with: gct doc restore {archived[0]}. " if archived else
+                                                "Every document in it was deleted; add a new expectation. ") + LIST)
     if s["state"] != NOT_FOUND_IN:
         types = sorted({r["type"] for r in s["reasons"]})
         raise GctError(REFUSED, f"Expectation {item_id} cannot be confirmed as a gap: processing is incomplete for "

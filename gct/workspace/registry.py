@@ -16,7 +16,8 @@ DOCUMENT_SQL = """
 SELECT d.id, c.name AS company, d.logical_name, d.version, d.sha256, d.kind, d.file_type,
        d.privacy, d.size_bytes, d.source, d.created_at,
        (SELECT s.state FROM document_state s WHERE s.document_id = d.id
-        ORDER BY s.id DESC LIMIT 1) AS state
+        ORDER BY s.id DESC LIMIT 1) AS state,
+       (SELECT s.at FROM document_state s WHERE s.document_id = d.id AND s.state = 'deleted') AS deleted_at
 FROM document d JOIN company c ON c.id = d.company_id
 """
 
@@ -159,11 +160,26 @@ def _restore_next(doc_id: int) -> str:
 
 
 def require_active(conn, doc_id: int) -> dict:
-    """The document, or the refusal of a write on an archived one."""
+    """The document, or the refusal of a write on an archived or deleted one."""
     doc = show_document(conn, doc_id)
     if doc["state"] == "archived":
         raise GctError(REFUSED, f"Document {doc_id} is archived.", _restore_next(doc_id))
+    if doc["state"] == "deleted":
+        raise was_deleted(doc_id)
     return doc
+
+
+# Deletion (story 4.5): the tombstone is a 'deleted' document_state row; gct/stages/deletion.py does the rest.
+
+def was_deleted(doc_id: int) -> GctError:
+    return GctError(REFUSED, f"Document {doc_id} was deleted.",
+                    "Deletion cannot be undone. List the documents with: gct doc list")
+
+
+def evidence_deleted(conn, doc_id: int) -> dict | None:
+    """The marker of a record whose evidence belongs to a deleted document: {"document", "at"}, else None."""
+    row = conn.execute("SELECT at FROM document_state WHERE document_id = ? AND state = 'deleted'", (doc_id,)).fetchone()
+    return row and {"document": doc_id, "at": row["at"]}
 
 
 def state_change(conn, doc_id: int) -> dict | None:
@@ -208,7 +224,10 @@ def archive(conn, doc_id: int, key, capacity, rationale) -> dict:
 
 def restore(conn, doc_id: int, key, capacity, rationale) -> dict:
     """Make an archived document active again."""
-    if show_document(conn, doc_id)["state"] != "archived":
+    state = show_document(conn, doc_id)["state"]
+    if state == "deleted":
+        raise was_deleted(doc_id)
+    if state != "archived":
         raise GctError(REFUSED, f"Document {doc_id} is not archived, so there is nothing to restore.",
                        "List the archived documents with: gct doc list")
     return _change(conn, doc_id, "restored", key, capacity, rationale)
@@ -236,10 +255,14 @@ def checked_file_type(src: Path) -> str:
     return file_type
 
 
+NOT_DELETED = "(SELECT s.state FROM document_state s WHERE s.document_id = d.id ORDER BY s.id DESC LIMIT 1) <> 'deleted'"
+
+
 def find_duplicate(conn, company_id: int, digest: str) -> dict | None:
+    """The company's document with this file, a deleted one excepted (adding it again registers a new document)."""
     row = conn.execute(
-        "SELECT id FROM document WHERE company_id = ? AND sha256 = ? ORDER BY id LIMIT 1", (company_id, digest)
-    ).fetchone()
+        f"SELECT id FROM document d WHERE company_id = ? AND sha256 = ? AND {NOT_DELETED} ORDER BY id LIMIT 1",
+        (company_id, digest)).fetchone()
     return get_document(conn, row["id"]) if row else None
 
 
@@ -286,9 +309,10 @@ def add_stored(conn, root, digest, company, name, kind="report", privacy="privat
 
 
 def verify(conn, root) -> list[dict]:
-    """Re-hash every stored original. Returns one entry per document that is missing or altered."""
+    """Re-hash every stored original of a document not deleted. Returns one entry per document that is missing or
+    altered."""
     problems = []
-    for row in conn.execute("SELECT id, sha256 FROM document ORDER BY id"):
+    for row in conn.execute(f"SELECT id, sha256 FROM document d WHERE {NOT_DELETED} ORDER BY id"):
         path = stored_path(Path(root), row["sha256"])
         if not path.is_file():
             problems.append({"document_id": row["id"], "sha256": row["sha256"], "problem": "missing"})
