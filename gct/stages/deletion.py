@@ -72,6 +72,10 @@ KEPT = {
     # Story 5.1: the two ledgers keep who, when, the outcome and the evidence document and page.
     **dict.fromkeys(("review_company", "review_auditor"), "id claim_version_id contributor_version_id reviewed_on outcome"
                                                           " evidence_document_id evidence_page created_at"),
+    # Story 5.3: an adjudication's pair, state and counter-evidence position; a flag's version and decision.
+    "adjudication": "id low_version_id high_version_id state counter_document_id counter_page contributor_version_id"
+                    " created_at",
+    "reviewer_flag": "id claim_version_id decision contributor_version_id created_at",
 }
 VERSIONS = "SELECT v.id FROM claim_version v JOIN claim c ON c.id = v.claim_id WHERE c.document_id = :d"
 FREE = {"capacity": ":m", "rationale": ":m"}  # contributor-typed text on a record attached to the document (Codex 190)
@@ -158,9 +162,14 @@ CLEAR = {
         f"claim_version_id IN ({VERSIONS}) OR evidence_document_id = :d",
         {"capacity": ":m", "scope": ":m", "conclusion": ":m",
          "evidence_note": "CASE WHEN evidence_note IS NULL THEN NULL ELSE :m END"})),
+    # Story 5.3: either side's version, or the document cited as counter-evidence (C8).
+    "adjudication": (f"low_version_id IN ({VERSIONS}) OR high_version_id IN ({VERSIONS}) OR counter_document_id = :d", {
+        "rationale": ":m", "procedure": ":m", "capacity": ":m",
+        **{c: f"CASE WHEN {c} IS NULL THEN NULL ELSE :m END" for c in ("counter_note", "follow_up", "closure_reason")}}),
+    "reviewer_flag": (f"claim_version_id IN ({VERSIONS})", FREE),
 }
 
-# The published projection (schema 11): a column naming the document, one of its claims or claim versions makes the
+# The published projection (schema 12): a column naming the document, one of its claims or claim versions makes the
 # purge delete the row; content and kept are as above. deleted_document lists ids on purpose.
 PROJECTION = {
     "meta": {"key": "kept", "value": "kept"},
@@ -214,6 +223,17 @@ PROJECTION = {
         **dict.fromkeys(("id", "contributor_name", "contributor_organisation", "contributor_version", "reviewed_on",
                          "outcome", "evidence_page", "evidence_state", "latest", "binds", "created_at"), "kept"),
         **dict.fromkeys(("capacity", "scope", "conclusion", "evidence_note"), "content")}),
+    # Story 5.3 (projection schema 12).
+    "adjudication": {"low_version_id": "version", "high_version_id": "version", "low_claim_id": "claim",
+                     "high_claim_id": "claim", "counter_document_id": "document",
+                     **dict.fromkeys(("id", "state", "counter_page", "contributor_name", "contributor_organisation",
+                                      "binds", "created_at"), "kept"),
+                     **dict.fromkeys(("rationale", "procedure", "counter_note", "follow_up", "closure_reason", "capacity"),
+                                     "content")},
+    "reviewer_flag": {"claim_id": "claim", "claim_version_id": "version",
+                      **dict.fromkeys(("id", "decision", "contributor_name", "contributor_organisation", "latest", "binds",
+                                       "created_at"), "kept"),
+                      **dict.fromkeys(("rationale", "capacity"), "content")},
 }
 
 

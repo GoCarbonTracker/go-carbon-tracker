@@ -98,6 +98,19 @@ def refusals(ws, tmp_path, make_file):
         (["restate", "withdraw", "--original", "98", "--restated", "99", *WHO, "--workspace", ws], 3),
         (["restate", "withdraw", "--original", "98", "--restated", "99", "--as", "ana", "--capacity", "c",
           "--rationale", " ", "--workspace", ws], 2),
+        (["adjudicate", "list", "--company", "Nobody", "--workspace", ws], 3),
+        (["adjudicate", "list", "--claim", "99", "--workspace", ws], 3),
+        (["adjudicate", "status", "--company", "Nobody", "--workspace", ws], 3),
+        (["adjudicate", "record", "98", "99", "--state", "evidence-not-found", "--procedure", "p", *WHO,
+          "--workspace", ws], 3),
+        (["adjudicate", "record", "98", "99", "--state", "evidence-not-found", "--procedure", " ", *WHO,
+          "--workspace", ws], 2),
+        (["adjudicate", "record", "98", "99", "--state", "maybe", "--procedure", "p", *WHO, "--workspace", ws], 2),
+        (["flag", "raise", "99", "--version", "1", *WHO, "--workspace", ws], 3),
+        (["flag", "withdraw", "99", "--version", "1", "--as", "bob", "--capacity", "c", "--rationale", "r",
+          "--workspace", ws], 3),
+        (["flag", "list", "--claim", "99", "--workspace", ws], 3),
+        (["flag", "list", "--company", "Nobody", "--workspace", ws], 3),
         (["sheet", "show", "99", "--workspace", ws], 3),
         (["sheet", "map", "99", "--sheet", "s", "--metric", "M", "--value", "V", *WHO, "--workspace", ws], 3),
         (["serve", "--no-open", "--workspace", tmp_path / "nowhere"], 3),
@@ -150,6 +163,35 @@ def test_review_refusals_have_cause_next_action_and_no_internals(ws, db, gct, ma
         for text in (human.err, machine.out):
             for word in [*INTERNAL_WORDS, *names]:
                 assert word not in text, (argv, word)
+def test_adjudicate_and_flag_messages_have_no_internals(ws, gct, make_file):
+    from test_restate import cp2
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    gct("contributor", "add", "bob", "--name", "Bob")
+    _, _, restated, original = cp2(gct, make_file)
+    names = internal_names(ws)
+    record = ["adjudicate", "record", original, restated, "--procedure", "compared the tables", *WHO]
+    version = gct("claims", "history", restated, "--json").data["versions"][-1]["id"]
+    cases = [[*record, "--state", "restatement"], ["adjudicate", "record", original, original, "--state",
+                                                   "evidence-not-found", "--procedure", "p", *WHO],
+             [*record, "--state", "explained-difference", "--counter-doc", 1, "--counter-page", 9],
+             ["flag", "raise", restated, "--version", version - 1, *WHO],
+             ["flag", "withdraw", restated, "--version", version, "--as", "bob", "--capacity", "c", "--rationale", "r"]]
+    for argv in cases:
+        human, machine = gct(*argv), gct(*argv, "--json")
+        assert human.code == machine.code == 4 and human.out == "", (argv, human.err)
+        assert human.err.startswith("error: ") and "\nnext: " in human.err
+        assert machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in [*INTERNAL_WORDS, *names]:
+                assert word not in text, (argv, word)
+    done = [gct(*record, "--state", "extraction-error"), gct(*record, "--state", "explained-difference",
+                                                             "--counter-note", "p2 note"),
+            gct("flag", "raise", restated, "--version", version, *WHO), gct("adjudicate", "list"),
+            gct("adjudicate", "list", "--claim", restated), gct("adjudicate", "status"), gct("flag", "list")]
+    for r in done:
+        assert r.code == 0 and not any(w in r.out for w in [*INTERNAL_WORDS, *names]), r.out
 
 
 def test_archive_refusals_have_cause_next_action_and_no_internals(ws, gct, make_file):

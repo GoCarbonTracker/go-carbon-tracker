@@ -44,13 +44,13 @@ def test_migration_applies_to_a_story_1_1_workspace(tmp_path):
     conn.executescript(sql + "INSERT INTO schema_version VALUES (1, 't');")
     conn.execute("INSERT INTO company (name, created_at) VALUES ('Acme', 't')")
     store.migrate(conn)
-    assert [r[0] for r in conn.execute("SELECT version FROM schema_version ORDER BY version")] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+    assert [r[0] for r in conn.execute("SELECT version FROM schema_version ORDER BY version")] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
     assert conn.execute("SELECT name FROM company").fetchall()[0][0] == "Acme"
     conn.close()
 
 
 def test_fresh_workspace_has_both_migrations(db):
-    assert [r[0] for r in db.execute("SELECT version FROM schema_version ORDER BY version")] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+    assert [r[0] for r in db.execute("SELECT version FROM schema_version ORDER BY version")] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
 
 
 @pytest.mark.parametrize("table", ["published_version", "published_pointer", "published_purge"])
@@ -73,7 +73,7 @@ def test_build_writes_a_complete_read_only_version(seeded, db, gct):
         ("a.pdf", "private"), ("b.pdf", "shareable"), ("c.pdf", "private"),
     ]
     meta = dict(rows(path, "SELECT key, value FROM meta"))
-    assert meta["version"] == "1" and meta["projection_schema"] == "11" and meta["history_mark"] == "2.3.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+    assert meta["version"] == "1" and meta["projection_schema"] == "12" and meta["history_mark"] == "2.3.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
     assert set(meta) == {"version", "built_at", "history_mark", "gct_version", "projection_schema", "hidden_by_archive",
                          "deleted_documents"}
     assert sorted(p.name for p in (seeded / "published").iterdir()) == ["v1.db"]

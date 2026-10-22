@@ -35,6 +35,10 @@ def test_every_table_is_append_only(ws, db, gct, make_file):
     for t in ("review_company", "review_auditor"):
         db.execute(f"INSERT INTO {t} (claim_version_id, contributor_version_id, capacity, scope, reviewed_on, conclusion,"
                    " outcome, evidence_note, created_at) VALUES (2, 1, 'analyst', 's', '2025-06-30', 'c', 'accepted', 'n', 't')")
+    db.execute("INSERT INTO adjudication (low_version_id, high_version_id, state, rationale, procedure,"
+               " contributor_version_id, capacity, created_at) VALUES (1, 2, 'evidence_not_found', 'r', 'p', 1, 'c', 't')")
+    db.execute("INSERT INTO reviewer_flag (claim_version_id, decision, rationale, contributor_version_id, capacity,"
+               " created_at) VALUES (2, 'raised', 'r', 1, 'c', 't')")
     db.execute("INSERT INTO document_deletion (document_state_id, plan, created_at) VALUES (1, '{}', 't')")
     db.execute("INSERT INTO document_deletion_step (deletion_id, step, detail, created_at) VALUES (1, 'files', '{}', 't')")
     db.commit()

@@ -217,6 +217,42 @@ As `review company`, in the other ledger (`ledger` `auditor`).
 - versions: id, binds, company_confirmations, auditor_reviews, disagreement
 
 Every version of one claim, oldest first; `claim.version` is the newest, `claim.state` as in `claims list`, `document_state` the state of the claim's document (an archived or deleted document's claim is listed too). `company_confirmations` and `auditor_reviews` are two lists, oldest first, each entry with the keys of `review company`'s `entry`; none is hidden. `latest` is true on a contributor's newest entry in that ledger on that version (by contributor key), false on their earlier ones. `binds` (on the version and on each entry) is true only for the claim's newest version. `disagreement` is null, or `{"company": [...], "auditor": [...]}`, the latest outcomes of each ledger in the order accepted, rejected, disputed, when both are non-empty and differ. An unknown claim is refused (exit 3). See `docs/reviews.md`.
+## adjudicate list
+- top: status, candidates, hidden, earlier
+- candidates: series_id, company_id, company, metric_key, label, reporting_boundary, boundary_detail, period_start, period_end, state, reason, restatement, a, b, adjudications, adjudication_state
+- earlier: id, low_version, high_version, low_claim, high_claim, state, rationale, procedure, counter_document, counter_page, counter_note, evidence_state, counter_company, follow_up, closure_reason, contributor, organisation, capacity, binds, created_at, self_declared, evidence_deleted, pair_state
+
+`candidates` are the pairs of `restate list` whose `state` is `unresolved conflict` (both documents active), with `adjudication_state` `unreviewed candidate`, `explained difference`, `extraction error`, `reviewer-confirmed issue` or `evidence not found`: the state of the newest adjudication row that binds, else unreviewed. `adjudications` lists every adjudication row whose two versions belong to the candidate's two claims, oldest first, with the keys of `earlier` less `pair_state`; `state` is the stored code (`explained_difference`, `extraction_error`, `reviewer_confirmed_issue`, `evidence_not_found`); `binds` is false when either version it names is not its claim's newest; `evidence_state` is the counter-evidence document's newest state (`registered`, `restored`, `archived`, `deleted`) and `counter_company` its company, both null without a counter document; `evidence_deleted` is null unless a document it names was deleted, else `{"document": N, "at": ...}`; `self_declared` is always true. `earlier` holds the adjudication rows on active documents whose two claims are not a candidate now, with `pair_state` the state of the claims' pair now (`restatement`, `same value`, `not compared`) or null when they form none. `--company NAME`, `--claim CLAIM` (a claim of an active document; archived or deleted is refused, exit 4) and `--state unreviewed|explained-difference|extraction-error|reviewer-confirmed-issue|evidence-not-found` narrow the candidates; `hidden` counts the candidates the state filter hid. See `docs/adjudication.md`.
+
+## adjudicate record
+- top: status, adjudication, adjudication_state, next
+- adjudication: id, low_version, high_version, low_claim, high_claim, state, rationale, procedure, counter_document, counter_page, counter_note, evidence_state, counter_company, follow_up, closure_reason, contributor, organisation, capacity, binds, created_at, self_declared, evidence_deleted
+
+Records an adjudication of the candidate the two claims' newest versions form. `adjudication_state` is the candidate's state afterwards; `next` names `gct correct` for an `extraction-error` (the claim is not changed) and is null otherwise. Refused, writing nothing: `--state restatement` (exit 4, naming `gct restate record`), an unknown state (exit 2), an empty rationale, procedure, capacity, counter-evidence note, follow-up or closure reason, `explained-difference` without `--counter-doc` or `--counter-note`, `--counter-page` without `--counter-doc` (exit 2); an unknown claim, contributor or counter document (exit 3); the same claim twice, claims that are not an unresolved conflict now, an archived or deleted document on either side or as counter-evidence, a page outside the counter document or on a spreadsheet (exit 4).
+
+## adjudicate status
+- top: status, companies
+- companies: company, candidates, unreviewed, explained_difference, extraction_error, reviewer_confirmed_issue, evidence_not_found
+
+One record per company with candidates (`--company NAME` for one): how many, and how many are in each state of `adjudicate list`. Only binding rows count, so a row on an earlier version leaves its candidate unreviewed.
+
+## flag raise
+- top: status, flag
+- flag: id, claim, version, decision, rationale, contributor, organisation, capacity, latest, binds, created_at, self_declared
+
+Records a potential greenwashing concern on `--version`, which must be the claim's newest version, of a current claim of an active document. Refused, writing nothing: a version that is not the newest, a claim that is not current, an archived or deleted document (exit 4); an unknown claim or contributor (exit 3); an empty capacity or rationale (exit 2).
+
+## flag withdraw
+- top: status, flag
+- flag: id, claim, version, decision, rationale, contributor, organisation, capacity, latest, binds, created_at, self_declared
+
+As `flag raise`, with `decision` `withdrawn`; refused (exit 4) when the contributor's newest flag on that version is not `raised`.
+
+## flag list
+- top: status, flags
+- flags: id, claim, version, decision, rationale, contributor, organisation, capacity, latest, binds, created_at, self_declared
+
+Every flag row on a claim of an active document, oldest first (`--company NAME` or `--claim CLAIM`). `latest` is true on a contributor's newest row on that version; `binds` is false once the version is not its claim's newest.
 
 ## claims list
 - top: status, document, claims

@@ -22,6 +22,11 @@ REVIEWS = {
     # it as evidence stays in the outputs, with the evidence document's state.
     "review_company": f"SELECT COUNT(*) FROM review_company WHERE claim_version_id IN ({VERSIONS})",
     "review_auditor": f"SELECT COUNT(*) FROM review_auditor WHERE claim_version_id IN ({VERSIONS})",
+    # Story 5.3: adjudications naming a version of its claims on either side, and flags on its versions. A row that
+    # only cites it as counter-evidence stays listed with the document's state (C7), so it is not counted.
+    "adjudication": f"SELECT COUNT(*) FROM adjudication WHERE low_version_id IN ({VERSIONS})"
+                    f" OR high_version_id IN ({VERSIONS})",
+    "reviewer_flag": f"SELECT COUNT(*) FROM reviewer_flag WHERE claim_version_id IN ({VERSIONS})",
 }
 
 

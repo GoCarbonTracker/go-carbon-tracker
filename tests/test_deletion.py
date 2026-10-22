@@ -115,9 +115,10 @@ def test_migration_16_applies_after_15_and_its_tables_are_append_only(tmp_path, 
     c.close()
     assert gct("doc", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-3:] == [15, 16, 17]
+    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-4:] == [15, 16, 17, 18]
     (run,) = runs.list_runs(c)
-    assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == ["applied migration 16", "applied migration 17"]
+    assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == [
+        "applied migration 16", "applied migration 17", "applied migration 18"]
     c.close()
     db.execute("INSERT INTO company (name, created_at) VALUES ('Acme', 't')")
     db.execute("INSERT INTO document (company_id, logical_name, version, sha256, kind, file_type, privacy, size_bytes,"
@@ -331,7 +332,7 @@ def test_retained_versions_lose_the_document_and_restore_cannot_bring_it_back(ws
     v4 = published.open_version(ws / "published" / "v4.db")
     try:
         meta = dict(v4.execute("SELECT key, value FROM meta").fetchall())
-        assert meta["projection_schema"] == "11" and meta["deleted_documents"] == "1"
+        assert meta["projection_schema"] == "12" and meta["deleted_documents"] == "1"
         assert [tuple(r) for r in v4.execute("SELECT * FROM deleted_document")] == [
             (d, db.execute("SELECT at FROM document_state WHERE state = 'deleted'").fetchone()[0])]
         assert {"hidden_by_archive", "comparison", "restatement", "series", "page_acceptance"} <= {
@@ -500,7 +501,7 @@ def test_migrations_13_to_16_apply_in_order_to_a_4_1_workspace(tmp_path, gct):
     c = store.connect(root / layout.DB_NAME)
     (run,) = runs.list_runs(c)
     assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == [
-        f"applied migration {n}" for n in (13, 14, 15, 16, 17)]
+        f"applied migration {n}" for n in (13, 14, 15, 16, 17, 18)]
     assert {"restatement", "document_state_change", "sheet_mapping", "claim_note", "document_deletion"} <= {
         t for (t,) in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     c.close()

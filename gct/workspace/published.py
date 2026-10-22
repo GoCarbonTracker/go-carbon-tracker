@@ -86,7 +86,20 @@ CREATE TABLE {t} (
     reviewed_on TEXT NOT NULL, conclusion TEXT NOT NULL, outcome TEXT NOT NULL, evidence_document_id INTEGER,
     evidence_page INTEGER, evidence_note TEXT, evidence_state TEXT, latest INTEGER NOT NULL, binds INTEGER NOT NULL,
     created_at TEXT NOT NULL
-);""" for t in ("review_company", "review_auditor"))  # story 5.1: one shape, two ledgers
+);""" for t in ("review_company", "review_auditor")) + """
+CREATE TABLE adjudication (
+    id INTEGER PRIMARY KEY, low_version_id INTEGER NOT NULL, high_version_id INTEGER NOT NULL,
+    low_claim_id INTEGER NOT NULL, high_claim_id INTEGER NOT NULL, state TEXT NOT NULL, rationale TEXT NOT NULL,
+    procedure TEXT NOT NULL, counter_document_id INTEGER, counter_page INTEGER, counter_note TEXT, follow_up TEXT,
+    closure_reason TEXT, contributor_name TEXT NOT NULL, contributor_organisation TEXT, capacity TEXT NOT NULL,
+    binds INTEGER NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE reviewer_flag (
+    id INTEGER PRIMARY KEY, claim_id INTEGER NOT NULL, claim_version_id INTEGER NOT NULL, decision TEXT NOT NULL,
+    rationale TEXT NOT NULL, contributor_name TEXT NOT NULL, contributor_organisation TEXT, capacity TEXT NOT NULL,
+    latest INTEGER NOT NULL, binds INTEGER NOT NULL, created_at TEXT NOT NULL
+);
+"""  # story 5.1's two ledgers share one shape; story 5.3's two tables follow
 # Ids and dates only: a reader of any later version (and E7's exports) can tell which ids were deleted (story 4.5).
 DELETED_SQL = "SELECT document_id, at FROM document_state WHERE state = 'deleted' ORDER BY document_id"
 # Contributors project their name and organisation only; the sanitised package (E7) decides what leaves.
@@ -151,7 +164,8 @@ def history_mark(conn: sqlite3.Connection) -> str:
                   "correction", "claim_seen", "attempt WHERE stage = 'extract'",
                   "metric_assignment", "match_review", "restatement", "document_state_change",
                   # A sheet extraction can change a spreadsheet claim's state without adding a version (story 4.3).
-                  "sheet_mapping", "claim_note", "attempt WHERE stage = 'sheet'", "review_company", "review_auditor")
+                  "sheet_mapping", "claim_note", "attempt WHERE stage = 'sheet'", "review_company", "review_auditor",
+                  "adjudication", "reviewer_flag")
     )
 
 
@@ -236,6 +250,28 @@ def _comparison(conn: sqlite3.Connection, matched: dict) -> dict:
     return {"comparison": pairs, "restatement": rows}
 
 
+def _adjudication(conn: sqlite3.Connection) -> dict:
+    """Every adjudication row whose two claims' documents are active and every reviewer flag on a claim of an active
+    document, each with binds (and latest for flags) computed now (story 5.3)."""
+    from gct.stages import adjudicate  # the stages import this package
+
+    active = (f"SELECT COUNT(*) FROM claim k JOIN document d ON d.id = k.document_id WHERE k.id IN ({{}})"
+              f" AND {ACTIVE} IN ('registered', 'restored')")
+    rows = conn.execute(
+        "SELECT a.id, a.low_version_id, a.high_version_id, lv.claim_id, hv.claim_id, a.state, a.rationale, a.procedure,"
+        " a.counter_document_id, a.counter_page, a.counter_note, a.follow_up, a.closure_reason, c.name, c.organisation,"
+        f" a.capacity, {adjudicate.BINDS}, a.created_at FROM adjudication a"
+        " JOIN contributor_version c ON c.id = a.contributor_version_id"
+        " JOIN claim_version lv ON lv.id = a.low_version_id JOIN claim_version hv ON hv.id = a.high_version_id"
+        f" WHERE ({active.format('lv.claim_id, hv.claim_id')}) = 2 ORDER BY a.id").fetchall()
+    flags = conn.execute(
+        "SELECT f.id, v.claim_id, f.claim_version_id, f.decision, f.rationale, c.name, c.organisation, f.capacity,"
+        f" {adjudicate.LATEST}, {adjudicate.FLAG_BINDS}, f.created_at FROM reviewer_flag f"
+        " JOIN contributor_version c ON c.id = f.contributor_version_id JOIN claim_version v ON v.id = f.claim_version_id"
+        f" WHERE ({active.format('v.claim_id')}) = 1 ORDER BY f.id").fetchall()
+    return {"adjudication": rows, "reviewer_flag": flags}
+
+
 def _with_inference(conn: sqlite3.Connection, claims, matched: dict) -> list[tuple]:
     """Claim rows with the period and boundary taken in order: resolved, else accepted for the current inference, else
     the claim version's own. A proposal goes to the proposed_* columns only, so a reader of the main fields never
@@ -292,7 +328,7 @@ def _read_history(conn: sqlite3.Connection, root: Path):
         ).fetchall()
         from gct.stages import archive, review  # the stages import this package
 
-        extra = {**_missing(conn, root), **_series(matched), **_comparison(conn, matched),
+        extra = {**_missing(conn, root), **_series(matched), **_comparison(conn, matched), **_adjudication(conn),
                  "hidden_by_archive": [tuple(h.values()) for h in archive.hidden(conn)],
                  "sheet_mapping": conn.execute(SHEET_MAPPING_SQL).fetchall(),
                  "deleted_document": conn.execute(DELETED_SQL).fetchall(),
@@ -352,7 +388,7 @@ def build(conn: sqlite3.Connection, root: Path) -> dict:
     hid = extra["hidden_by_archive"]
     meta = {
         "version": version, "built_at": built_at, "history_mark": mark,
-        "gct_version": __version__, "projection_schema": 11,
+        "gct_version": __version__, "projection_schema": 12,
         "hidden_by_archive": json.dumps({"documents": len(hid), **{k: sum(h[i] for h in hid) for i, k in (
             (3, "claims"), (4, "evidence_refs"), (5, "review_records"))}}),
         "deleted_documents": len(extra["deleted_document"]),

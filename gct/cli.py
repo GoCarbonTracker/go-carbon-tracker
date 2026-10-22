@@ -10,7 +10,7 @@ from gct import __version__
 from gct.api import server
 from gct.measure import g2
 from gct.models import adapters, policy
-from gct.stages import archive, correct, deletion, extract, infer, link, match, missing, read, restate, review, sheet
+from gct.stages import adjudicate, archive, correct, deletion, extract, infer, link, match, missing, read, restate, review, sheet
 from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -150,7 +150,8 @@ def _impact_lines(i: dict) -> list[str]:
     lines.append(f"  review records kept, no longer in active outputs: {r['inference_review']} inference reviews, "
                  f"{r['correction']} corrections, {r['match_review']} match reviews, {r['page_acceptance']} page "
                  f"acceptances, {r['restatement']} restatement records, {r['sheet_mapping']} sheet mappings, "
-                 f"{r['review_company']} company confirmations, {r['review_auditor']} auditor reviews")
+                 f"{r['review_company']} company confirmations, {r['review_auditor']} auditor reviews, "
+                 f"{r['adjudication']} adjudications, {r['reviewer_flag']} reviewer flags")
     return lines
 
 
@@ -872,6 +873,82 @@ def cmd_review_list(args) -> None:
         lines += [f"version {v['id']}" + ("" if v["binds"] else " (an earlier version: its entries do not bind)"),
                   *_ledger_lines(v)]
     _print(args, {"status": "ok", **r}, "\n".join([*lines, review.SELF_DECLARED]))
+def _quoted(label: str, text) -> str:
+    return f'; {label} "{text}"' if text is not None else ""
+
+
+def _who_text(r: dict) -> str:
+    return r["contributor"] + (f" ({r['organisation']})" if r["organisation"] else "")
+
+
+def _adjudication_text(r: dict) -> str:
+    """One adjudication row, its contributor text quoted and attributed (C5)."""
+    counter = (f"; counter-evidence document {r['counter_document']}" + (f" p{r['counter_page']}" if r["counter_page"] else "")
+               + f" ({r['counter_company']}, {r['evidence_state']})" if r["counter_document"] else "")
+    return (f"adjudication #{r['id']} {adjudicate.STATES[r['state']]} on versions {r['low_version']} and {r['high_version']}"
+            f" by {_who_text(r)}, capacity \"{r['capacity']}\": \"{r['rationale']}\"{_quoted('procedure', r['procedure'])}"
+            f"{counter}{_quoted('counter-evidence note', r['counter_note'])}{_quoted('follow-up', r['follow_up'])}"
+            f"{_quoted('closure reason', r['closure_reason'])}" + ("" if r["binds"] else " (on an earlier version)")
+            + _mark(r["evidence_deleted"], r["created_at"]))
+
+
+def _candidate_line(p: dict) -> str:
+    what = (p["metric_key"] or f"unmapped: {p['label']}") + "  " + _boundary_of(p)
+    return (f"{p['series_id']}  {p['company']}  {what}  {p['period_start']}..{p['period_end']}  {_side(p['a'])}  "
+            f"{_side(p['b'])}  {p['adjudication_state']}")
+
+
+def cmd_adjudicate_list(args) -> None:
+    conn = _open(args, write=False)
+    r = adjudicate.listed(conn, args.company, args.state, args.claim)
+    lines = [x for p in _located(conn, r["candidates"])
+             for x in (_candidate_line(p), *(f"  {_adjudication_text(a)}" for a in p["adjudications"]))]
+    lines = lines or ["No candidates" + (" in this state." if args.state else " yet.")]
+    if args.state:
+        lines.append(f"{r['hidden']} candidates in other states hidden by --state {args.state}.")
+    if r["earlier"]:
+        lines.append("Adjudications of claims that are not a candidate now:")
+        lines += [f"  claims {a['low_claim']} and {a['high_claim']}, now {a['pair_state'] or 'in no pair'}: "
+                  f"{_adjudication_text(a)}" for a in r["earlier"]]
+    _print(args, {"status": "ok", **r}, "\n".join([*lines, review.SELF_DECLARED]))
+
+
+def cmd_adjudicate_record(args) -> None:
+    r = adjudicate.record(_open(args), args.root, args.first, args.second, args.state, args.rationale, args.procedure,
+                          args.as_, args.capacity, args.counter_doc, args.counter_page, args.counter_note, args.follow_up,
+                          args.closure_reason)
+    _print(args, {"status": "ok", **r}, "\n".join(
+        [f"Recorded {_adjudication_text(r['adjudication'])}. The candidate is now {r['adjudication_state']}.",
+         *([r["next"]] if r["next"] else []), review.SELF_DECLARED]))
+
+
+def cmd_adjudicate_status(args) -> None:
+    cs = adjudicate.status(_open(args, write=False), args.company)
+    _print(args, {"status": "ok", "companies": cs}, "\n".join(
+        f"{c['company']}: {c['candidates']} candidates, of which {c['unreviewed']} unreviewed, "
+        + ", ".join(f"{c[k]} {v}" for k, v in adjudicate.STATES.items()) for c in cs) or "No candidates yet.")
+
+
+def _flag_text(f: dict) -> str:
+    return (f"reviewer flag #{f['id']} on claim {f['claim']} version {f['version']}: potential greenwashing concern "
+            f"{f['decision']} by {_who_text(f)} (self-declared), capacity \"{f['capacity']}\": \"{f['rationale']}\""
+            + ("" if f["latest"] else " (an earlier position)") + ("" if f["binds"] else " (on an earlier version)"))
+
+
+def cmd_flag_raise(args) -> None:
+    f = adjudicate.raise_flag(_open(args), args.claim, args.version, args.rationale, args.as_, args.capacity)
+    _print(args, {"status": "ok", "flag": f}, f"Recorded {_flag_text(f)}.\n{review.SELF_DECLARED}")
+
+
+def cmd_flag_withdraw(args) -> None:
+    f = adjudicate.withdraw_flag(_open(args), args.claim, args.version, args.rationale, args.as_, args.capacity)
+    _print(args, {"status": "ok", "flag": f}, f"Recorded {_flag_text(f)}.\n{review.SELF_DECLARED}")
+
+
+def cmd_flag_list(args) -> None:
+    fs = adjudicate.flags(_open(args, write=False), args.company, args.claim)
+    _print(args, {"status": "ok", "flags": fs},
+           "\n".join([*map(_flag_text, fs), review.SELF_DECLARED] if fs else ["No reviewer flags.", review.SELF_DECLARED]))
 
 
 def _mapping_text(m: dict) -> str:
@@ -1251,7 +1328,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,review,claims,sheet,correct,contributor,expect,pages,gap,publish,run,approve,model,measure,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,review,adjudicate,flag,claims,sheet,correct,contributor,expect,pages,gap,publish,run,approve,model,measure,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -1435,6 +1512,42 @@ def build_parser() -> argparse.ArgumentParser:
     lst = rv.add_parser("list", parents=[common], help="every version of one claim with both ledgers' entries")
     lst.add_argument("claim", type=int, metavar="CLAIM")
     lst.set_defaults(func=cmd_review_list)
+    adj = group("adjudicate", "inconsistency candidates (unresolved conflicts) and what a reviewer recorded about them")
+    lst = adj.add_parser("list", parents=[common], help="each candidate with its state and every adjudication of its claims")
+    lst.add_argument("--company")
+    lst.add_argument("--state", choices=tuple(adjudicate.FILTERS), help="only candidates in this state (the rest are counted)")
+    lst.add_argument("--claim", type=int, metavar="CLAIM", help="only candidates and adjudications naming this claim")
+    lst.set_defaults(func=cmd_adjudicate_list)
+    rec = adj.add_parser("record", parents=[common], help="record what the difference between the two figures is")
+    rec.add_argument("first", type=int, metavar="A", help="a claim of the candidate")
+    rec.add_argument("second", type=int, metavar="B", help="the other claim")
+    rec.add_argument("--state", required=True, metavar="STATE",
+                     help=f"one of {', '.join(adjudicate.CHOICES)}; a restatement is recorded with gct restate record")
+    rec.add_argument("--procedure", required=True, metavar="TEXT", help="how you checked")
+    rec.add_argument("--counter-doc", type=int, metavar="ID", help="a document holding the counter-evidence")
+    rec.add_argument("--counter-page", type=int, metavar="N", help="its page")
+    rec.add_argument("--counter-note", metavar="TEXT", help="where the counter-evidence is, when not a page")
+    rec.add_argument("--follow-up", metavar="TEXT")
+    rec.add_argument("--closure-reason", metavar="TEXT")
+    attributed(rec)
+    rec.set_defaults(func=cmd_adjudicate_record)
+    st = adj.add_parser("status", parents=[common], help="candidates per company and how many are in each state")
+    st.add_argument("--company")
+    st.set_defaults(func=cmd_adjudicate_status)
+
+    flag = group("flag", "reviewer flags: a potential greenwashing concern a reviewer raised on one claim version")
+    for name, help_, func in (("raise", "raise a potential greenwashing concern on a claim's newest version", cmd_flag_raise),
+                              ("withdraw", "withdraw your flag on a claim's newest version", cmd_flag_withdraw)):
+        p = flag.add_parser(name, parents=[common], help=help_)
+        p.add_argument("claim", type=int, metavar="CLAIM")
+        p.add_argument("--version", type=int, required=True, metavar="V", help="the claim's newest version, as you saw it")
+        attributed(p)
+        p.set_defaults(func=func)
+    lst = flag.add_parser("list", parents=[common], help="every reviewer flag, oldest first")
+    which = lst.add_mutually_exclusive_group()
+    which.add_argument("--company")
+    which.add_argument("--claim", type=int, metavar="CLAIM")
+    lst.set_defaults(func=cmd_flag_list)
 
     claims = group("claims", "figures extracted from documents")
     lst = claims.add_parser("list", parents=[common], help="list one document's claims with their source location")

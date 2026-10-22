@@ -207,6 +207,34 @@ def test_review_matches_the_documented_keys(ws, gct, make_file):
     h = gct("claims", "history", claim, "--json").data
     check("claims history", h)
     assert all(set(e) == entry for x in h["versions"] for e in x["company_confirmations"] + x["auditor_reviews"])
+def test_adjudicate_and_flag_match_the_documented_keys(ws, gct, make_file):
+    from test_match import WHO
+    from test_restate import QUOTE, cp2
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    for command, argv in (("adjudicate list", ["list"]), ("adjudicate status", ["status"])):
+        check(command, gct("adjudicate", *argv, "--json").data)
+    check("flag list", gct("flag", "list", "--json").data)
+    _, _, restated, original = cp2(gct, make_file)
+    record = gct("adjudicate", "record", original, restated, "--state", "extraction-error", "--procedure", "p", *WHO,
+                 "--json").data
+    check("adjudicate record", record)
+    shown = gct("adjudicate", "list", "--json").data
+    check("adjudicate list", shown)
+    entry = set(spec()["adjudicate record"]["adjudication"])
+    assert [set(x) for c in shown["candidates"] for x in c["adjudications"]] == [entry]
+    check("adjudicate status", gct("adjudicate", "status", "--json").data)
+    r = record["adjudication"]
+    v = {r["low_claim"]: r["low_version"], r["high_claim"]: r["high_version"]}[restated]
+    check("flag raise", gct("flag", "raise", restated, "--version", v, *WHO, "--json").data)
+    check("flag withdraw", gct("flag", "withdraw", restated, "--version", v, *WHO, "--json").data)
+    check("flag list", gct("flag", "list", "--json").data)
+    assert gct("restate", "record", "--original", original, "--restated", restated, "--page", 1, "--quote", QUOTE,
+               *WHO).code == 0
+    later = gct("adjudicate", "list", "--json").data
+    check("adjudicate list", later)
+    assert len(later["earlier"]) == 1
 
 
 def test_sheet_commands_match_the_documented_keys(ws, gct, make_file):
@@ -361,6 +389,7 @@ def test_every_command_has_a_documented_section():
         "infer", "infer bases", "infer scope", "infer groups", "infer accept", "infer resolve", "infer reject",
         "match", "match metrics", "match review", "match link", "match unlink", "match status", "series list",
         "series show", "restate list", "restate show", "restate record", "restate withdraw", "review company", "review auditor", "review list", "sheet show", "sheet map",
+        "adjudicate list", "adjudicate record", "adjudicate status", "flag raise", "flag withdraw", "flag list",
         "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
         "publish build", "publish restore", "publish status",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",

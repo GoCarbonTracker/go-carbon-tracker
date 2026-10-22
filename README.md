@@ -150,9 +150,19 @@ A document that must not stay in the workspace (sent by mistake, or one you no l
 - Copies already exported or shared, including files in `exports/`, cannot be recalled. Neither can backups or copies outside the workspace.
 - Adding the same file again later registers a new document; nothing of the deleted one comes back.
 
+## Adjudication and reviewer flags
+
+An `unresolved conflict` pair is an inconsistency candidate: two different figures for the same metric, period and boundary that no restatement record explains. A reviewer can record what the difference is, and separately raise a potential greenwashing concern about a figure. Details are in `docs/adjudication.md`.
+
+- `gct adjudicate list` shows each candidate as `unreviewed candidate` until someone records an adjudication with `gct adjudicate record A B --state explained-difference|extraction-error|reviewer-confirmed-issue|evidence-not-found --procedure TEXT --as KEY --capacity TEXT --rationale TEXT`. An explained difference needs counter-evidence (`--counter-doc ID [--counter-page N]` or `--counter-note TEXT`). Every adjudication stays listed; the newest one on the current figures gives the state.
+- There is no restatement state: a restatement is recorded with its quote through `gct restate record`. An extraction error does not change the figure; `gct correct` does.
+- Correcting either figure makes the candidate unreviewed again; earlier adjudications stay, marked as on an earlier version.
+- `gct flag raise CLAIM --version V ...` and `gct flag withdraw` record a reviewer's concern on the claim's newest version; `gct flag list` shows them. gct never raises a flag itself.
+- `gct adjudicate status` counts candidates per company by state. gct never counts an unreviewed candidate as a confirmed issue and never calls one a contradiction. Identities and capacities are self-declared, and gct does not adopt any conclusion as its own.
+
 ## What does not exist yet
 
-OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, a review interface (only the page acceptance, gap confirmation, infer review and correction commands exist), reports, review in the viewer beyond correcting a figure.
+OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, a review interface (only the page acceptance, gap confirmation, infer review, correction, adjudication and reviewer flag commands exist), reports, review in the viewer beyond correcting a figure.
 
 ## Setup
 
