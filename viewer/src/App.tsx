@@ -238,22 +238,27 @@ function Column({ title, entries, onJump }: { title: string; entries: Entry[]; o
 
 type FormKind = "company" | "auditor" | "highlight" | "raise" | "withdraw";
 
-function Reviews({ claim, docs, onChanged, onJump }: {
-  claim: Claim; docs: DocOption[]; onChanged: () => Promise<void>;
-  onJump: (t: { document: number; page: number }) => void;
+// The notice is held by App: a refusal is followed by a reload that remounts this panel on the new published
+// version, and the refusal must still be on screen after it.
+type Notice = { claim: number; failure: Failure } | null;
+
+function Reviews({ claim, docs, notices, onNotice, onChanged, onJump }: {
+  claim: Claim; docs: DocOption[]; notices: Notice; onNotice: (n: Notice) => void;
+  onChanged: () => Promise<void>; onJump: (t: { document: number; page: number }) => void;
 }) {
+  const notice = notices?.claim === claim.id ? notices.failure : null;
+  const setNotice = (f: Failure | null) => onNotice(f && { claim: claim.id, failure: f });
   const [versions, setVersions] = useState<Version[] | null>(null);
   const [shown, setShown] = useState(0);
   const [form, setForm] = useState<FormKind | null>(null);
-  const [notice, setNotice] = useState<Failure | null>(null);
   const load = useCallback(async () => {
     const h = await get<{ versions: Version[] }>(`/api/claims/${claim.id}/history`);
     setVersions(h.versions);
     setShown(h.versions[h.versions.length - 1].id); // V2: the newest by default
   }, [claim.id]);
   useEffect(() => {
-    load().catch((e) => setNotice(failureOf(e)));
-  }, [load]);
+    load().catch((e) => onNotice({ claim: claim.id, failure: failureOf(e) }));
+  }, [load, onNotice, claim.id]);
   if (!versions) return notice ? <Problem failure={notice} /> : null;
   const v = versions.find((x) => x.id === shown) ?? versions[versions.length - 1];
   const newest = versions[versions.length - 1];
@@ -495,6 +500,7 @@ export function App() {
   const [sharp, setSharp] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [candidatesOf, setCandidatesOf] = useState<Company | null>(null); // the Candidates view of one company
+  const [reviewNotice, setReviewNotice] = useState<Notice>(null); // outlives the Reviews remount after a reload
   const items = useRef<(HTMLButtonElement | null)[]>([]);
   const docRequests = useRef(newestOnly()).current;
 
@@ -568,6 +574,7 @@ export function App() {
   const select = useCallback(
     (index: number) => {
       setSelected(index);
+      setReviewNotice(null); // a refusal belongs to the claim it was shown on
       const c = claims[index];
       if (!c) return;
       if (decide(c, pageCount) !== "do not navigate") setPage(c.page!);
@@ -718,7 +725,8 @@ export function App() {
                   </p>
                 )}
                 {/* keyed by the published version: after any write the panel reads the history again */}
-                <Reviews key={`${current.id}-${health?.data_version}`} claim={current} docs={docOptions} onChanged={reload}
+                <Reviews key={`${current.id}-${health?.data_version}`} claim={current} docs={docOptions}
+                  notices={reviewNotice} onNotice={setReviewNotice} onChanged={reload}
                   onJump={jump} />
               </div>
             )}

@@ -295,8 +295,8 @@ def test_the_wheel_ships_the_viewer(tmp_path):
     assert not any("node_modules" in n or n.startswith("viewer/") for n in names)
 
 
-# AC 10b: the form submits in a real (headless) browser; the panel then shows the correction; no form on a claim not current
-def test_the_correction_form_in_a_headless_browser(srv, tmp_path):
+def browse(srv, tmp_path, *mode):
+    """Run tests/viewer_browser.mjs against the server in a headless Chrome; its JSON output."""
     chrome = shutil.which("google-chrome") or shutil.which("chromium") or next(
         (p for p in ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"] if Path(p).exists()), None)
     if not chrome or not shutil.which("node"):
@@ -314,14 +314,37 @@ def test_the_correction_form_in_a_headless_browser(srv, tmp_path):
                 break
             except OSError:
                 time.sleep(0.1)
-        r = subprocess.run(["node", str(ROOT / "tests" / "viewer_browser.mjs"), str(port), srv.url],
+        r = subprocess.run(["node", str(ROOT / "tests" / "viewer_browser.mjs"), str(port), srv.url, *mode],
                            capture_output=True, text=True, timeout=60)
         assert r.returncode == 0, r.stdout + r.stderr
     finally:
         browser.terminate()
         browser.wait(timeout=10)
-    out = json.loads(r.stdout)
+    return json.loads(r.stdout)
+
+
+# AC 10b: the form submits in a real (headless) browser; the panel then shows the correction; no form on a claim not current
+def test_the_correction_form_in_a_headless_browser(srv, tmp_path):
+    out = browse(srv, tmp_path)
     assert "9,877" in out["before"]
     assert "9,878" in out["after"] and "replaced 9,877" in out["after"] and "second look" in out["after"]
     assert out["notCurrentHasForm"] is False
     assert get(srv, "/api/documents/1/claims")[1]["claims"]  # still served after the browser's POST
+
+
+# Story 5.4 F1: another writer publishes while a company confirmation is being filled in; the stale submission is
+# refused, the panel reloads on the new published version, and the refusal with its next step stays on screen.
+def test_a_stale_review_keeps_its_refusal_after_another_writer_publishes(vws, srv, tmp_path):
+    import re
+    import sqlite3
+    out = browse(srv, tmp_path, "stale")
+    assert out["second_writer"] == 200
+    newest = get(srv, "/api/health")[1]["data_version"]
+    assert f"published data version {newest}" in out["header"]  # the panel reloaded on the other writer's version
+    assert "9,879" in out["panel"]
+    assert out["problem"] is not None, out["panel"]
+    m = re.fullmatch(r"Version (\d+) is not the newest version of claim (\d+); the newest is (\d+)\. "
+                     r"See what version \3 says with: gct claims history \2, then record on --version \3", out["problem"])
+    assert m and m[1] != m[3], out["problem"]
+    with sqlite3.connect(vws / "workspace.db") as conn:
+        assert conn.execute("SELECT COUNT(*) FROM review_company WHERE conclusion = 'stale entry'").fetchone() == (0,)
