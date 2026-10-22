@@ -1,5 +1,5 @@
 // Drives the viewer in a headless Chrome over the DevTools protocol (Node's global WebSocket, no packages).
-// usage: node viewer_browser.mjs <chrome debugging port> <viewer url> [stale]; prints one JSON object.
+// usage: node viewer_browser.mjs <chrome debugging port> <viewer url> [stale|shell]; prints one JSON object.
 const [port, url, mode] = process.argv.slice(2);
 
 const target = await (await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
@@ -101,6 +101,55 @@ const submit = async () => {
   };
 };
 
+// Story 6.1 H on tests/gate_fixture.py: the Tables and Graphs section filters and counts on its pinned version; after
+// another writer publishes, the next request is refused (409) and the notice offers the new version.
+const shellFilter = async () => {
+  const wait = async (fn, what) => {
+    for (let i = 0; i < 100; i++) {
+      const v = fn();
+      if (v) return v;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`timed out waiting for ${what}`);
+  };
+  const line = () => document.querySelector(".count-line")?.innerText ?? "";
+  const tick = (field, words) =>
+    [...[...document.querySelectorAll(".choices")].find((d) => d.querySelector("summary").innerText.startsWith(field))
+      .querySelectorAll("label")].find((l) => l.textContent.trim() === words).querySelector("input").click();
+  (await wait(() => [...document.querySelectorAll(".sections button")].find((b) => b.textContent === "Tables and Graphs"),
+    "the section switch")).click();
+  await wait(() => document.querySelector(".choices label"), "the companies in the filter bar");
+  const all = await wait(() => line(), "the count of every claim");
+  tick("Company", "Acme");
+  const acme = await wait(() => line() !== all && line(), "the count of Acme's claims");
+  return {
+    all, acme, evidenceHidden: document.querySelector("main").hidden,
+    lines: document.querySelector(".count").innerText,
+    series: [...document.querySelectorAll(".choices")].find((d) => d.querySelector("summary").textContent
+      .startsWith("Series")).querySelectorAll("label").length,
+  };
+};
+
+const shellStale = async () => {
+  const wait = async (fn, what) => {
+    for (let i = 0; i < 100; i++) {
+      const v = fn();
+      if (v) return v;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`timed out waiting for ${what}: ${document.querySelector(".records").innerText}`);
+  };
+  const tick = (field, words) =>
+    [...[...document.querySelectorAll(".choices")].find((d) => d.querySelector("summary").innerText.startsWith(field))
+      .querySelectorAll("label")].find((l) => l.textContent.trim() === words).querySelector("input").click();
+  tick("Company", "Beta");
+  const notice = (await wait(() => document.querySelector(".notice"), "the newer-version notice")).innerText;
+  document.querySelector(".notice button").click();
+  const reloaded = await wait(() => !document.querySelector(".notice") && document.querySelector(".count-line")?.innerText,
+    "the count on the new version");
+  return { notice, reloaded };
+};
+
 const run = async (fn) => {
   let r;
   for (let i = 0; i < 50; i++) {
@@ -129,6 +178,17 @@ if (mode === "stale") {
     body: JSON.stringify({ value: "9,879", contributor: "ann", capacity: "analyst", rationale: "other tab" }),
   });
   out = { second_writer: w.status, ...(await run(submit)) };
+} else if (mode === "shell") {
+  const first = await run(shellFilter);
+  const origin = new URL(url).origin;
+  const auth = { Authorization: `Bearer ${new URL(url).searchParams.get("token")}` };
+  const { claims } = await (await fetch(`${origin}/api/documents/1/claims`, { headers: auth })).json();
+  const w = await fetch(`${origin}/api/claims/${claims[0].id}/corrections`, {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "application/json" },
+    body: JSON.stringify({ value: "1,235", contributor: "ana", capacity: "analyst", rationale: "other tab" }),
+  });
+  out = { ...first, second_writer: w.status, ...(await run(shellStale)) };
 } else {
   out = await run(page);
 }

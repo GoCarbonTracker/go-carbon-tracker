@@ -166,6 +166,10 @@ When a newer version replaces the figure people reviewed (a correction, a new re
 
 `gct highlight add CLAIM --version V --note TEXT --as KEY --capacity TEXT` marks a claim's newest version with a short note; `gct highlight list CLAIM` lists them per version. A highlight is its own record: it is not a correction, a company confirmation or a review outcome, and nothing counts it as one. Details are under "Highlights" in `docs/reviews.md`.
 
+## Tables and Graphs
+
+`gct view records [--filter JSON|@FILE] [--shape table|graph|series|values] [--offset N] [--limit N] [--sort KEY[:desc]] [--claims ID,ID]` lists the claims of the current published version that one filter selects (company, document, metric, wording, period, boundary, state, evidence, matching, series, comparison, review), as table rows, a graph or one metric's series. Every row, node and edge says where its evidence opens. The viewer's Tables and Graphs section uses the same filter on one pinned version: it counts the claims that match, and offers a newer version with a Reload button when one is published. The table and the graphs themselves are not in the viewer yet. Details are in `docs/views.md`.
+
 ## What does not exist yet
 
 OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, review in the viewer of page acceptance, gap confirmation, infer review and restatement (those stay CLI commands), reports.

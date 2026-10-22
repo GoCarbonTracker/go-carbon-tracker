@@ -11,7 +11,7 @@ from gct.api import server
 from gct.measure import g2
 from gct.models import adapters, policy
 from gct.stages import (adjudicate, archive, correct, deletion, extract, highlight, infer, link, match, missing, read,
-                        restate, review, sheet)
+                        restate, review, sheet, view)
 from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -1151,6 +1151,98 @@ def cmd_publish_status(args) -> None:
     _print(args, {"status": "ok", **st}, text)
 
 
+def _filter_arg(given: str | None) -> dict:
+    """--filter JSON, or @FILE holding it."""
+    if given is None:
+        return {}
+    text = given
+    if given.startswith("@"):
+        try:
+            text = open(given[1:], encoding="utf-8").read()
+        except OSError:
+            raise GctError(layout.NOT_FOUND, f"The filter file {given[1:]} cannot be read.",
+                           "Give the path of a file holding the filter as JSON, for example --filter @filter.json") from None
+    try:
+        return json.loads(text)
+    except ValueError:
+        raise GctError(layout.USAGE, "The filter is not valid JSON.",
+                       """Give it as JSON, for example --filter '{"company": [1], "text": "scope 1"}'""") from None
+
+
+def _sort_arg(given: str) -> dict:
+    key, _, way = given.partition(":")
+    if way not in ("", "asc", "desc"):
+        raise GctError(layout.USAGE, f"The sort {given} is not KEY or KEY:desc.", "Give for example --sort value:desc")
+    return {"key": key, "dir": way or "asc"}
+
+
+def _claims_arg(given: str | None) -> list[int] | None:
+    if given is None:
+        return None
+    try:
+        return [int(x) for x in given.split(",")]
+    except ValueError:
+        raise GctError(layout.USAGE, f"The claims {given} are not claim ids separated by commas.",
+                       "Give for example --claims 12,13") from None
+
+
+def _records_text(r: dict) -> list[str]:
+    """What every shape says besides its claims: the count, the F7 lines and the ids not found."""
+    n = r["matched"]
+    lines = [f"{n} claim{' matches' if n == 1 else 's match'} in data version {r['data_version']}."]
+    if r["excluded"]["period_unknown"]:
+        lines.append(f"Left out by the period: {r['excluded']['period_unknown']} with an unknown period.")
+    lines += [r["hidden_by_archive"]["text"]] * bool(r["hidden_by_archive"]["text"])
+    lines += [d["text"] for d in r["deleted_in_filter"]]
+    lines += [f"claim {x['claim_id']}: {x['reason']}" for x in r["not_found"]]
+    return lines
+
+
+def _row_line(row: dict) -> str:
+    c = row["claim"]
+    where = f"sheet {c['sheet']} cell {c['cell']}" if c["sheet"] else f"p{c['page']}" if c["page"] else "no page"
+    figure = f"{c['value_text']} {c['unit_text']}" if c["unit_text"] else c["value_text"]
+    return (f"{c['id']}  {row['company_name']}  {row['document_name']} {where}  {figure}  {c['metric_text'] or '(no wording)'}"
+            f"  evidence: {row['evidence']['text']}  review: {row['review']['text']}")
+
+
+def cmd_view_records(args) -> None:
+    flt, sort, ids = _filter_arg(args.filter), [_sort_arg(s) for s in args.sort], _claims_arg(args.claims)
+    _, pconn = view.pinned(_open(args, write=False), args.root)
+    try:
+        r = view.answer(pconn, flt, args.shape, args.offset, args.limit, sort or None, ids)
+    finally:
+        pconn.close()
+    if args.shape == "values":
+        n = r["matched"]
+        lines = [f"{n} claim{' matches' if n == 1 else 's match'} in data version {r['data_version']}.",
+                 *(f"metric {k['metric_key']}: {k['claims']} claim{'s' * (k['claims'] != 1)}" for k in r["metric_keys"]),
+                 *(f"series {s['id']}  {s['metric_key']}  company {s['company_id']}  {s['points']}"
+                   f" point{'s' * (s['points'] != 1)}"
+                   for s in r["series"])]
+        return _print(args, r, "\n".join(lines))
+    lines = _records_text(r)
+    if args.shape == "table":
+        lines += [_row_line(x) for x in r["rows"]]
+        if r["empty"]:
+            lines.append(r["empty"])
+        elif r["rows"]:
+            lines.append(f"Rows {r['offset'] + 1} to {r['offset'] + len(r['rows'])} of {r['matched']}.")
+        else:
+            lines.append(f"No rows from row {r['offset'] + 1}: {r['matched']} match.")
+    elif not r["drawable"]:
+        lines.append(r["reason"])
+    elif args.shape == "graph":
+        lines.append(f"A graph of {r['matched']} claims: {len(r['nodes'])} nodes, {len(r['hyperedges'])} hyperedges,"
+                     f" {len(r['edges'])} edges.")
+    else:
+        s = r["series"]
+        lines += [f"series {s['id']}  {s['company_name']}  {s['metric_key'] or s['label']}  {s['reporting_boundary']}",
+                  *(f"  {p['period_start']}..{p['period_end']}  " + _row_line(p) for p in r["points"]),
+                  *(f"  claims {p['claim_a']} and {p['claim_b']}: {p['state']}" for p in r["comparisons"])]
+    _print(args, r, "\n".join(lines))
+
+
 def _run_line(r: dict) -> str:
     return f"{r['id']}  {r['started_at']}  {r['command']}  {r['outcome']}"
 
@@ -1380,7 +1472,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,review,adjudicate,flag,claims,sheet,correct,contributor,expect,pages,gap,publish,run,approve,model,measure,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,review,adjudicate,flag,claims,sheet,correct,contributor,expect,pages,gap,publish,view,run,approve,model,measure,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -1695,6 +1787,17 @@ def build_parser() -> argparse.ArgumentParser:
     publish.add_parser("build", parents=[common], help="build the next version and make it current").set_defaults(func=cmd_publish_build)
     publish.add_parser("restore", parents=[common], help="make the previous version current again").set_defaults(func=cmd_publish_restore)
     publish.add_parser("status", parents=[common], help="show the current version").set_defaults(func=cmd_publish_status)
+
+    views = group("view", "Tables and Graphs: claims of the current published version selected by one filter")
+    rec = views.add_parser("records", parents=[common], help="the claims a filter selects, as a table, graph or series")
+    rec.add_argument("--filter", metavar="JSON|@FILE", help="the filter object (default: {}, every claim; see docs/views.md)")
+    rec.add_argument("--shape", choices=view.SHAPES, default="table")
+    rec.add_argument("--offset", type=int, default=0, metavar="N", help="the first row of the table page (default: 0)")
+    rec.add_argument("--limit", type=int, default=view.LIMIT, metavar="N", help=f"rows per page, 1 to {view.MAX_LIMIT}"
+                                                                                  f" (default: {view.LIMIT})")
+    rec.add_argument("--sort", action="append", default=[], metavar="KEY[:desc]", help=f"one of: {', '.join(view.SORTS)}")
+    rec.add_argument("--claims", metavar="ID,ID", help="only these claims, of those the filter selects")
+    rec.set_defaults(func=cmd_view_records)
 
     run = group("run", "the run log")
     run.add_parser("list", parents=[common], help="list runs, newest first").set_defaults(func=cmd_run_list)

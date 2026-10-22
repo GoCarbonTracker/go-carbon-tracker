@@ -271,8 +271,20 @@ def test_a_rebuild_is_byte_identical(tmp_path):
 def test_viewer_logic_with_node_test():
     if not shutil.which("node"):
         pytest.skip("node is not on PATH; the viewer logic tests need it (contributors only)")
-    r = subprocess.run(["node", "--test", "test/logic.test.ts"], cwd=VIEWER, capture_output=True, text=True)
+    tests = sorted(p.relative_to(VIEWER).as_posix() for p in (VIEWER / "test").glob("*.test.ts"))
+    assert "test/records.test.ts" in tests
+    r = subprocess.run(["node", "--test", *tests], cwd=VIEWER, capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+# Story 6.1: the filter bar's fixed values are gct's (F1)
+def test_the_filter_bar_lists_the_values_gct_accepts():
+    import re
+    from gct.stages import view
+    text = (VIEWER / "src" / "records.ts").read_text()
+    for field in ("metric", "boundary", "claim_state", "evidence", "match", "comparison", "review"):
+        block = re.search(rf"\n  {field}: \[(.*?)(?=\n  [a-z_]+: \[|\n}};)", text, re.S)[1]
+        assert tuple(re.findall(r'\["([^"]+)", "', block)) == view.CHOICES[field], field
 
 
 # Follow-up 1: what Moka's hand run installs must carry the viewer
@@ -348,3 +360,22 @@ def test_a_stale_review_keeps_its_refusal_after_another_writer_publishes(vws, sr
     assert m and m[1] != m[3], out["problem"]
     with sqlite3.connect(vws / "workspace.db") as conn:
         assert conn.execute("SELECT COUNT(*) FROM review_company WHERE conclusion = 'stale entry'").fetchone() == (0,)
+
+
+# Story 6.1 AC 7: the Tables and Graphs shell filters and counts on its pinned version; a second writer's publish makes
+# the next request stale (409) and the notice offers the new version, which Reload then counts on.
+def test_the_shell_counts_on_its_pinned_version_and_offers_a_newer_one(tmp_path):
+    import gate_fixture
+    s = server.serve(gate_fixture.build(tmp_path / "gws"), port=0)
+    try:
+        out = browse(s, tmp_path, "shell")
+    finally:
+        s.stop()
+    assert out["all"] == "14 claims match in data version 1."
+    assert out["acme"] == "9 claims match in data version 1."
+    assert out["evidenceHidden"] is True
+    assert "2 claims of 1 archived document are not in this or any view." in out["lines"]
+    assert out["series"] == 5
+    assert out["second_writer"] == 200
+    assert out["notice"] == "Data version 2 is available. Reload"
+    assert out["reloaded"] == "14 claims match in data version 2."

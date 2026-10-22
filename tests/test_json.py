@@ -427,6 +427,14 @@ def test_delete_matches_the_documented_keys(ws, gct, make_file):
     check("claims history", gct("claims", "history", 1, "--json").data)
 
 
+def test_view_records_matches_the_documented_keys(tmp_path, gct):
+    import gate_fixture
+
+    root = gate_fixture.build(tmp_path / "gws")
+    check("view records", gct("view", "records", "--workspace", root, "--json").data)
+    check("view records", gct("view", "records", "--filter", '{"text": "zzz"}', "--workspace", root, "--json").data)
+
+
 def test_every_command_has_a_documented_section():
     assert set(spec()) == {
         "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc archive", "doc restore",
@@ -438,7 +446,7 @@ def test_every_command_has_a_documented_section():
         "series show", "restate list", "restate show", "restate record", "restate withdraw", "review company", "review auditor", "review list", "review pending", "sheet show", "sheet map",
         "adjudicate list", "adjudicate record", "adjudicate status", "flag raise", "flag withdraw", "flag list",
         "highlight add", "highlight list", "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
-        "publish build", "publish restore", "publish status",
+        "publish build", "publish restore", "publish status", "view records",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",
         "approve spend", "approve transfer", "approve list", "model list", "measure g2",
     }

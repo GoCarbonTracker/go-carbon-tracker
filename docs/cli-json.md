@@ -418,6 +418,14 @@ Amounts are USD. `spent` is the cost of every attempt so far: the cost the provi
 
 The report is also written to `g2-report-v<N>-<run id>.json` in the workspace's parent folder. The command refuses with exit 4 and writes nothing when there is no published version, a file listed in `MANIFEST.json` (and each scored gold file) is absent or has another sha256, a gold document has no document row in the version or a different sha256, or a gold company has no current claims; a missing gold file is exit 3.
 
+## view records
+- top: status, data_version, filter, matched, total, offset, limit, rows, empty, excluded, hidden_by_archive, deleted_in_filter, not_found
+- rows: claim, company_name, document_name, evidence, review
+- excluded: period_unknown
+- hidden_by_archive: documents, claims, by_document, text
+
+The table shape (the default). `--shape graph`, `series` and `values` answer with the keys listed in `docs/views.md`, which also lists the filter fields, every nested key, the version rule and the graph limit. `POST /api/records` answers the same objects. A stale pin, no published version or a version built by an older gct is refused (exit 4); a bad filter or option is refused naming it (exit 2); an unreadable `--filter @FILE` is refused (exit 3).
+
 ## serve
 - top: status, url, port
 

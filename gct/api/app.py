@@ -87,6 +87,19 @@ async def _body(request: Request, kind: str) -> dict | JSONResponse:
     return body
 
 
+async def _object(request: Request, what: str) -> dict | JSONResponse:
+    """The JSON object of a read sent as a POST body (story 6.1), else the error as _body gives it."""
+    if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
+        return error(415, f"{what} is sent as JSON.", "Send the fields as a JSON object.")
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        return error(400, f"{what} is not a JSON object.", "Send the fields as a JSON object.")
+    return body
+
+
 def _same(given: str | None, token: str) -> bool:
     return given is not None and secrets.compare_digest(given.encode(), token.encode())
 
@@ -311,6 +324,52 @@ def create_app(root: Path, token: str) -> FastAPI:
             return error(HTTP[e.code], e.cause, e.next_action)
         finally:
             conn.close()
+
+    # Tables and Graphs (story 6.1): every read resolves the published version once and runs all its queries on that
+    # one file (F2), never through _query, which resolves the current version again on each call.
+    def _pinned(data_version, read) -> dict | JSONResponse:
+        from gct.stages import view
+
+        conn = store.connect(root / layout.DB_NAME)
+        try:
+            _, pconn = view.pinned(conn, root, data_version)
+        except GctError as e:
+            return error(HTTP[e.code], e.cause, e.next_action)
+        finally:
+            conn.close()
+        try:
+            return read(pconn)
+        except GctError as e:
+            return error(HTTP[e.code], e.cause, e.next_action)
+        finally:
+            pconn.close()
+
+    @app.post("/api/records")
+    async def records(request: Request):
+        body = await _object(request, "A records request")
+        if isinstance(body, JSONResponse):
+            return body
+        from gct.stages import view
+
+        unknown = sorted(set(body) - set(view.REQUEST))
+        if unknown:
+            return error(400, f"A records request has no field {unknown[0]}.", f"Send only: {', '.join(view.REQUEST)}.")
+        pin = body.get("data_version")
+        if pin is not None and (not isinstance(pin, int) or isinstance(pin, bool)):
+            return error(400, "The data version is not a whole number.", 'Send it as a JSON number, for example "data_version": 3.')
+        return await run_in_threadpool(_pinned, pin, lambda pconn: view.answer(
+            pconn, body.get("filter", {}), body.get("shape", "table"), body.get("offset", 0),
+            body.get("limit", view.LIMIT), body.get("sort"), body.get("claim_ids")))
+
+    @app.get("/api/documents/{doc_id:int}/cells")
+    def cells(doc_id: int, sheet: str | None = None, cell: str | None = None, data_version: str | None = None):
+        # Typed as text: a missing or malformed value gets gct's own refusal, not FastAPI's 422.
+        if data_version is not None and not data_version.isdigit():
+            return error(400, "The data version is not a whole number.", "Ask with data_version=N, for example 3.")
+        from gct.stages import view
+
+        return _pinned(None if data_version is None else int(data_version),
+                       lambda pconn: view.cells(pconn, root, doc_id, sheet, cell))
 
     def _write(record) -> dict | JSONResponse:
         """record(conn), the same function as the CLI command, under the workspace lock, then a new published
