@@ -330,9 +330,6 @@ def _extract(conn, root, run_id, docs, wanted=None) -> list[dict]:
     stage = Stage("extract", config, lambda item, conn: _work(root, config, run_id, item, conn), page_key)
     out = []
     for d in docs:
-        if d["file_type"] != "pdf":
-            out.append(_doc(d, "skipped", "not a PDF"))
-            continue
         only = (wanted or {}).get(d["id"])
         items = [_Page(d, r) for r in conn.execute(NEWEST_SQL, (None, None, d["id"]))
                  if only is None or r["page_number"] in only]
@@ -354,14 +351,21 @@ def _extract(conn, root, run_id, docs, wanted=None) -> list[dict]:
 
 def extract(conn, root, ids=(), company=None, notes=()) -> tuple[int | None, list[dict]]:
     """Extract the selection in one run. A page without a reading is skipped with a note, never failed.
-    Returns the run id (None when there was nothing to extract) and one record per document."""
+    Returns the run id (None when there was nothing to extract) and one record per document.
+    CSV and XLSX documents go to their own stage, sheet (story 4.3): a selection holding both makes two runs."""
+    from gct.stages import sheet  # sheet imports this module
+
     docs = select(conn, ids, company)
-    if not docs:
-        return None, []
-    with runs.run(conn, "extract") as run_id:
-        runs.record(conn, run_id, {"ids": list(ids), "company": company}, notes)
-        out = [_doc(d, "skipped", NOT_ACTIVE) for d in docs if d["state"] not in ACTIVE]
-        out += _extract(conn, root, run_id, [d for d in docs if d["state"] in ACTIVE])
+    pdfs = [d for d in docs if d["file_type"] not in sheet.TYPES]
+    run_id, out = None, []
+    if pdfs:
+        with runs.run(conn, "extract") as run_id:
+            runs.record(conn, run_id, {"ids": list(ids), "company": company}, notes)
+            out = [_doc(d, "skipped", NOT_ACTIVE) for d in pdfs if d["state"] not in ACTIVE]
+            out += _extract(conn, root, run_id, [d for d in pdfs if d["state"] in ACTIVE])
+    if len(pdfs) < len(docs):  # sheet.sheet skips a named archived spreadsheet the same way
+        sheet_run, sheets = sheet.sheet(conn, root, ids, company, notes)
+        run_id, out = run_id or sheet_run, out + sheets
     return run_id, out
 
 

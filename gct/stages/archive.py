@@ -16,6 +16,8 @@ REVIEWS = {
     # Rows naming a version of its claims, as either side; they leave the projection with the document.
     "restatement": f"SELECT COUNT(*) FROM restatement WHERE original_version_id IN ({VERSIONS})"
                    f" OR restated_version_id IN ({VERSIONS})",
+    # Every column mapping row of a spreadsheet (story 4.3); all of them are projected while it is active.
+    "sheet_mapping": "SELECT COUNT(*) FROM sheet_mapping WHERE document_id = ?",
 }
 
 

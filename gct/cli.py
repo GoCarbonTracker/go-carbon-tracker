@@ -10,7 +10,7 @@ from gct import __version__
 from gct.api import server
 from gct.measure import g2
 from gct.models import adapters, policy
-from gct.stages import archive, correct, extract, infer, link, match, missing, read, restate
+from gct.stages import archive, correct, extract, infer, link, match, missing, read, restate, sheet
 from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -132,7 +132,7 @@ def _impact_lines(i: dict) -> list[str]:
         lines.append("  expectations computed from it: " + ", ".join(map(str, i["expected_items"])))
     lines.append(f"  review records kept, no longer in active outputs: {r['inference_review']} inference reviews, "
                  f"{r['correction']} corrections, {r['match_review']} match reviews, {r['page_acceptance']} page "
-                 f"acceptances, {r['restatement']} restatement records")
+                 f"acceptances, {r['restatement']} restatement records, {r['sheet_mapping']} sheet mappings")
     return lines
 
 
@@ -233,7 +233,9 @@ def _extract_line(d: dict) -> str:
     if d["action"] != "extracted":
         return f"{d['action']} {d['id']}: {d['logical_name']}: {d['cause']}" + (f" ({d['next_action']})" if d["next_action"] else "")
     return (f"extracted {d['id']}: {d['logical_name']}: {d['pages']} pages, {d['extracted']} extracted, "
-            f"{d['cached']} cached, {d['failed']} failed, {d['figures']} figures, {d['no_box']} without a box")
+            f"{d['cached']} cached, {d['failed']} failed, {d['figures']} figures, {d['no_box']} without a box"
+            # A spreadsheet's notes: sheets without a confirmed mapping, rows for another company (story 4.3).
+            + (f"; {d['cause']}" if d["cause"] and not d["failed"] else ""))
 
 
 def cmd_extract(args) -> int:
@@ -259,9 +261,11 @@ def _extract_out(args, docs, head=None, extra=None) -> int:
         _print(args, {"status": "ok", **extra, "documents": docs}, text)
         return 0
     cause = f"{len(bad)} of {len(docs)} documents were not fully extracted: " + ", ".join(str(d["id"]) for d in bad)
-    _print(args, {"status": "partial", "cause": cause, "next_action": extract.RETRY, **extra, "documents": docs}, text)
+    # Only spreadsheets failed: their own retry wording (a failed spreadsheet's record carries it).
+    retry = sheet.RETRY if all(d["next_action"] == sheet.RETRY for d in bad) else extract.RETRY
+    _print(args, {"status": "partial", "cause": cause, "next_action": retry, **extra, "documents": docs}, text)
     if not args.json:
-        print(f"error: {cause}\nnext: {extract.RETRY}", file=sys.stderr)
+        print(f"error: {cause}\nnext: {retry}", file=sys.stderr)
     return layout.REFUSED
 
 
@@ -282,13 +286,18 @@ def _boundary_text(b: dict) -> str:
     return f"{b['boundary']}" + (f" ({b['detail']})" if b["detail"] else "") + f" {b['state']}"
 
 
+def _where(e: dict) -> str:
+    """A source location: the sheet and cell of a spreadsheet, else the page."""
+    return f"sheet {e['sheet']} cell {e['cell']}" if e["sheet"] else f"p{e['page_number']}"
+
+
 def _claim_line(c: dict) -> str:
     status = c["source_match"] or "not checked: gct link"
     status += f" ({c['source_match_reason']})" if c["source_match_reason"] else ""
     box = "  box " + ", ".join(f"{v:g}" for v in c["boxes"][0]) if c["boxes"] else ""
     label = f"  {c['boundary_label']}" if c["boundary_label"] else ""
     review = "".join(f"\n  needs re-review: {correct.entry_text(e)}" for e in c["needs_re_review"])
-    return (f"{c['id']}  p{c['page_number']}  {c['claim_state']}  {c['value_text']}  {c['unit_text'] or '-'}  "
+    return (f"{c['id']}  {_where(c)}  {c['claim_state']}  {c['value_text']}  {c['unit_text'] or '-'}  "
             f"{c['metric_text'] or '-'}  {_period_text(c['period'])}  {_boundary_text(c['boundary'])}{label}  "
             f"{status}{box}{review}")
 
@@ -297,7 +306,9 @@ def cmd_claims_list(args) -> None:
     conn = _open(args, write=False)
     cs = extract.claims(conn, args.doc)
     eff, states, reviews = (f(conn, args.doc) for f in (infer.effective, correct.states, correct.re_review))
-    cs = [{**c, **eff[c["id"]], "claim_state": states[c["id"]], "needs_re_review": reviews.get(c["id"], [])} for c in cs
+    refs = sheet.refs(conn, [c["id"] for c in cs])
+    cs = [{**c, **eff[c["id"]], **refs[c["id"]], "claim_state": states[c["id"]], "needs_re_review": reviews.get(c["id"], [])}
+          for c in cs
           if args.state is None or states[c["id"]] == correct.STATES[args.state]]
     text = "\n".join(map(_claim_line, cs)) or (
         f"No {args.state} claims." if args.state else f"No claims yet. Run: gct extract {args.doc}")
@@ -319,7 +330,7 @@ def _version_lines(v: dict) -> list[str]:
                      f"{c['contributor']} ({c['capacity']}): {c['rationale']}; replaced {c['replaced']['value_text']}")
     for e in v["evidence_refs"]:
         matches = ", ".join(s["status"] + (f" ({s['reason']})" if s["reason"] else "") for s in e["source_match"])
-        lines.append(f"  location p{e['page_number']}: {matches or 'not checked: gct link'}")
+        lines.append(f"  location {_where(e)}: {matches or 'not checked: gct link'}")
     lines += [f"  {i['field']} inference #{i['id']}: {i['state']}" + (f" ({i['reason']})" if i["reason"] else "")
               for i in v["inferences"]]
     lines += [f"  {r['field']} review #{r['id']}: {r['decision']} by {r['contributor']} ({r['capacity']}): {r['rationale']}"
@@ -329,7 +340,11 @@ def _version_lines(v: dict) -> list[str]:
 
 
 def cmd_claims_history(args) -> None:
-    h = correct.history(_open(args, write=False), args.claim)
+    conn = _open(args, write=False)
+    h = correct.history(conn, args.claim)
+    where = sheet.cells(conn, args.claim)
+    for v in h["versions"]:  # a spreadsheet location is its sheet and cell (story 4.3)
+        v["evidence_refs"] = [{**e, **where[e["id"]]} for e in v["evidence_refs"]]
     c = h["claim"]
     lines = [f"claim {c['id']}  document {c['document']} ({c['document_state']})  p{c['page_number']}  {c['locator']}  {c['state']}",
              *(f"  needs re-review: {correct.entry_text(e)}" for e in c["needs_re_review"]),
@@ -594,12 +609,14 @@ def _point_line(x: dict) -> str:
     states = ", ".join((f"claim {p['claim']}: " if many else "") + _pair_state(p) for p in x["pairs"])
     same = f"  same period: {x['same_period']} values, {states}" if x["same_period"] > 1 else ""
     return (f"  {x['period_start']}..{x['period_end']}  {x['value_text']}  {x['unit_text'] or '-'}  {_base(x)}  "
-            f"document {x['document_id']} p{x['page_number']}  claim {x['claim_id']}  {how}{same}")
+            f"document {x['document_id']} {_where(x)}  claim {x['claim_id']}  {how}{same}")
 
 
 def cmd_series_show(args) -> None:
     conn = _open(args, write=False)
     s = restate.mark(conn, match.series_show(conn, args.series, args.all))
+    refs = sheet.refs(conn, [x["claim_id"] for x in s["points"]])
+    s["points"] = [{**x, **refs[x["claim_id"]]} for x in s["points"]]  # a spreadsheet point names its sheet and cell
     head = (f"{s['id']}  {s['company']}  {_metric_text(s)}  {_boundary_of(s)}  {s['unit_family']}  {s['period_kind']}  "
             f"{s['periods']} periods" + ("" if args.all else f", latest period shown (all with --all)"))
     _print(args, {"status": "ok", "series": s}, "\n".join([head, *map(_point_line, s["points"])]))
@@ -654,7 +671,14 @@ def cmd_match_status(args) -> None:
 
 
 def _side(x: dict) -> str:
-    return f"{x['value_text']} {x['unit_text'] or '-'} (document {x['document_id']} p{x['page_number']}, claim {x['claim_id']})"
+    return f"{x['value_text']} {x['unit_text'] or '-'} (document {x['document_id']} {_where(x)}, claim {x['claim_id']})"
+
+
+def _located(conn, pairs) -> list[dict]:
+    """The pairs for the text, each side with its claim's sheet and cell so _side prints a spreadsheet location."""
+    refs = sheet.refs(conn, [x["claim_id"] for p in pairs for x in (p["a"], p["b"])])
+    return [{**p, "a": {**p["a"], **refs[p["a"]["claim_id"]]}, "b": {**p["b"], **refs[p["b"]["claim_id"]]}}
+            for p in pairs]
 
 
 def _restate_line(p: dict) -> str:
@@ -665,8 +689,9 @@ def _restate_line(p: dict) -> str:
 
 
 def cmd_restate_list(args) -> None:
-    shown, hidden = restate.listed(_open(args, write=False), args.company, args.state)
-    lines = list(map(_restate_line, shown)) or ["No pairs" + (" in this state." if args.state else " yet.")]
+    conn = _open(args, write=False)
+    shown, hidden = restate.listed(conn, args.company, args.state)
+    lines = list(map(_restate_line, _located(conn, shown))) or ["No pairs" + (" in this state." if args.state else " yet.")]
     if args.state:
         lines.append(f"{hidden} pairs in other states hidden by --state {args.state}.")
     _print(args, {"status": "ok", "pairs": shown, "hidden": hidden}, "\n".join(lines))
@@ -678,7 +703,8 @@ def _record_text(r: dict) -> str:
             f"{r['restated_version']} restated{where}, by {r['contributor']} ({r['capacity']}): {r['rationale']}")
 
 
-def _review_lines(v: dict) -> list[str]:
+def _review_lines(v: dict, cells: dict) -> list[str]:
+    """cells: the sheet and cell of each evidence reference of the claim (sheet.cells)."""
     r = v["reviews"]
     return [f"  claim {v['claim']} version {v['id']}:",
             *(f"    {x['field']} review #{x['id']} {x['decision']} by {x['contributor']} ({x['capacity']}): {x['rationale']}"
@@ -687,23 +713,26 @@ def _review_lines(v: dict) -> list[str]:
               f" {x['rationale']}" for x in r["corrections"]),
             *(f"    match review #{x['id']} {x['decision']} series {x['series']} by {x['contributor']} ({x['capacity']}):"
               f" {x['rationale']}" for x in r["match_reviews"]),
-            *(f"    location p{x['page_number']}: {x['status'] or 'not checked: gct link'}"
+            *(f"    location {_where({**x, **cells[x['evidence_ref']]})}: {x['status'] or 'not checked: gct link'}"
               + (f" ({x['reason']})" if x["reason"] else "") for x in r["source_match"]),
             *(f"    {_record_text(x)}" + ("" if x["current"] else " (superseded)")
               + ("" if x["binds"] else " (on an earlier version)") for x in r["restatements"])]
 
 
 def cmd_restate_show(args) -> None:
-    r = restate.show(_open(args, write=False), args.claim)
+    conn = _open(args, write=False)
+    r = restate.show(conn, args.claim)
     c = r["claim"]
+    cells = {k: x for v in r["versions"] for k, x in sheet.cells(conn, v["claim"]).items()}
     # Only a claim of an archived document has no match state.
     why = (c["match_state"] + (f" ({c['match_reason']})" if c["match_reason"] else "") if c["match_state"]
            else f"Document {c['document']} is archived.")
-    head = f"claim {c['id']}  document {c['document']} p{c['page_number']}  version {c['version']}  {why}"
+    head = (f"claim {c['id']}  document {c['document']} {_where({**c, **sheet.refs(conn, [c['id']])[c['id']]})}  "
+            f"version {c['version']}  {why}")
     none = "No pairs: the claim shares no period." if c["series_id"] else (
         f"No pairs: the claim is in no series: {why}." if c["match_state"] else "No pairs.")
-    lines = [head, *(_restate_line(p) for p in r["pairs"])] if r["pairs"] else [head, none]
-    _print(args, {"status": "ok", **r}, "\n".join([*lines, "Records:", *(x for v in r["versions"] for x in _review_lines(v))]))
+    lines = [head, *map(_restate_line, _located(conn, r["pairs"]))] if r["pairs"] else [head, none]
+    _print(args, {"status": "ok", **r}, "\n".join([*lines, "Records:", *(x for v in r["versions"] for x in _review_lines(v, cells))]))
 
 
 def _decided(r: dict) -> str:
@@ -721,6 +750,32 @@ def cmd_restate_record(args) -> None:
 def cmd_restate_withdraw(args) -> None:
     r = restate.withdraw(_open(args), args.original, args.restated, args.as_, args.capacity, args.rationale)
     _print(args, {"status": "ok", **r}, _decided(r))
+
+
+def _mapping_text(m: dict) -> str:
+    cols = ", ".join(f"{r} {m[r]}" for r in sheet.ROLES if m[r])
+    declared = [f"year end {m['year_end']}"] * bool(m["year_end"]) + [
+        f"boundary {m['boundary_is']}" + (f" ({m['boundary_detail']})" if m["boundary_detail"] else "")] * bool(m["boundary_is"])
+    return (f"mapping #{m['id']} by {m['contributor']} ({m['capacity']}): {cols}"
+            + (f"; declared {', '.join(declared)} (proposals until gct infer accept)" if declared else ""))
+
+
+def cmd_sheet_show(args) -> None:
+    ss = sheet.show(_open(args, write=False), args.root, args.doc)
+    lines = []
+    for s in ss:
+        lines += [f"sheet {s['position']} {s['name']}: " + (_mapping_text(s["mapping"]) if s["mapping"] else sheet.NO_MAPPING),
+                  "  row 1: " + " | ".join(s["header"]), *(f"  row {r['row']}: " + " | ".join(r["cells"]) for r in s["rows"])]
+    _print(args, {"status": "ok", "document": args.doc, "sheets": ss}, "\n".join(lines) or "This document has no sheets.")
+
+
+def cmd_sheet_map(args) -> None:
+    cols = {r: getattr(args, r) for r in sheet.ROLES}
+    m = sheet.map_sheet(_open(args), args.root, args.doc, args.sheet, cols, args.year_end, args.boundary_is,
+                        args.boundary_detail, args.as_, args.capacity, args.rationale)
+    _print(args, {"status": "ok", "mapping": m},
+           f"Mapped sheet {m['sheet']} of document {m['document']}: {_mapping_text(m)}. "
+           f"It applies from the next run of: gct extract {m['document']}")
 
 
 def _contributor_line(c: dict) -> str:
@@ -872,16 +927,17 @@ AGAIN = {"read": "Run gct read again with the same documents.",
          "link": "Run gct link again with the same documents.",
          "infer": "Run gct infer again with the same documents.",
          "match": "Run gct match again with the same documents.",
+         "sheet": "Run gct extract again with the same documents.",
          "doc add": "Run gct doc add again with the same files."}
 STAGES = {"read": (read, _read_out), "extract": (extract, _extract_out), "link": (link, _link_out),
-          "infer": (infer, _infer_out), "match": (match, _match_out)}
+          "infer": (infer, _infer_out), "match": (match, _match_out), "sheet": (sheet, _extract_out)}
 
 
 def _of_run(conn, n: int, verb: str) -> dict:
-    """Run n, which must be a read, extract, link, infer, match or doc add run."""
+    """Run n, which must be a read, extract, link, infer, match, sheet or doc add run."""
     r = runs.show_run(conn, n)
     if r["command"] not in AGAIN:
-        raise GctError(layout.REFUSED, f"Run {n} was a {r['command']} run. Only read, extract, link, infer, match and doc add runs can be {verb}.",
+        raise GctError(layout.REFUSED, f"Run {n} was a {r['command']} run. Only read, extract, link, infer, match, sheet and doc add runs can be {verb}.",
                        "See the runs with: gct run list")
     return r
 
@@ -1065,7 +1121,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,claims,correct,contributor,expect,pages,gap,publish,run,approve,model,measure,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,claims,sheet,correct,contributor,expect,pages,gap,publish,run,approve,model,measure,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -1230,6 +1286,23 @@ def build_parser() -> argparse.ArgumentParser:
     hist = claims.add_parser("history", parents=[common], help="every version of one claim and what was recorded on it")
     hist.add_argument("claim", type=int, metavar="CLAIM")
     hist.set_defaults(func=cmd_claims_history)
+
+    sheets = group("sheet", "internal-evidence spreadsheets (CSV, XLSX): sheets and column mappings")
+    show = sheets.add_parser("show", parents=[common], help="each sheet's header row, first rows and current mapping")
+    show.add_argument("doc", type=int, metavar="DOC")
+    show.set_defaults(func=cmd_sheet_show)
+    mp = sheets.add_parser("map", parents=[common], help="say once which column of a sheet holds what (confirms no value)")
+    mp.add_argument("doc", type=int, metavar="DOC")
+    mp.add_argument("--sheet", required=True, metavar="NAME", help="the sheet name as gct sheet show prints it")
+    mp.add_argument("--metric", required=True, metavar="COL", help="a header exactly as printed in row 1")
+    mp.add_argument("--value", metavar="COL", help="the column holding the figures (required)")
+    for role in sheet.ROLES[2:]:
+        mp.add_argument(f"--{role}", metavar="COL")
+    mp.add_argument("--year-end", metavar="MM-DD", help="the fiscal year end the period column uses (a proposal)")
+    mp.add_argument("--boundary-is", choices=infer.BOUNDARIES, help="the reporting boundary of this sheet (a proposal)")
+    mp.add_argument("--boundary-detail", metavar="TEXT")
+    attributed(mp)
+    mp.set_defaults(func=cmd_sheet_map)
 
     cor = top.add_parser("correct", parents=[common], help="correct a current claim's figure (a new version; earlier ones stay)")
     cor.add_argument("claim", type=int, metavar="CLAIM")

@@ -26,7 +26,7 @@ CREATE TABLE claim (
     period_basis TEXT, boundary_basis TEXT, proposed_period_kind TEXT, proposed_period_start TEXT,
     proposed_period_end TEXT, proposed_reporting_boundary TEXT, proposed_boundary_detail TEXT, boundary_label TEXT,
     claim_state TEXT NOT NULL, correction TEXT, needs_re_review TEXT NOT NULL, metric_rule TEXT, unit_key TEXT,
-    unit_factor REAL, series_id TEXT, match_state TEXT NOT NULL, match_reason TEXT
+    unit_factor REAL, series_id TEXT, match_state TEXT NOT NULL, match_reason TEXT, note TEXT
 );
 CREATE TABLE series (
     id TEXT PRIMARY KEY, company_id INTEGER NOT NULL, metric_key TEXT, label TEXT, document_id INTEGER,
@@ -72,6 +72,12 @@ CREATE TABLE hidden_by_archive (
     document_id INTEGER PRIMARY KEY, logical_name TEXT NOT NULL, archived_at TEXT NOT NULL, claims INTEGER NOT NULL,
     evidence_refs INTEGER NOT NULL, review_records INTEGER NOT NULL
 );
+CREATE TABLE sheet_mapping (
+    id INTEGER PRIMARY KEY, document_id INTEGER NOT NULL, sheet TEXT NOT NULL, position INTEGER NOT NULL, metric_col TEXT,
+    value_col TEXT NOT NULL, unit_col TEXT, period_col TEXT, boundary_col TEXT, company_col TEXT, note_col TEXT,
+    year_end TEXT, boundary_is TEXT, boundary_detail TEXT, contributor_name TEXT NOT NULL, contributor_organisation TEXT,
+    capacity TEXT NOT NULL, rationale TEXT NOT NULL, created_at TEXT NOT NULL
+);
 """
 # Contributors project their name and organisation only; the sanitised package (E7) decides what leaves.
 # Acceptances of an archived document leave with it (counted in hidden_by_archive).
@@ -81,6 +87,14 @@ SELECT a.id, a.document_id, a.page_number, a.content_type, c.name, c.organisatio
                          AND p.page_number = a.page_number ORDER BY p.id DESC LIMIT 1), a.created_at
 FROM page_acceptance a JOIN contributor_version c ON c.id = a.contributor_version_id
 JOIN document d ON d.id = a.document_id WHERE {ACTIVE} IN ('registered', 'restored') ORDER BY a.id
+"""
+# Every mapping row of an active spreadsheet, current or superseded (story 4.3).
+SHEET_MAPPING_SQL = f"""
+SELECT m.id, m.document_id, m.sheet, m.position, m.metric_col, m.value_col, m.unit_col, m.period_col, m.boundary_col,
+       m.company_col, m.note_col, m.year_end, m.boundary_is, m.boundary_detail, c.name, c.organisation, m.capacity,
+       m.rationale, m.created_at
+FROM sheet_mapping m JOIN contributor_version c ON c.id = m.contributor_version_id JOIN document d ON d.id = m.document_id
+WHERE {ACTIVE} IN ('registered', 'restored') ORDER BY m.id
 """
 COMPANY_COLUMNS = "id, name, sector_ref, sector_version"
 DOCUMENT_COLUMNS = "id, company_id, logical_name, version, sha256, kind, file_type, privacy, size_bytes"
@@ -125,7 +139,9 @@ def history_mark(conn: sqlite3.Connection) -> str:
                   "basis", "basis_scope", "inference", "inference_review",
                   # A claim's state follows the extractions, including one that found nothing on its page.
                   "correction", "claim_seen", "attempt WHERE stage = 'extract'",
-                  "metric_assignment", "match_review", "restatement", "document_state_change")
+                  "metric_assignment", "match_review", "restatement", "document_state_change",
+                  # A sheet extraction can change a spreadsheet claim's state without adding a version (story 4.3).
+                  "sheet_mapping", "claim_note", "attempt WHERE stage = 'sheet'")
     )
 
 
@@ -205,11 +221,12 @@ def _with_inference(conn: sqlite3.Connection, claims, matched: dict) -> list[tup
     """Claim rows with the period and boundary taken in order: resolved, else accepted for the current inference, else
     the claim version's own. A proposal goes to the proposed_* columns only, so a reader of the main fields never
     sees it. Then the boundary label, the claim's state, the correction that made the version and the decisions
-    that need re-review (story 3.5), and the metric assignment and match state (story 4.1); metric_key is the
-    assignment's key."""
+    that need re-review (story 3.5), the metric assignment and match state (story 4.1) and the version's note (story
+    4.3); metric_key is the assignment's key."""
     from gct.stages import correct, infer  # the stages import this package
 
     eff, out, per_doc = infer.effective(conn), [], {}
+    notes = dict(conn.execute("SELECT claim_version_id, text FROM claim_note ORDER BY id"))
     match = {c["claim_id"]: c for c in matched["claims"]}
     for row in claims:
         doc = row[2]
@@ -231,7 +248,7 @@ def _with_inference(conn: sqlite3.Connection, claims, matched: dict) -> list[tup
                  if x["basis"] else None for x in (p, b)]
         proposed = ([p["kind"], p["start"], p["end"]] if p["state"] == "proposed" else [None] * 3) + (
             [b["boundary"], b["detail"]] if b["state"] == "proposed" else [None] * 2)
-        out.append((*row, p["state"], b["state"], *basis, *proposed, *extra))
+        out.append((*row, p["state"], b["state"], *basis, *proposed, *extra, notes.get(row[7])))
     return out
 
 
@@ -257,7 +274,8 @@ def _read_history(conn: sqlite3.Connection, root: Path):
         from gct.stages import archive  # the stages import this package
 
         extra = {**_missing(conn, root), **_series(matched), **_comparison(conn, matched),
-                 "hidden_by_archive": [tuple(h.values()) for h in archive.hidden(conn)]}
+                 "hidden_by_archive": [tuple(h.values()) for h in archive.hidden(conn)],
+                 "sheet_mapping": conn.execute(SHEET_MAPPING_SQL).fetchall()}
     finally:
         conn.execute("COMMIT")
     return mark, companies, docs, claims, refs, extra
@@ -275,7 +293,7 @@ def _write_projection(path: Path, meta: dict, companies, docs, claims, refs, ext
         out.executemany("INSERT INTO meta VALUES (?, ?)", [(k, str(v)) for k, v in meta.items()])
         out.executemany(f"INSERT INTO company VALUES ({','.join('?' * 4)})", [tuple(r) for r in companies])
         out.executemany(f"INSERT INTO document VALUES ({','.join('?' * 9)})", [tuple(r) for r in docs])
-        out.executemany(f"INSERT INTO claim VALUES ({','.join('?' * 40)})", [tuple(r) for r in claims])
+        out.executemany(f"INSERT INTO claim VALUES ({','.join('?' * 41)})", [tuple(r) for r in claims])
         out.executemany(f"INSERT INTO evidence_ref VALUES ({','.join('?' * 9)})", [tuple(r) for r in refs])
         for table, rows in extra.items():
             rows = [tuple(r) for r in rows]
@@ -313,7 +331,7 @@ def build(conn: sqlite3.Connection, root: Path) -> dict:
     hid = extra["hidden_by_archive"]
     meta = {
         "version": version, "built_at": built_at, "history_mark": mark,
-        "gct_version": __version__, "projection_schema": 8,
+        "gct_version": __version__, "projection_schema": 9,
         "hidden_by_archive": json.dumps({"documents": len(hid), **{k: sum(h[i] for h in hid) for i, k in (
             (3, "claims"), (4, "evidence_refs"), (5, "review_records"))}}),
     }

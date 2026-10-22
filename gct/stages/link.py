@@ -4,7 +4,7 @@ the check exists for later rungs, corrections and re-reads."""
 import json
 from pathlib import Path
 
-from gct.stages import Result, Stage, run_stage, version_of
+from gct.stages import Result, Stage, run_stage, sheet, version_of
 from gct.stages.extract import FAILED_PAGES_SQL, _centre_in, _lines, _union
 from gct.stages.read import ACTIVE, NEWEST_SQL, NOT_ACTIVE, select
 from gct.workspace import registry, runs, store
@@ -17,7 +17,7 @@ RETRY = "Run gct link again. Locations already checked against the same reading 
 FAILED_SQL = FAILED_PAGES_SQL.replace("a.stage = 'extract'", "a.stage = 'link'")
 # The evidence refs of the newest version of every claim of one document.
 REFS_SQL = """
-SELECT e.id, e.page_number, e.boxes, e.sheet, v.value_text, v.unit_text
+SELECT e.id, e.page_number, e.boxes, e.sheet, e.cell, v.value_text, v.unit_text
 FROM claim c JOIN claim_version v ON v.id = (SELECT MAX(id) FROM claim_version WHERE claim_id = c.id)
 JOIN evidence_ref e ON e.claim_version_id = v.id
 WHERE c.document_id = ? ORDER BY e.id
@@ -71,7 +71,8 @@ def _work(root: Path, run_id: int, item: _Ref, conn) -> Result:
     if item.page is not None:
         path = conn.execute("SELECT path FROM artifact WHERE id = ?", (item.page["artifact_id"],)).fetchone()[0]
         reading = json.loads((root / path).read_text(encoding="utf-8"))
-    status = match(item.ref, reading)
+    # A sheet reference is checked against the stored file, never a page reading (story 4.3 S5).
+    status = sheet.check(conn, root, item.doc, item.ref) if item.ref["sheet"] else match(item.ref, reading)
     with store.transaction(conn):
         record(conn, item.ref["id"], run_id, status, item.page and item.page["artifact_id"], store.now())
     return Result(output={"status": status[0]}, method="link")
@@ -88,7 +89,9 @@ def _link(conn, root, run_id, docs, wanted=None) -> list[dict]:
     root = Path(root)
     stage = Stage("link", CONFIG, lambda item, conn: _work(root, run_id, item, conn),
                   # The page row, not the artifact sha: a newer row may point back at an earlier artifact (A, B, A).
-                  lambda item: f"page {item.page['id']}" if item.page is not None else "none")
+                  # A sheet reference: the file and the sheet's current mapping, so a new mapping checks it again.
+                  lambda item: sheet.link_input(conn, item.doc, item.ref["sheet"]) if item.ref["sheet"]
+                  else f"page {item.page['id']}" if item.page is not None else "none")
     out = []
     for d in docs:
         only = (wanted or {}).get(d["id"])

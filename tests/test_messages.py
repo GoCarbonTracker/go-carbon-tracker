@@ -97,6 +97,8 @@ def refusals(ws, tmp_path, make_file):
         (["restate", "withdraw", "--original", "98", "--restated", "99", *WHO, "--workspace", ws], 3),
         (["restate", "withdraw", "--original", "98", "--restated", "99", "--as", "ana", "--capacity", "c",
           "--rationale", " ", "--workspace", ws], 2),
+        (["sheet", "show", "99", "--workspace", ws], 3),
+        (["sheet", "map", "99", "--sheet", "s", "--metric", "M", "--value", "V", *WHO, "--workspace", ws], 3),
         (["serve", "--no-open", "--workspace", tmp_path / "nowhere"], 3),
         (["doc", "archive", "99", *WHO, "--workspace", ws], 3),
         (["doc", "archive", "99", "--plan", "--workspace", ws], 3),
@@ -166,6 +168,30 @@ def test_every_refusal_has_cause_next_action_and_no_internals(ws, gct, tmp_path,
         machine = gct(*argv, "--json")
         assert machine.code == code and machine.data["status"] == "error"
         assert machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in INTERNAL_WORDS:
+                assert word not in text, (argv, word)
+            for name in names:
+                assert name not in text, (argv, name)
+
+
+def test_sheet_refusals_have_cause_next_action_and_no_internals(ws, gct, make_file):
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    gct("doc", "add", make_file("m.csv", b"Metric,Value,Value\nScope 1,1,2\n"), "--company", "Acme")
+    gct("doc", "add", make_file("r.pdf", PDF), "--company", "Acme")
+    names = internal_names(ws)
+    base = ["sheet", "map", "1", "--sheet", "m", "--metric", "Metric"]
+    for argv, code in [(["sheet", "show", "2"], 4), (["sheet", "map", "2", "--sheet", "m", "--metric", "M", "--value", "V", *WHO], 4),
+                       ([*base[:4], "x", *base[5:], "--value", "Metric", *WHO], 3), ([*base, "--value", "Unit", *WHO], 4),
+                       ([*base, "--value", "Value", *WHO], 4), ([*base, *WHO], 2),
+                       ([*base, "--value", "Metric", "--year-end", "31-03", *WHO], 2),
+                       ([*base, "--value", "Metric", "--boundary-detail", "plants", *WHO], 2)]:
+        human = gct(*argv)
+        assert human.code == code and human.out == "", argv
+        assert human.err.startswith("error: ") and "\nnext: " in human.err, (argv, human.err)
+        machine = gct(*argv, "--json")
+        assert machine.code == code and machine.data["cause"] and machine.data["next_action"]
         for text in (human.err, machine.out):
             for word in INTERNAL_WORDS:
                 assert word not in text, (argv, word)

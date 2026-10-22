@@ -182,6 +182,32 @@ def test_restate_matches_the_documented_keys(ws, gct, make_file):
                for q in p["pairs"])
 
 
+def test_sheet_commands_match_the_documented_keys(ws, gct, make_file):
+    from test_match import ready
+    from test_sheet import MAP, ROWS, WHO, add, csv_bytes, report, xlsx
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    add(gct, make_file, "r.pdf", report([["Total Scope 1 emissions", "tCO2e", "1,234", "1,100"]]))
+    doc = add(gct, make_file, "m.csv", csv_bytes(ROWS))
+    add(gct, make_file, "b.xlsx", xlsx({"Fuel": [["Fuel", "Litres"], ["Diesel", 120]]}))
+    check("sheet show", gct("sheet", "show", doc, "--json").data)
+    check("sheet map", gct("sheet", "map", doc, "--sheet", "m", *MAP, "--year-end", "03-31", "--boundary-is", "standalone",
+                           *WHO, "--json").data)
+    check("sheet show", gct("sheet", "show", doc, "--json").data)
+    gct("read")
+    extracted = gct("extract", "--json").data
+    check("extract", extracted)
+    assert [d["action"] for d in extracted["documents"]] == ["extracted", "extracted", "skipped"]
+    ready(gct)
+    check("claims list", gct("claims", "list", "--doc", doc, "--json").data)
+    check("claims history", gct("claims", "history", 3, "--json").data)
+    sid = gct("series", "list", "--metric", "ghg_scope_1", "--json").data["series"][0]["id"]
+    check("series show", gct("series", "show", sid, "--all", "--json").data)
+    n = next(r["id"] for r in gct("run", "list", "--json").data["runs"] if r["command"] == "sheet")
+    assert set(gct("run", "retry", n, "--json").data) == {"status", "run_id", "of_run", "documents"}
+
+
 def test_approve_and_model_match_the_documented_keys(tmp_path, gct, monkeypatch):
     from gct.models import redact
 
@@ -285,7 +311,7 @@ def test_every_command_has_a_documented_section():
         "claims history", "correct",
         "infer", "infer bases", "infer scope", "infer groups", "infer accept", "infer resolve", "infer reject",
         "match", "match metrics", "match review", "match link", "match unlink", "match status", "series list",
-        "series show", "restate list", "restate show", "restate record", "restate withdraw",
+        "series show", "restate list", "restate show", "restate record", "restate withdraw", "sheet show", "sheet map",
         "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
         "publish build", "publish restore", "publish status",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",

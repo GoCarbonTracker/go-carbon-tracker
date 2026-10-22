@@ -51,8 +51,8 @@ def built(gct, ws) -> dict:
         conn.close()
 
 
-# AC 1 and AC 9: a 4.1 workspace gets 0013 (story 4.2) then 0014, in order, in one recorded upgrade
-def test_migrations_13_then_14_apply_to_a_version_12_workspace(tmp_path, gct):
+# AC 1 and AC 9: a 4.1 workspace gets 0013 (story 4.2), 0014 then 0015 (story 4.3), in order, in one recorded upgrade
+def test_migrations_13_14_then_15_apply_to_a_version_12_workspace(tmp_path, gct):
     root = tmp_path / "old"
     root.mkdir()
     for name in layout.SUBDIRS:
@@ -63,12 +63,12 @@ def test_migrations_13_then_14_apply_to_a_version_12_workspace(tmp_path, gct):
     c.close()
     assert gct("doc", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-3:] == [12, 13, 14]
+    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-4:] == [12, 13, 14, 15]
     (run,) = runs.list_runs(c)
     assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == [
-        "applied migration 13", "applied migration 14"]
+        "applied migration 13", "applied migration 14", "applied migration 15"]
     assert {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} >= {
-        "restatement", "document_state_change"}
+        "restatement", "document_state_change", "sheet_mapping", "claim_note"}
     c.close()
 
 
@@ -277,7 +277,7 @@ def test_plan_shows_the_impact_and_stores_nothing(ws, db, gct, two):
     reviews = db.execute("SELECT COUNT(*) FROM inference_review r JOIN claim_version v ON v.id = r.claim_version_id"
                          " JOIN claim c ON c.id = v.claim_id WHERE c.document_id = ?", (b,)).fetchone()[0]
     assert reviews and i["review_records"] == {"inference_review": reviews, "correction": 0, "match_review": 0,
-                                               "page_acceptance": 1, "restatement": 0}
+                                               "page_acceptance": 1, "restatement": 0, "sheet_mapping": 0}
     assert gct("doc", "archive", d, "--plan", "--json").data["impact"]["uncertain_items"] == 1
     real = gct("doc", "archive", b, *WHO, "--json").data
     assert real["impact"] == i and real["state_change"]["state"] == "archived"
@@ -307,7 +307,7 @@ def test_projection_hides_archived_documents_and_counts_them(ws, db, gct, two):
     gct("expect", "add", "--company", "Acme", "--metric", "scope 1 emissions")
     gct("pages", "accept", "--doc", b, "--pages", "1", "--type", "figures", *WHO)
     p = built(gct, ws)
-    assert {m["key"]: m["value"] for m in p["meta"]}["projection_schema"] == "8"
+    assert {m["key"]: m["value"] for m in p["meta"]}["projection_schema"] == "9"
     assert p["hidden_by_archive"] == [] and b in {x["id"] for x in p["document"]}
     assert [x["document_id"] for x in p["page_acceptance"]] == [b]
     mark = published.history_mark(db)
@@ -391,3 +391,39 @@ def test_restatements_leave_with_an_archived_document_and_come_back(ws, gct, mak
     assert (gct("restate", "list", "--json").data, gct("restate", "list").out) == listed
     back = built(gct, ws)
     assert (back["comparison"], back["restatement"]) == (full["comparison"], full["restatement"])
+
+
+# Story 4.3 on 4.4: a superseded mapping is a review record too, as it is projected beside the current one
+def test_archive_and_restore_of_a_spreadsheet(ws, gct, make_file, acme):
+    from test_sheet import MAP, ROWS, add as add_sheet, csv_bytes
+
+    doc = add_sheet(gct, make_file, "m.csv", csv_bytes(ROWS))
+    gct("sheet", "map", doc, "--sheet", "m", "--metric", "Metric", "--value", "Value", *WHO)  # superseded
+    gct("sheet", "map", doc, "--sheet", "m", *MAP, *WHO)  # current
+    gct("extract", doc)
+
+    def mappings(p):
+        return [(m["id"], m["document_id"], m["value_col"], m["note_col"]) for m in p["sheet_mapping"]]
+
+    def projected():
+        v = gct("publish", "build", "--json").data
+        conn = published.open_version(ws / "published" / f"v{v['version']}.db")
+        try:
+            return {t: [dict(r) for r in conn.execute(f"SELECT * FROM {t} ORDER BY 1")]
+                    for t in ("sheet_mapping", "claim", "hidden_by_archive")}
+        finally:
+            conn.close()
+
+    before = projected()
+    assert mappings(before) == [(1, doc, "Value", None), (2, doc, "Value", "Note")] and len(before["claim"]) == 2
+    plan = gct("doc", "archive", doc, "--plan", "--json").data["impact"]
+    assert plan["review_records"]["sheet_mapping"] == 2 and ", 2 sheet mappings" in gct("doc", "archive", doc, "--plan").out
+    real = gct("doc", "archive", doc, *WHO, "--json").data
+    assert real["impact"] == plan and real["impact"]["review_records"]["sheet_mapping"] == 2
+    hid = projected()
+    assert hid["sheet_mapping"] == [] and hid["claim"] == []
+    assert [(h["document_id"], h["claims"], h["review_records"]) for h in hid["hidden_by_archive"]] == [
+        (doc, 2, sum(plan["review_records"].values()))] and sum(plan["review_records"].values()) == 2
+    assert gct("doc", "restore", doc, *WHO).code == 0
+    back = projected()
+    assert mappings(back) == mappings(before) and back["claim"] == before["claim"] and back["hidden_by_archive"] == []

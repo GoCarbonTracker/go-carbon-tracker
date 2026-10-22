@@ -3,7 +3,7 @@ and nothing recorded on an earlier version is carried to a newer one silently.""
 import json
 
 from gct.stages import version_of
-from gct.stages import extract
+from gct.stages import extract, sheet
 from gct.stages.infer import _who
 from gct.stages.missing import _text
 from gct.stages.read import NEWEST_SQL
@@ -32,6 +32,8 @@ JOIN claim_version v ON v.id = r.corrects_version_id WHERE r.claim_version_id = 
 def states(conn, doc_id: int) -> dict:
     """{claim id: state} for one document. Current only when the page's newest reading was extracted with the current
     extract config and that extraction found the claim."""
+    if (out := sheet.states(conn, doc_id)) is not None:  # a CSV or XLSX document: its sheet stage decides (story 4.3)
+        return out
     config = extract.extract_config()
     pages = {r["page_number"]: r["id"] for r in conn.execute(NEWEST_SQL, (None, None, doc_id))}
     extracted = {iv for (iv,) in conn.execute(

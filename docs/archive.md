@@ -36,7 +36,8 @@ one record in the same way.
   never be confirmed as a gap over nothing.
 - Its figures leave every comparison pair (`gct restate list`), since pairs come from the series.
 - `gct publish build` leaves out the document, its claims, their locations, their series points and its page
-  acceptances (see Hidden counts), and the pairs and restatement records that name a version of its claims.
+  acceptances (see Hidden counts), the pairs and restatement records that name a version of its claims, and the
+  column mappings of a spreadsheet (`sheet_mapping`).
   The viewer reads only the published version, so after the next build it no longer offers the document.
 
 ## Refused while archived
@@ -44,7 +45,7 @@ one record in the same way.
 These are refused with `Document N is archived.` and the next step `Restore it with: gct doc restore N`:
 `gct correct` on one of its claims, `gct infer resolve` and `gct infer reject --claim` on one of its claims,
 `gct infer scope` on one of its statements, `gct pages accept --doc N`, `gct expect add --doc N`, and
-`gct restate record` and `gct restate withdraw` naming one of its claims. Archiving an
+`gct restate record` and `gct restate withdraw` naming one of its claims, and `gct sheet map N`. Archiving an
 archived document and restoring one that is not archived are refused too. Adding its file again with `gct doc add`
 reports the duplicate and adds `It is archived. Restore it with: gct doc restore N`.
 
@@ -67,8 +68,8 @@ claims.
 - its items in the review queue;
 - the expectations whose state is worked out from it;
 - the review records that stay stored but leave the active outputs: period and boundary reviews, corrections and
-  match reviews on any version of its claims, its page acceptances, and the restatement records (recorded or withdrawn) naming any version of its claims as original
-  or restated.
+  match reviews on any version of its claims, its page acceptances, the restatement records (recorded or withdrawn) naming any version of its claims as original
+  or restated, and every column mapping of a spreadsheet (`gct sheet map`).
 
 The summary lists the document's own points and items. If another document's figure waited in the review queue only
 for a series that this document alone made, that item leaves the queue too; the series shows `points_left` 0.
@@ -77,8 +78,8 @@ for a series that this document alone made, that item leaves the queue too; the 
 
 Series, review items, effective periods and boundaries, claim states and expectation states are worked out each time
 they are asked for, never stored. A restore therefore brings every output back as it was before the archive:
-`gct match status`, `gct series show SERIES --all`, `gct restate list` and the claims, series, points, pairs and
-restatement records of the next `gct publish build` are the same as before.
+`gct match status`, `gct series show SERIES --all`, `gct restate list` and the claims, series, points, pairs,
+restatement records and sheet mappings of the next `gct publish build` are the same as before.
 
 ## Hidden counts
 

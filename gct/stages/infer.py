@@ -8,7 +8,7 @@ from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
 
-from gct.stages import Result, Stage, run_stage, version_of
+from gct.stages import Result, Stage, run_stage, sheet, version_of
 from gct.stages.extract import FAILED_PAGES_SQL, _clean
 from gct.stages.link import EXTRACT_FIRST
 from gct.stages.missing import _text, contributor, page_count
@@ -325,6 +325,8 @@ def _record(conn, cv: int, field: str, row: dict, run_id: int, stamp: str) -> bo
 
 def _work(root: Path, run_id: int, item: _Doc, conn) -> Result:
     doc_id, found, headings = item.doc["id"], [], []
+    if item.doc["file_type"] in sheet.TYPES:  # no readings: the current mappings' declarations (story 4.3 S4)
+        found = sheet.declarations(conn, doc_id)
     for p in item.pages:
         path = conn.execute("SELECT path FROM artifact WHERE id = ?", (p["artifact_id"],)).fetchone()[0]
         statements, heading = bases_of(json.loads((root / path).read_text(encoding="utf-8")))
@@ -333,6 +335,11 @@ def _work(root: Path, run_id: int, item: _Doc, conn) -> Result:
     stamp, rows = store.now(), 0
     with store.transaction(conn):
         bases = list({b["id"]: b for b in (_basis(conn, doc_id, page, s, run_id, stamp) for page, s in found)}.values())
+        for page, s in found:  # a mapping's declared boundary covers its own sheet, declared by its contributor
+            if (m := s.get("mapping")) and _scope(conn, (b := _basis(conn, doc_id, page, s, run_id, stamp))["id"]) is None:
+                conn.execute("INSERT INTO basis_scope (basis_id, first_page, last_page, contributor_version_id, capacity,"
+                             " rationale, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                             (b["id"], page, page, m["contributor_version_id"], m["capacity"], m["rationale"], stamp))
         fiscal = [b for b in bases if b["kind"] == "fiscal_year_end"]
         scoped = [{**b, "first_page": s["first_page"], "last_page": s["last_page"]}
                   for b in bases if b["kind"] == "reporting_boundary" and (s := _scope(conn, b["id"]))]
@@ -379,8 +386,13 @@ def _infer(conn, root, run_id, docs) -> list[dict]:
             runs.event(conn, run_id, "note", stage="infer", item=str(d["id"]), message=EXTRACT_FIRST)
             out.append(_doc(d, "skipped", "This document has no claims yet.", EXTRACT_FIRST))
             continue
-        pages = conn.execute(NEWEST_SQL, (None, None, d["id"])).fetchall()
-        counts = run_stage(conn, run_id, stage, [_Doc(d, claims, pages, _input(conn, d["id"], claims, pages))])
+        if d["file_type"] in sheet.TYPES:  # its bases and scopes follow the current mappings (story 4.3 S4)
+            pages = []
+            version = version_of(*(c["claim_version_id"] for c in claims), "mappings", *sheet.mapping_ids(conn, d["id"]))
+        else:
+            pages = conn.execute(NEWEST_SQL, (None, None, d["id"])).fetchall()
+            version = _input(conn, d["id"], claims, pages)
+        counts = run_stage(conn, run_id, stage, [_Doc(d, claims, pages, version)])
         failed, last = counts["failed"], _last(conn, d["id"]) or {"bases": [], "headings": []}
         out.append(_doc(
             d, "inferred", "The document could not be inferred." if failed else None, RETRY if failed else None,
