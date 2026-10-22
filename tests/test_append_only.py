@@ -39,6 +39,8 @@ def test_every_table_is_append_only(ws, db, gct, make_file):
                " contributor_version_id, capacity, created_at) VALUES (1, 2, 'evidence_not_found', 'r', 'p', 1, 'c', 't')")
     db.execute("INSERT INTO reviewer_flag (claim_version_id, decision, rationale, contributor_version_id, capacity,"
                " created_at) VALUES (2, 'raised', 'r', 1, 'c', 't')")
+    db.execute("INSERT INTO highlight (claim_version_id, contributor_version_id, capacity, note, created_at)"
+               " VALUES (2, 1, 'c', 'n', 't')")
     db.execute("INSERT INTO document_deletion (document_state_id, plan, created_at) VALUES (1, '{}', 't')")
     db.execute("INSERT INTO document_deletion_step (deletion_id, step, detail, created_at) VALUES (1, 'files', '{}', 't')")
     db.commit()

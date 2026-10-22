@@ -105,7 +105,7 @@ def test_migration_15_applies_to_a_version_12_workspace(tmp_path, gct):
     c.close()
     assert gct("contributor", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")] == [*range(1, 19)]
+    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")] == [*range(1, 20)]
     c.close()
 
 
@@ -419,7 +419,7 @@ def test_privacy_and_the_published_version(acme, gct, db, ws, make_file):
     path = published.version_path(ws, built["version"])
     conn = published.open_version(path)
     try:
-        assert conn.execute("SELECT value FROM meta WHERE key = 'projection_schema'").fetchone()[0] == "13"
+        assert conn.execute("SELECT value FROM meta WHERE key = 'projection_schema'").fetchone()[0] == "14"
         assert conn.execute("SELECT privacy FROM document WHERE id = ?", (doc,)).fetchone()[0] == "private"
         assert dict(conn.execute("SELECT locator, note FROM claim")) == {"s1r2": "meter log p3", "s1r3": None}
         assert [tuple(r) for r in conn.execute("SELECT sheet, cell FROM evidence_ref ORDER BY id")] == [("m", "B2"), ("m", "B3")]

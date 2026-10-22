@@ -165,6 +165,32 @@ def test_review_refusals_have_cause_next_action_and_no_internals(ws, db, gct, ma
         for text in (human.err, machine.out):
             for word in [*INTERNAL_WORDS, *names]:
                 assert word not in text, (argv, word)
+
+
+def test_highlight_messages_have_cause_next_action_and_no_internals(ws, db, gct, make_file):
+    from test_highlight import refusals as highlight_refusals
+    from test_review import first_claim
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana", "--organisation", "Acme audit")
+    one = first_claim(gct, make_file)
+    names = internal_names(ws)
+    assert "highlight" not in names and "claim_version_id" in names
+    for argv, code in highlight_refusals(gct, db, make_file, one):
+        human, machine = gct(*argv), gct(*argv, "--json")
+        assert human.code == machine.code == code and human.out == "", (argv, human.out)
+        assert human.err.startswith("error: ") and "\nnext: " in human.err, (argv, human.err)
+        assert machine.data["status"] == "error" and machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in [*INTERNAL_WORDS, *names]:
+                assert word not in text, (argv, word)
+    _, claim, version = one
+    done = [gct("highlight", "add", claim, "--version", version, "--note", "n", "--as", "ana", "--capacity", "c"),
+            gct("highlight", "list", claim)]
+    for r in done:
+        assert r.code == 0 and not any(w in r.out for w in [*INTERNAL_WORDS, *names]), r.out
+
+
 def test_adjudicate_and_flag_messages_have_no_internals(ws, gct, make_file):
     from test_restate import cp2
 

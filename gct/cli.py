@@ -10,7 +10,8 @@ from gct import __version__
 from gct.api import server
 from gct.measure import g2
 from gct.models import adapters, policy
-from gct.stages import adjudicate, archive, correct, deletion, extract, infer, link, match, missing, read, restate, review, sheet
+from gct.stages import (adjudicate, archive, correct, deletion, extract, highlight, infer, link, match, missing, read,
+                        restate, review, sheet)
 from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -151,7 +152,7 @@ def _impact_lines(i: dict) -> list[str]:
                  f"{r['correction']} corrections, {r['match_review']} match reviews, {r['page_acceptance']} page "
                  f"acceptances, {r['restatement']} restatement records, {r['sheet_mapping']} sheet mappings, "
                  f"{r['review_company']} company confirmations, {r['review_auditor']} auditor reviews, "
-                 f"{r['adjudication']} adjudications, {r['reviewer_flag']} reviewer flags")
+                 f"{r['adjudication']} adjudications, {r['reviewer_flag']} reviewer flags, {r['highlight']} highlights")
     return lines
 
 
@@ -975,6 +976,33 @@ def cmd_flag_list(args) -> None:
            "\n".join([*map(_flag_text, fs), review.SELF_DECLARED] if fs else ["No reviewer flags.", review.SELF_DECLARED]))
 
 
+def _highlight_text(h: dict) -> str:
+    """One highlight, the contributor's words quoted and attributed (C5); it is never a review outcome."""
+    return (f"highlight #{h['id']} on version {h['claim_version']} by {_who_text(h)} (self-declared), capacity"
+            f" \"{h['capacity']}\": \"{h['note']}\"" + ("" if h["latest"] else " (an earlier highlight of this contributor)")
+            + ("" if h["binds"] else " (on an earlier version)") + _mark(h["evidence_deleted"], h["created_at"]))
+
+
+def cmd_highlight_add(args) -> None:
+    r = highlight.record(_open(args), args.claim, args.version, args.note, args.as_, args.capacity)
+    c = r["claim"]
+    _print(args, {"status": "ok", **r}, "\n".join(
+        [f"Recorded {_highlight_text(r['entry'])} of claim {c['id']} (document {c['document']}, company {c['company']}).",
+         review.SELF_DECLARED]))
+
+
+def cmd_highlight_list(args) -> None:
+    r = highlight.listing(_open(args, write=False), args.claim)
+    c = r["claim"]
+    lines = [f"claim {c['id']}  document {c['document']} ({c['document_state']})  company {c['company']}  newest version"
+             f" {c['version']}  {c['state']}{_mark(c['evidence_deleted'])}"]
+    for v in r["versions"]:
+        lines += [f"version {v['id']}" + ("" if v["binds"] else " (an earlier version)") + ("" if v["highlights"] else
+                                                                                           ": no highlights"),
+                  *(f"  {_highlight_text(h)}" for h in v["highlights"])]
+    _print(args, {"status": "ok", **r}, "\n".join([*lines, review.SELF_DECLARED]))
+
+
 def _mapping_text(m: dict) -> str:
     cols = ", ".join(f"{r} {m[r]}" for r in sheet.ROLES if m[r])
     declared = [f"year end {m['year_end']}"] * bool(m["year_end"]) + [
@@ -1577,6 +1605,18 @@ def build_parser() -> argparse.ArgumentParser:
     which.add_argument("--company")
     which.add_argument("--claim", type=int, metavar="CLAIM")
     lst.set_defaults(func=cmd_flag_list)
+
+    hl = group("highlight", "highlights: a contributor's note on a claim version (never a confirmation or review outcome)")
+    add = hl.add_parser("add", parents=[common], help="highlight a current claim's newest version with a short note")
+    add.add_argument("claim", type=int, metavar="CLAIM")
+    add.add_argument("--version", type=int, required=True, metavar="V", help="the claim's newest version, as you saw it")
+    add.add_argument("--note", required=True, metavar="TEXT", help="why you highlight it, in your words")
+    add.add_argument("--as", dest="as_", required=True, metavar="KEY", help="the contributor making this record")
+    add.add_argument("--capacity", required=True, help="the capacity you act in, as you describe it")
+    add.set_defaults(func=cmd_highlight_add)
+    lst = hl.add_parser("list", parents=[common], help="every version of one claim with its highlights")
+    lst.add_argument("claim", type=int, metavar="CLAIM")
+    lst.set_defaults(func=cmd_highlight_list)
 
     claims = group("claims", "figures extracted from documents")
     lst = claims.add_parser("list", parents=[common], help="list one document's claims with their source location")

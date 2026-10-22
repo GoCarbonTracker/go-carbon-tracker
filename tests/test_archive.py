@@ -63,11 +63,11 @@ def test_migrations_13_14_then_15_apply_to_a_version_12_workspace(tmp_path, gct)
     c.close()
     assert gct("doc", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-7:] == [12, 13, 14, 15, 16, 17, 18]
+    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-8:] == [12, 13, 14, 15, 16, 17, 18, 19]
     (run,) = runs.list_runs(c)
     assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == [
         "applied migration 13", "applied migration 14", "applied migration 15", "applied migration 16",
-        "applied migration 17", "applied migration 18"]
+        "applied migration 17", "applied migration 18", "applied migration 19"]
     assert {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} >= {
         "restatement", "document_state_change", "sheet_mapping", "claim_note"}
     c.close()
@@ -280,7 +280,7 @@ def test_plan_shows_the_impact_and_stores_nothing(ws, db, gct, two):
     assert reviews and i["review_records"] == {"inference_review": reviews, "correction": 0, "match_review": 0,
                                                "page_acceptance": 1, "restatement": 0, "sheet_mapping": 0,
                                                "review_company": 0, "review_auditor": 0,
-                                               "adjudication": 0, "reviewer_flag": 0}
+                                               "adjudication": 0, "reviewer_flag": 0, "highlight": 0}
     assert gct("doc", "archive", d, "--plan", "--json").data["impact"]["uncertain_items"] == 1
     real = gct("doc", "archive", b, *WHO, "--json").data
     assert real["impact"] == i and real["state_change"]["state"] == "archived"
@@ -310,7 +310,7 @@ def test_projection_hides_archived_documents_and_counts_them(ws, db, gct, two):
     gct("expect", "add", "--company", "Acme", "--metric", "scope 1 emissions")
     gct("pages", "accept", "--doc", b, "--pages", "1", "--type", "figures", *WHO)
     p = built(gct, ws)
-    assert {m["key"]: m["value"] for m in p["meta"]}["projection_schema"] == "13"
+    assert {m["key"]: m["value"] for m in p["meta"]}["projection_schema"] == "14"
     assert p["hidden_by_archive"] == [] and b in {x["id"] for x in p["document"]}
     assert [x["document_id"] for x in p["page_acceptance"]] == [b]
     mark = published.history_mark(db)

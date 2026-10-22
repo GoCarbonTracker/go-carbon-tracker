@@ -261,6 +261,20 @@ As `flag raise`, with `decision` `withdrawn`; refused (exit 4) when the contribu
 
 Every flag row on a claim of an active document, oldest first (`--company NAME` or `--claim CLAIM`). `latest` is true on a contributor's newest row on that version; `binds` is false once the version is not its claim's newest.
 
+## highlight add
+- top: status, claim, entry
+- claim: id, document, company, version
+- entry: id, claim_version, contributor, organisation, contributor_version, capacity, note, latest, binds, self_declared, evidence_deleted, created_at
+
+Records a highlight on `--version`, which must be the claim's newest version, of a current claim of an active document. `entry` is the new row as `highlight list` shows it: `capacity` and `note` exactly as typed; `contributor_version` the contributor version recorded; `self_declared` always true; `evidence_deleted` null unless the claim's document was deleted, else `{"document": N, "at": ...}`. A highlight is not a confirmation, a correction or a review outcome: no state, count or renewed-review entry reads it. No run is opened. Refused, writing nothing: an unknown claim or contributor (exit 3); an empty capacity or note (exit 2); a claim that is not current, an archived or deleted document, a `--version` that is not the claim's newest (exit 4).
+
+## highlight list
+- top: status, claim, versions
+- claim: id, document, document_state, company, version, state, evidence_deleted
+- versions: id, binds, highlights
+
+Every version of one claim, oldest first (an archived or deleted document's claim is listed too), each with its `highlights`, oldest first, with the keys of `highlight add`'s `entry`; none is hidden. `latest` is true on a contributor's newest highlight on that version (by contributor key); `binds` (on the version and on each entry) is true only for the claim's newest version. An unknown claim is refused (exit 3). See "Highlights" in `docs/reviews.md`.
+
 ## claims list
 - top: status, document, claims
 - claims: id, page_number, locator, value_text, value, unit_text, metric_text, period_label, reporting_boundary, boundary_label, method, boxes, source_match, source_match_reason, period, boundary, claim_state, needs_re_review, sheet, cell

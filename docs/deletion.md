@@ -70,6 +70,7 @@ quotes the page. The classification lives in `gct/stages/deletion.py` (`KEPT`, `
 | `claim_note` | the notes of its claim versions | `text` (`''`) | |
 | `adjudication` | adjudications naming one of its versions, either side, or citing it as counter-evidence | `rationale`, `procedure`, `capacity` (`cleared with document N`); `counter_note`, `follow_up`, `closure_reason` (`cleared with document N`; NULL stays NULL) | `state`, `counter_page` |
 | `reviewer_flag` | reviewer flags on its versions | `capacity`, `rationale` (`cleared with document N`) | `decision` |
+| `highlight` | highlights on its versions | `capacity`, `note` (`cleared with document N`) | |
 | `document` | the document | `logical_name` (`cleared with document N`, unique per document), `source` (NULL) | `sha256`, `kind`, `file_type`, `privacy`, `size_bytes`, `version` |
 | `document_state` | its states | `note` (NULL) | |
 | `document_state_change` | its archive and restore records before the deletion | `capacity`, `rationale` (`cleared with document N`) | the deletion's own record, unchanged |
@@ -145,7 +146,7 @@ infer, link or match attempt are the cache key and the result of another documen
 matched in every stage. The `sheet` stage (story 4.3) keys its attempts and lines on ids, so the deleted document's
 are found by that key, never by text: another spreadsheet's sheet attempts stay as they were.
 
-In a published version (`projection_schema` 13) a row whose `document_id`, `evidence_document_id`,
+In a published version (`projection_schema` 14) a row whose `document_id`, `evidence_document_id`,
 `counter_document_id`, `claim_id`, `low_claim_id`, `high_claim_id`, `claim_a`, `claim_b`, `id` of `claim` or
 `document`, `claim_version_id`, `original_version_id`, `restated_version_id`, `low_version_id`, `high_version_id`,
 `version_a` or `version_b` names the document, one of its claims or one of its claim versions is removed, in
@@ -154,7 +155,8 @@ In a published version (`projection_schema` 13) a row whose `document_id`, `evid
 `hidden_by_archive`, `sheet_mapping` (every column mapping of a spreadsheet), `review_company` and
 `review_auditor` (an entry on one of its claims or citing it as evidence; the next build projects a surviving claim's
 entry again with its text cleared and `evidence_state` `deleted`), `adjudication` (also a row citing it
-as counter-evidence; a later build projects that row again, its text cleared) and `reviewer_flag`. `meta`, `company`,
+as counter-evidence; a later build projects that row again, its text cleared), `reviewer_flag` and `highlight`. `meta`,
+`company`,
 `expected_item`, `gap_confirmation` and `deleted_document` keep their rows (`expected_item.accepted` and the gap
 confirmation's `capacity` and `rationale` are rewritten as above, and `meta.hidden_by_archive` is counted again from
 the `hidden_by_archive` rows left, so an archived document deleted since leaves the counts too).
@@ -170,8 +172,8 @@ marker of either version's document or its evidence document, also when listed u
 `gct expect list` (a gap
 confirmation that looked in a deleted document), `gct adjudicate list` (an adjudication citing a deleted counter
 document, whose two claims survive), `gct review list` and `gct claims history` (a company confirmation or auditor
-review carries the marker of its claim's document or its evidence document, whichever was deleted; `docs/reviews.md`)
-and `gct doc show` (the records on the document itself). Each record
+review carries the marker of its claim's document or its evidence document, whichever was deleted; `docs/reviews.md`),
+`gct highlight list` (a highlight on a deleted document's claim) and `gct doc show` (the records on the document itself). Each record
 keeps its contributor, decision, states and dates; its capacity and rationale read `cleared with document N`.
 `gct match review` lists only the review queue of active documents, so it never shows a deleted document's item; its
 match reviews are listed by `gct restate show CLAIM`.

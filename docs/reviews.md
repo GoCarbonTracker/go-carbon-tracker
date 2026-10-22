@@ -70,7 +70,7 @@ entry: uploading evidence never confirms a claim.
   "conclusion"; evidence ...`.
 - `evidence_state` is the evidence document's state now (`registered`, `restored`, `archived` or `deleted`; null for
   a note only).
-- `gct publish build` (`projection_schema` 13) writes both ledgers as `review_company` and `review_auditor`, with
+- `gct publish build` (`projection_schema` 14) writes both ledgers as `review_company` and `review_auditor`, with
   `latest`, `binds` and `evidence_state`, for the claims of active documents.
 
 ## Archive and deletion
@@ -115,6 +115,29 @@ company confirmation:
 list every reviewer flag and adjudication naming each version. An archived document's claims leave the list and come
 back unchanged on restore; a deleted document's claims leave it and their kept rows carry the deletion marker. GCT
 never renews a record itself and never copies one to a newer version.
+
+## Highlights
+
+A highlight marks one claim version with a contributor's short note, for example a figure to look at again. It is the
+third separate record beside a correction (`gct correct`) and a company confirmation: it confirms, corrects and
+decides nothing.
+
+```
+gct highlight add CLAIM --version V --note TEXT --as KEY --capacity TEXT
+gct highlight list CLAIM
+```
+
+- As for an entry, `--version` must be the claim's newest version, the claim `current` and its document active. The
+  note and capacity are kept exactly as typed; neither may be empty. Highlighting opens no run.
+- There is no edit and no withdraw: a later highlight with a new note is a new row; a contributor's newest one on a
+  version is `latest: true`. A highlight binds while its version is the claim's newest; after a correction it stays on
+  the earlier version with `binds: false` and is not a renewed-review entry.
+- No state, count or queue reads highlights except `gct highlight list`, the archive summary, `hidden_by_archive` and
+  the published `highlight` table (`projection_schema` 14). The local service's claim history adds `highlights` to
+  every version; the viewer lists them apart from the reviews as "Highlighted by NAME (self-declared): note".
+- Archive and deletion follow the ledgers: archived with the document and back on restore; deleting the document keeps
+  the rows with their ids, contributor and date, the capacity and note read `cleared with document N`, and the listing
+  adds `evidence deleted (document N, date)`.
 
 ## What GCT does not do
 

@@ -27,6 +27,8 @@ REVIEWS = {
     "adjudication": f"SELECT COUNT(*) FROM adjudication WHERE low_version_id IN ({VERSIONS})"
                     f" OR high_version_id IN ({VERSIONS})",
     "reviewer_flag": f"SELECT COUNT(*) FROM reviewer_flag WHERE claim_version_id IN ({VERSIONS})",
+    # Story 5.4: highlights on its versions.
+    "highlight": f"SELECT COUNT(*) FROM highlight WHERE claim_version_id IN ({VERSIONS})",
 }
 
 

@@ -76,6 +76,8 @@ KEPT = {
     "adjudication": "id low_version_id high_version_id state counter_document_id counter_page contributor_version_id"
                     " created_at",
     "reviewer_flag": "id claim_version_id decision contributor_version_id created_at",
+    # Story 5.4: a highlight's version and contributor.
+    "highlight": "id claim_version_id contributor_version_id created_at",
 }
 VERSIONS = "SELECT v.id FROM claim_version v JOIN claim c ON c.id = v.claim_id WHERE c.document_id = :d"
 FREE = {"capacity": ":m", "rationale": ":m"}  # contributor-typed text on a record attached to the document (Codex 190)
@@ -167,6 +169,7 @@ CLEAR = {
         "rationale": ":m", "procedure": ":m", "capacity": ":m",
         **{c: f"CASE WHEN {c} IS NULL THEN NULL ELSE :m END" for c in ("counter_note", "follow_up", "closure_reason")}}),
     "reviewer_flag": (f"claim_version_id IN ({VERSIONS})", FREE),
+    "highlight": (f"claim_version_id IN ({VERSIONS})", {"capacity": ":m", "note": ":m"}),
 }
 
 # The published projection (schema 12): a column naming the document, one of its claims or claim versions makes the
@@ -234,6 +237,11 @@ PROJECTION = {
                       **dict.fromkeys(("id", "decision", "contributor_name", "contributor_organisation", "latest", "binds",
                                        "created_at"), "kept"),
                       **dict.fromkeys(("rationale", "capacity"), "content")},
+    # Story 5.4 (projection schema 14).
+    "highlight": {"claim_id": "claim", "claim_version_id": "version",
+                  **dict.fromkeys(("id", "contributor_name", "contributor_organisation", "latest", "binds", "created_at"),
+                                  "kept"),
+                  **dict.fromkeys(("capacity", "note"), "content")},
 }
 
 

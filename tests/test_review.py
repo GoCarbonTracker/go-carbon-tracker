@@ -85,9 +85,9 @@ def test_migration_17_upgrades_a_4_5_workspace_and_both_tables_are_append_only(t
     monkeypatch.setattr(store, "migrate", real)
     r = gct("review", "list", claim)
     assert r.code == 0 and "company confirmations: none" in r.out and "auditor reviews: none" in r.out, r.out
-    assert db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 18
-    notes = [m for (m,) in db.execute("SELECT message FROM run_event WHERE kind = 'note' ORDER BY id DESC LIMIT 2")]
-    assert notes == ["applied migration 18", "applied migration 17"]
+    assert db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 19
+    notes = [m for (m,) in db.execute("SELECT message FROM run_event WHERE kind = 'note' ORDER BY id DESC LIMIT 3")]
+    assert notes == ["applied migration 19", "applied migration 18", "applied migration 17"]
     for t in ("review_company", "review_auditor"):
         assert db.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] == 0
         cols = "claim_version_id, contributor_version_id, capacity, scope, reviewed_on, conclusion, outcome, created_at"
@@ -429,7 +429,7 @@ def test_projection_schema_11(ws, db, gct, make_file, one):
         (a,) = [dict(r) for r in conn.execute("SELECT * FROM review_auditor")]
     finally:
         conn.close()
-    assert meta["projection_schema"] == "13"
+    assert meta["projection_schema"] == "14"
     assert list(c) == list(a) == ["id", "claim_id", "claim_version_id", "contributor_name", "contributor_organisation",
                                   "contributor_version", "capacity", "scope", "reviewed_on", "conclusion", "outcome",
                                   "evidence_document_id", "evidence_page", "evidence_note", "evidence_state", "latest",

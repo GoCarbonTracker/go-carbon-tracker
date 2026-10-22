@@ -182,6 +182,26 @@ def test_restate_matches_the_documented_keys(ws, gct, make_file):
                for q in p["pairs"])
 
 
+def test_highlight_matches_the_documented_keys(ws, gct, make_file):
+    from test_match import SCOPE_1, ids
+    from test_restate import add
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana", "--organisation", "Acme audit")
+    doc = add(gct, make_file, "a.pdf", [SCOPE_1])
+    gct("read")
+    gct("extract")
+    claim = ids(gct, doc)[(SCOPE_1[0], "FY 2024-25")]
+    version = gct("claims", "history", claim, "--json").data["versions"][-1]["id"]
+    check("highlight list", gct("highlight", "list", claim, "--json").data)
+    check("highlight add", gct("highlight", "add", claim, "--version", version, "--note", "n", "--as", "ana",
+                               "--capacity", "c", "--json").data)
+    listed = gct("highlight", "list", claim, "--json").data
+    check("highlight list", listed)
+    entry = spec()["highlight add"]["entry"]
+    assert [set(h) for v in listed["versions"] for h in v["highlights"]] == [entry]
+
+
 def test_review_matches_the_documented_keys(ws, gct, make_file):
     from test_match import SCOPE_1, ids
     from test_restate import add
@@ -417,7 +437,7 @@ def test_every_command_has_a_documented_section():
         "match", "match metrics", "match review", "match link", "match unlink", "match status", "series list",
         "series show", "restate list", "restate show", "restate record", "restate withdraw", "review company", "review auditor", "review list", "review pending", "sheet show", "sheet map",
         "adjudicate list", "adjudicate record", "adjudicate status", "flag raise", "flag withdraw", "flag list",
-        "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
+        "highlight add", "highlight list", "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
         "publish build", "publish restore", "publish status",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",
         "approve spend", "approve transfer", "approve list", "model list", "measure g2",

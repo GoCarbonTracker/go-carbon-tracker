@@ -97,6 +97,7 @@ EXPECTED_COLUMNS = {
         "counter_page", "counter_note", "follow_up", "closure_reason", "contributor_version_id", "capacity", "created_at",
     ],
     "reviewer_flag": ["id", "claim_version_id", "decision", "rationale", "contributor_version_id", "capacity", "created_at"],
+    "highlight": ["id", "claim_version_id", "contributor_version_id", "capacity", "note", "created_at"],
 }
 VALUES = ("period_kind", "period_start", "period_end", "boundary", "boundary_detail")
 NULLABLE = {("company", "sector_ref"), ("company", "sector_version"), ("document", "source"), ("document_state", "note")} | {
@@ -139,7 +140,7 @@ def test_tables_and_columns(db):
 
 
 def test_schema_version_row_and_workspace_row(db):
-    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+    assert [r["version"] for r in db.execute("SELECT version FROM schema_version")] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     row = db.execute("SELECT * FROM workspace").fetchone()
     assert row["id"] == 1 and row["gct_version"]
 
