@@ -24,6 +24,24 @@ SCALES = {1.5, 3.0}
 BACK = "Go back to the start page at /."
 HTTP = {layout.USAGE: 400, layout.NOT_FOUND: 404, layout.REFUSED: 409}
 CORRECTION_FIELDS = ("value", "unit", "metric", "period_label", "contributor", "capacity", "rationale")
+# The JSON body of each review write: (the record's name in messages, text fields, whole-number fields, required fields;
+# required are the ones the CLI command requires before its stage function runs).
+LEDGER = ("version", "outcome", "scope", "conclusion", "contributor", "capacity")
+BODIES = {
+    "correction": ("a correction", CORRECTION_FIELDS, (), ()),
+    "company": ("a company confirmation", (*LEDGER[1:], "evidence_note", "date"),
+                ("version", "evidence_document", "evidence_page"), LEDGER),
+    "auditor": ("an auditor review", (*LEDGER[1:], "evidence_note", "date"),
+                ("version", "evidence_document", "evidence_page"), LEDGER),
+    "flag": ("a reviewer flag", ("decision", "rationale", "contributor", "capacity"), ("version",),
+             ("version", "decision", "rationale", "contributor", "capacity")),
+    "highlight": ("a highlight", ("note", "contributor", "capacity"), ("version",),
+                  ("version", "note", "contributor", "capacity")),
+    "adjudication": ("an adjudication", ("state", "rationale", "procedure", "counter_note", "follow_up", "closure_reason",
+                                         "contributor", "capacity"),
+                     ("first", "second", "counter_document", "counter_page"),
+                     ("first", "second", "state", "rationale", "procedure", "contributor", "capacity")),
+}
 # pdfium is not thread-safe and FastAPI runs these handlers in a thread pool.
 _PDFIUM = threading.Lock()
 
@@ -39,6 +57,34 @@ WHERE c.document_id = ? ORDER BY e.page_number IS NULL, e.page_number, c.id, e.i
 def error(code: int, cause: str, next_action: str) -> JSONResponse:
     """The same error shape as the CLI's --json output."""
     return JSONResponse({"status": "error", "cause": cause, "next_action": next_action}, status_code=code)
+
+
+async def _body(request: Request, kind: str) -> dict | JSONResponse:
+    """The JSON object of one write, its fields of the right types and the required ones present, else the error."""
+    what, text, numbers, required = BODIES[kind]
+    name = what.split(" ", 1)[1]
+    if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
+        return error(415, f"{what.capitalize()} is sent as JSON.", "Send the fields as a JSON object.")
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        return error(400, f"The {name} is not a JSON object.", "Send the fields as a JSON object.")
+    bad = [k for k in text if k in body and not isinstance(body[k], str)]
+    if bad:
+        return error(400, f"The {name} field {bad[0]} is not text.",
+                     'Send each field as a JSON string, for example "value": "1,300".')
+    # bool is an int in Python; true and false are not ids, versions or pages.
+    bad = [k for k in numbers if k in body and (not isinstance(body[k], int) or isinstance(body[k], bool))]
+    if bad:
+        return error(400, f"The {name} field {bad[0]} is not a whole number.",
+                     f'Send it as a JSON number, for example "{bad[0]}": 12.')
+    missing = [k for k in required if k not in body]
+    if missing:
+        return error(400, f"The {name} field {missing[0]} is missing.",
+                     f"Send every field the command needs: {', '.join(required)}.")
+    return body
 
 
 def _same(given: str | None, token: str) -> bool:
@@ -240,43 +286,42 @@ def create_app(root: Path, token: str) -> FastAPI:
         # The published version decides which claims are shown; their history is read from the workspace itself.
         if not _query(root, "SELECT id FROM claim WHERE id = ?", claim_id):
             return error(404, f"There is no claim {claim_id} in the published data.", BACK)
-        from gct.stages import correct  # only these endpoints pay for the stages
+        from gct.stages import correct, highlight  # only these endpoints pay for the stages
 
         conn = store.connect(root / layout.DB_NAME)
         try:
-            return {"status": "ok", **correct.history(conn, claim_id)}
+            h = correct.history(conn, claim_id)
+            for v in h["versions"]:  # story 5.4: correct.history is story 5.2's, so highlights are added here
+                v["highlights"] = highlight.entries(conn, v["id"])
+            return {"status": "ok", **h}
         finally:
             conn.close()
 
-    @app.post("/api/claims/{claim_id:int}/corrections")
-    async def correct_claim(claim_id: int, request: Request):
-        if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
-            return error(415, "A correction is sent as JSON.", "Send the fields as a JSON object.")
+    @app.get("/api/companies/{company_id:int}/candidates")
+    def candidates(company_id: int):
+        rows = _query(root, "SELECT name FROM company WHERE id = ?", company_id)
+        if not rows:
+            return error(404, f"There is no company {company_id} in the published data.", BACK)
+        from gct.stages import adjudicate
+
+        conn = store.connect(root / layout.DB_NAME)
         try:
-            body = await request.json()
-        except ValueError:
-            body = None
-        if not isinstance(body, dict):
-            return error(400, "The correction is not a JSON object.", "Send the fields as a JSON object.")
-        bad = [k for k in CORRECTION_FIELDS if k in body and not isinstance(body[k], str)]
-        if bad:
-            return error(400, f"The correction field {bad[0]} is not text.",
-                         'Send each field as a JSON string, for example "value": "1,300".')
-        return await run_in_threadpool(_correct, claim_id, body)
+            return {"status": "ok", "company": company_id, **adjudicate.listed(conn, rows[0]["name"])}
+        except GctError as e:
+            return error(HTTP[e.code], e.cause, e.next_action)
+        finally:
+            conn.close()
 
-    def _correct(claim_id: int, body: dict):
-        """The same function as gct correct, under the workspace lock, then a new published version."""
-        from gct.stages import correct
-
+    def _write(record) -> dict | JSONResponse:
+        """record(conn), the same function as the CLI command, under the workspace lock, then a new published
+        version."""
         try:
             held = lock.hold(root)
         except GctError as e:
             return error(409, e.cause, e.next_action)
         conn = store.connect(root / layout.DB_NAME)
         try:
-            r = correct.correct(conn, claim_id, body.get("contributor"), body.get("capacity"), body.get("rationale"),
-                                value_text=body.get("value"), unit_text=body.get("unit"),
-                                metric_text=body.get("metric"), period_label=body.get("period_label"))
+            r = record(conn)
             with runs.run(conn, "publish build") as run_id:
                 v = published.build(conn, root)
                 runs.event(conn, run_id, "output", stage="publish", item=str(v["version"]))
@@ -286,5 +331,72 @@ def create_app(root: Path, token: str) -> FastAPI:
             conn.close()
             lock.release(held)
         return {"status": "ok", **r, "data_version": v["version"]}
+
+    @app.post("/api/claims/{claim_id:int}/corrections")
+    async def correct_claim(claim_id: int, request: Request):
+        body = await _body(request, "correction")
+        if isinstance(body, JSONResponse):
+            return body
+        from gct.stages import correct
+
+        return await run_in_threadpool(_write, lambda conn: correct.correct(
+            conn, claim_id, body.get("contributor"), body.get("capacity"), body.get("rationale"),
+            value_text=body.get("value"), unit_text=body.get("unit"), metric_text=body.get("metric"),
+            period_label=body.get("period_label")))
+
+    async def _ledger(claim_id: int, request: Request, ledger: str):
+        body = await _body(request, ledger)
+        if isinstance(body, JSONResponse):
+            return body
+        from gct.stages import review
+
+        return await run_in_threadpool(_write, lambda conn: review.record(
+            conn, root, ledger, claim_id, body["version"], body["outcome"], body["scope"], body["conclusion"],
+            body["contributor"], body["capacity"], body.get("evidence_document"), body.get("evidence_page"),
+            body.get("evidence_note"), body.get("date")))
+
+    @app.post("/api/claims/{claim_id:int}/company-confirmations")
+    async def company_confirmation(claim_id: int, request: Request):
+        return await _ledger(claim_id, request, "company")
+
+    @app.post("/api/claims/{claim_id:int}/auditor-reviews")
+    async def auditor_review(claim_id: int, request: Request):
+        return await _ledger(claim_id, request, "auditor")
+
+    @app.post("/api/claims/{claim_id:int}/flags")
+    async def flag(claim_id: int, request: Request):
+        body = await _body(request, "flag")
+        if isinstance(body, JSONResponse):
+            return body
+        from gct.stages import adjudicate
+
+        do = {"raised": adjudicate.raise_flag, "withdrawn": adjudicate.withdraw_flag}.get(body["decision"])
+        if do is None:
+            return error(400, f"The reviewer flag decision {body['decision']} is not raised or withdrawn.",
+                         'Send "decision": "raised" to raise a flag or "withdrawn" to withdraw yours.')
+        return await run_in_threadpool(_write, lambda conn: {"flag": do(
+            conn, claim_id, body["version"], body["rationale"], body["contributor"], body["capacity"])})
+
+    @app.post("/api/claims/{claim_id:int}/highlights")
+    async def highlight_claim(claim_id: int, request: Request):
+        body = await _body(request, "highlight")
+        if isinstance(body, JSONResponse):
+            return body
+        from gct.stages import highlight
+
+        return await run_in_threadpool(_write, lambda conn: highlight.record(
+            conn, claim_id, body["version"], body["note"], body["contributor"], body["capacity"]))
+
+    @app.post("/api/adjudications")
+    async def adjudication(request: Request):
+        body = await _body(request, "adjudication")
+        if isinstance(body, JSONResponse):
+            return body
+        from gct.stages import adjudicate
+
+        return await run_in_threadpool(_write, lambda conn: adjudicate.record(
+            conn, root, body["first"], body["second"], body["state"], body["rationale"], body["procedure"],
+            body["contributor"], body["capacity"], body.get("counter_document"), body.get("counter_page"),
+            body.get("counter_note"), body.get("follow_up"), body.get("closure_reason")))
 
     return app

@@ -209,7 +209,7 @@ def test_a_failed_cache_write_leaves_no_file(vws, srv, monkeypatch):
 
 # AC 4
 ENDPOINTS = ["/", "/api/companies", "/api/companies/1/documents", "/api/documents/1", "/api/documents/1/claims",
-             "/api/documents/1/pages/1.png"]
+             "/api/documents/1/pages/1.png", "/api/companies/1/candidates", "/api/claims/1/history"]
 
 
 def test_every_endpoint_is_guarded(srv):
