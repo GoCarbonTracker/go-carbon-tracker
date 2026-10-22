@@ -265,3 +265,180 @@ ul {
   fill: var(--accent-fill);
   stroke: var(--accent);
 }
+
+/* Story 5.4: reviews, highlights, flags and candidates. The two ledgers look the same, so neither reads as more
+   official; outcomes are words with a plain dot, never a tick, seal or badge. */
+.reviews {
+  margin-top: 0.8rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.4rem;
+}
+
+.reviews h3,
+.reviews h4,
+.record h4 {
+  margin: 0.6rem 0 0.3rem;
+  font-size: 0.95rem;
+}
+
+.reviews ul {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.ledgers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+}
+
+.ledger {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 0.6rem 0.5rem;
+  min-width: 0;
+}
+
+.entry {
+  font-size: 0.9rem;
+}
+
+.dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+}
+
+.dot-accepted {
+  background: #2e7d32;
+}
+
+.dot-rejected {
+  background: var(--grey);
+}
+
+.dot-disputed {
+  background: #c77c02;
+}
+
+.outcome {
+  font-weight: 600;
+}
+
+.band {
+  border: 1px solid #c77c02;
+  background: #fdf3e1;
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+}
+
+.declared {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0.3rem 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0.5rem 0;
+}
+
+.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  text-align: left;
+}
+
+.link:disabled {
+  color: var(--muted);
+  text-decoration: none;
+  cursor: default;
+}
+
+.record {
+  display: grid;
+  gap: 0.3rem;
+  max-width: 28rem;
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.record label {
+  display: grid;
+  gap: 0.1rem;
+  font-size: 0.85rem;
+}
+
+.record fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+.record .choice {
+  display: inline-flex;
+  gap: 0.25rem;
+  margin-right: 0.8rem;
+}
+
+.record input,
+.record select {
+  font: inherit;
+}
+
+.buttons {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.version-pick {
+  font-size: 0.85rem;
+}
+
+.candidate {
+  display: grid;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.4rem;
+  cursor: pointer;
+}
+
+.candidate:hover {
+  background: #f3f4f6;
+}
+
+.sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+}
+
+.side {
+  min-width: 0;
+}
+
+code {
+  user-select: all;
+  background: #f3f4f6;
+  padding: 0 0.25rem;
+}

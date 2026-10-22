@@ -25,7 +25,7 @@ export type Claim = {
   version_method: string;
   boundary_label: string | null; // the boundary header printed above the column, as printed
   correction: Correction | null; // set when the current version is a contributor's correction
-  needs_re_review: { kind: string; id: number; version: number }[];
+  needs_re_review: { kind: string; id: number; version: number; with?: { claim: number; version: number } }[];
 };
 
 export type Correction = {
@@ -52,9 +52,90 @@ export function correctionBody(f: CorrectionFields): Record<string, string> {
   return body;
 }
 
-/** One needs-re-review entry. */
+/** One needs-re-review entry, as the CLI prints it (an adjudication names the other side). */
 export function reReviewText(e: Claim["needs_re_review"][number]): string {
-  return `${e.kind} #${e.id} on version ${e.version}`;
+  const other = e.with ? ` with claim ${e.with.claim} version ${e.with.version}` : "";
+  return `${e.kind} #${e.id} on version ${e.version}${other}`;
+}
+
+// Story 5.4: the records of people outside GCT on one claim version, as the history endpoint returns them.
+
+export const SELF_DECLARED =
+  "Identities and capacities are self-declared. GCT does not check them and does not adopt any conclusion as its own.";
+
+type Who = { contributor: string; organisation: string | null; capacity: string; latest: boolean };
+export type Deleted = { document: number; at: string } | null;
+export type Entry = Who & {
+  id: number; outcome: "accepted" | "rejected" | "disputed"; reviewed_on: string; scope: string; conclusion: string;
+  evidence_document: number | null; evidence_company: string | null; evidence_page: number | null;
+  evidence_note: string | null; evidence_state: string | null; evidence_deleted: Deleted;
+};
+export type Flag = Who & { id: number; decision: "raised" | "withdrawn"; rationale: string };
+export type Highlight = Who & { id: number; claim_version: number; note: string; evidence_deleted: Deleted };
+export type Disagreement = { company: string[]; auditor: string[] } | null;
+export type Version = {
+  id: number; value_text: string; unit_text: string | null;
+  company_confirmations: Entry[]; auditor_reviews: Entry[]; disagreement: Disagreement;
+  reviewer_flags: Flag[]; adjudications: unknown[]; highlights: Highlight[];
+};
+
+/** The band across both columns, or null when the two ledgers do not disagree on this version. */
+export function bandText(d: Disagreement): string | null {
+  if (!d) return null;
+  return `Company confirmation and auditor review disagree on this version: company ${d.company.join(", ")}; auditor ${d.auditor.join(", ")}.`;
+}
+
+/** A column's entries: each contributor's latest position first, then their earlier entries (none is hidden). */
+export function byPosition<T extends { latest: boolean }>(entries: T[]): { latest: T[]; earlier: T[] } {
+  return { latest: entries.filter((e) => e.latest), earlier: entries.filter((e) => !e.latest) };
+}
+
+/** Who, as they declared it: name (organisation), capacity. */
+export function whoText(e: Who): string {
+  return `${e.contributor}${e.organisation ? ` (${e.organisation})` : ""}, ${e.capacity}`;
+}
+
+/** The self-declared line goes on every claim with an entry of any kind on any version. */
+export function hasRecords(versions: Version[]): boolean {
+  return versions.some((v) => v.company_confirmations.length + v.auditor_reviews.length + v.reviewer_flags.length
+    + v.adjudications.length + v.highlights.length > 0);
+}
+
+/** The cited page an entry's evidence link jumps to: only a workspace document that is still active. */
+export function evidenceTarget(e: Entry): { document: number; page: number } | null {
+  if (e.evidence_document === null || e.evidence_deleted) return null;
+  if (e.evidence_state !== "registered" && e.evidence_state !== "restored") return null;
+  return { document: e.evidence_document, page: e.evidence_page ?? 1 };
+}
+
+export function highlightText(h: Highlight): string {
+  return `Highlighted by ${h.contributor}${h.organisation ? ` (${h.organisation})` : ""} (self-declared): ${h.note}`;
+}
+
+export function flagText(f: Flag): string {
+  const who = `${f.contributor}${f.organisation ? ` (${f.organisation})` : ""}`;
+  return `Potential greenwashing concern ${f.decision} by ${who} (self-declared): ${f.rationale}`;
+}
+
+/** The JSON body of a review form: empty fields left out, text kept exactly as typed, the named fields as numbers. */
+export function recordBody(f: Record<string, string>, numbers: string[]): Record<string, string | number> {
+  const body: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(f)) {
+    if (v.trim() === "") continue;
+    body[k] = numbers.includes(k) ? Number(v) : v;
+  }
+  return body;
+}
+
+/** The adjudication states a reviewer can record, as the CLI takes them: no restatement (V3). */
+export const ADJUDICATION_STATES: [string, string][] = [
+  ["explained-difference", "explained difference"], ["extraction-error", "extraction error"],
+  ["reviewer-confirmed-issue", "reviewer-confirmed issue"], ["evidence-not-found", "evidence not found"],
+];
+
+/** The command that records a restatement instead, to copy (V3). */
+export function restateCommand(original: number, restated: number): string {
+  return `gct restate record --original ${original} --restated ${restated} --page N --quote "TEXT"`;
 }
 
 export type Label = { status: "matched" | "cited" | "unresolved" | null; text: string };
