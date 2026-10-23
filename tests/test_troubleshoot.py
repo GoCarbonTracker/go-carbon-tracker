@@ -200,7 +200,7 @@ def test_a_failure_message_becomes_its_template_a_class_name_stays_anything_else
     assert [x for x, _ in t] == ["The file {} does not exist.", "Another gct command is using this workspace.",
                                  "The file {} could not be read.", "The {} could not be {}."]
     m = lambda s: troubleshoot.reduce_message(s, t)
-    assert m("The file /Users/ana/Secret Client.pdf does not exist.") == "The file {} does not exist."
+    assert m("The file /srv/ana/Secret Client.pdf does not exist.") == "The file {} does not exist."
     assert m("Another gct command is using this workspace.") == "Another gct command is using this workspace."
     assert m("The file x could not be read.") == "The file {} could not be read."  # first match in source order
     assert m("KeyError") == "KeyError" and m("BadZipFile") == "BadZipFile"
@@ -223,8 +223,8 @@ def log_text(sep, root, ext):
   File "{root}{sep}gct{sep}cli.py", line 29, in _open
     conn = store.connect(args.root / layout.DB_NAME)
   File "{ext}{sep}sqlite3{sep}x.py", line 5, in go
-    raise sqlite3.OperationalError("unable to open /Users/ana/Secret Client.pdf")
-sqlite3.OperationalError: unable to open /Users/ana/Secret Client.pdf
+    raise sqlite3.OperationalError("unable to open /srv/ana/Secret Client.pdf")
+sqlite3.OperationalError: unable to open /srv/ana/Secret Client.pdf
 
 During handling of the above exception, another exception occurred:
 
@@ -237,7 +237,7 @@ gct.workspace.layout.GctError: Document GCT-PRIVATE-CANARY-06 could not be read
 
 
 @pytest.mark.parametrize("sep, root, ext, package_dir", [
-    ("/", "/Users/ana/src/gct-release", "/opt/python/lib", Path("/Users/ana/src/gct-release/gct")),
+    ("/", "/srv/ana/src/gct-release", "/opt/python/lib", Path("/srv/ana/src/gct-release/gct")),
     ("\\", "C:\\Users\\ana\\src", "C:\\Python313\\Lib", PureWindowsPath("C:\\Users\\ana\\src\\gct"))])
 def test_an_error_log_keeps_gct_frames_counts_the_rest_and_drops_text(sep, root, ext, package_dir):
     r = troubleshoot.reduce_log(log_text(sep, root, ext), package_dir)
