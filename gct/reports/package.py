@@ -14,10 +14,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from gct import __version__
-from gct.models.redact import scrub
+from gct.models.redact import scrub, scrub_key
 from gct.reports import pin as pinning
 from gct.reports.export import folder as _folder
-from gct.stages import deletion, sheet
+from gct.stages import deletion, match, sheet
 from gct.workspace import labels, layout, published, registry, runs, store
 from gct.workspace.layout import REFUSED, USAGE, GctError
 
@@ -124,12 +124,24 @@ ID_TEXT = {
     ("basis", "wording"): {"pattern": r"^declared in sheet mapping #(\d+) by ", "table": "sheet_mapping",
                            "partial": True},
     ("gap_confirmation", "documents_checked"): {"json": {"id": "document"}, "list": True},
+    # infer's group key, a JSON list: the claim's document id first and the basis id at index 8 (or "label" or null)
+    ("inference", "group_key"): {"positions": {0: "document", 8: "basis"}},
+    # match's series key, a JSON list: the company id first, an unmapped metric's document id inside the metric at 1
+    # ("doc:N:pP:tR:label"), and for a unit as printed series the document id at 5
+    **dict.fromkeys((("match_review", "series_key"), ("restatement", "series_key")),
+                    {"positions": {0: "company", 1: {"pattern": r"^doc:(\d+):", "table": "document"},
+                                   5: "document"}}),
 }
 
 FROM_INIT = ("schema_version", "workspace")  # written by init in both modes
 NEVER = ("approval", "published_version", "published_pointer", "published_purge")  # the package builds its own v1
 COMPLETE_ONLY = ("saved_view",)
 REFERENCED = ("company", "contributor_version", "run")  # sanitised: only rows a shipped row points at
+# Sanitised: tables whose series_key names a series; a row ships only while shipped claims form that series.
+SERIES_NAMED = ("match_review", "restatement")
+# Machine text built from claim text, written with redact.scrub_key in both modes (published/v1.db's series labels,
+# keys and unit families come from match.compute, which builds them that way)
+KEY_TEXT = {("match_review", "series_key"), ("restatement", "series_key"), ("inference", "group_key")}
 INCLUDE = ("identity", "contributor_text", "flags")
 CAUSES = ("private_document", "absent_from_version", "same_bytes_private", "names_private_document", "flag",
           "archived", "deleted", "selection_recomputed", "contributor_text", "identity")
@@ -174,7 +186,8 @@ def _refuse_stale(conn, root, version: int) -> None:
 
 
 def _decide(conn, root, mode: str, include: tuple):
-    """({table: [shipped rows]}, Counter of withheld rows by cause, {document id: document}, effective labels)."""
+    """({table: [shipped rows]}, Counter of withheld rows by cause, {document id: document}, effective labels,
+    {stored series key: written series key} for the keys the shipped rows explain)."""
     docs = {d["id"]: d for d in registry.list_documents(conn)}
     eff = labels.effective(conn)
     keys = {t: {f["from"]: f["table"] for f in conn.execute(f"PRAGMA foreign_key_list({t})")} for t in COLUMNS}
@@ -193,6 +206,16 @@ def _decide(conn, root, mode: str, include: tuple):
                 withheld[cause] += 1
     if mode == "sanitised":
         ship.update(dict.fromkeys(COMPLETE_ONLY, []))
+        # A decision or restatement names a series by its key, which holds the boundary text and ids its claims and
+        # inferences give; it ships only when the shipped rows form that series now. ponytail: a series that held only
+        # earlier is withheld, since no record proves which extract config, metric assignment and inference were in
+        # force at a past review (reviews record no run and no gct version); a shared event sequence with the config
+        # per run would let provable history ship (post-M1)
+        formed = _formed(conn, ship)
+        for t in SERIES_NAMED:
+            kept = [r for r in ship[t] if scrub_key(r["series_key"]) in formed]
+            withheld["selection_recomputed"] += len(ship[t]) - len(kept)
+            ship[t] = kept
         pointed = {t: set() for t in REFERENCED}
         for t, rows in ship.items():
             for col, target in keys[t].items():
@@ -202,6 +225,26 @@ def _decide(conn, root, mode: str, include: tuple):
             ship[t] = [r for r in ship[t] if r["id"] in pointed[t]]
         ship["run_event"] = [r for r in ship["run_event"] if r["kind"] == "finished" and r["run_id"] in pointed["run"]]
     return ship, withheld, docs, eff
+
+
+def _formed(conn, ship: dict) -> set:
+    """The keys of the series the shipped rows form now: match.compute on an in-memory copy of them (the source's
+    tables, no triggers, foreign keys off). Archive is a lifecycle state, so an archived document's claims count here:
+    its archived document_state rows are left out of the copy (P3)."""
+    mem = sqlite3.connect(":memory:")
+    mem.row_factory = sqlite3.Row
+    try:
+        for (sql,) in conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"):
+            mem.execute(sql)
+        for t, rows in ship.items():
+            rows = [r for r in rows if t != "document_state" or r["state"] != "archived"]
+            if rows:
+                cols = rows[0].keys()
+                mem.executemany(f"INSERT INTO {t} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                                [tuple(r) for r in rows])
+        return {s["key"] for s in match.compute(mem)["series"].values()}
+    finally:
+        mem.close()
 
 
 def _cause(conn, table: str, named, docs: dict, eff: dict) -> str | None:
@@ -341,7 +384,7 @@ def _row(table: str, row, mode: str, include: tuple, ctx: dict) -> tuple:
     out = []
     for col in row.keys():
         v = row[col]
-        v = scrub(v) if isinstance(v, str) else v
+        v = (scrub_key if (table, col) in KEY_TEXT else scrub)(v) if isinstance(v, str) else v
         cls = COLUMNS[table][col]
         if mode == "sanitised":
             if cls == TEXT and "contributor_text" not in include:
