@@ -374,16 +374,24 @@ def say(*argv) -> str:
 
 def made(root) -> dict:
     """Every report format in both modes through gct report all, and both packages through gct package create (the
-    complete one with --include-private): {mode: export folder, package column: package folder}."""
-    at, out = ("--workspace", root), {}
+    complete one with --include-private): {mode: export folder, package column: package folder, "responses": [(the
+    command, its --json answer as text)] (renderer notes, report lines, package preview and creation lines)}."""
+    at, out, responses = ("--workspace", root), {}, []
+
+    def run(*argv):
+        answer = gct(*argv, *at)
+        responses.append((" ".join(argv[:2]) + (" --complete" if "--complete" in argv else ""),
+                          json.dumps(answer, ensure_ascii=False)))
+        return answer
+
     for mode, flag in (("sanitised", ()), ("complete", ("--complete",))):
-        out[mode] = Path(gct("report", "all", "--format", ",".join(FORMATS), *flag, *at)["folder"])
-    token = gct("package", "preview", *at)["token"]
-    out["sanitised package"] = root / gct("package", "create", "--confirm", token, *at)["folder"]
-    token = gct("package", "preview", "--complete", *at)["token"]
-    out["complete package"] = root / gct("package", "create", "--complete", "--include-private", "--confirm", token,
-                                         *at)["folder"]
-    return out
+        out[mode] = Path(run("report", "all", "--format", ",".join(FORMATS), *flag)["folder"])
+    token = run("package", "preview")["token"]
+    out["sanitised package"] = root / run("package", "create", "--confirm", token)["folder"]
+    token = run("package", "preview", "--complete")["token"]
+    out["complete package"] = root / run("package", "create", "--complete", "--include-private", "--confirm",
+                                         token)["folder"]
+    return {**out, "responses": responses}
 
 
 @pytest.fixture(scope="module")
@@ -565,6 +573,39 @@ def test_no_local_path_in_any_report_output_or_the_sanitised_package(lw, tmp_pat
     assert not [p.pattern for p in patterns if p.search(t)]
 
 
+def test_no_credential_or_path_seed_in_any_command_response(lw, tmp_path):
+    """Codex review F1: every never seed of kind credential or path is in no answer the report and package commands
+    give, as --json (made()'s: renderer notes, report lines, package preview and creation lines) and as terminal
+    text (the same commands on a copy of W), in both modes. The workspace's own path, where a report names the
+    folder it wrote (packages name theirs relative to it), is taken out first; the local preview may name private documents, so other seeds are not
+    looked for here (the matrix covers the files)."""
+    seeds = [s for s in lw["seeds"] if s["expect"] == "never" and s["kind"] in ("credential", "path")]
+    assert {"credential", "path"} == {s["kind"] for s in seeds}
+    copy = Path(shutil.copytree(lw["root"], tmp_path / "ws"))
+    at, text = ("--workspace", copy), []
+    for flag in ((), ("--complete",)):
+        text.append((f"report all{' '.join(('', *flag))}", say("report", "all", "--format", ",".join(FORMATS),
+                                                             *flag, *at)))
+    text.append(("package preview", say("package", "preview", *at)))
+    text.append(("package preview --complete", say("package", "preview", "--complete", *at)))
+    text.append(("package create", say("package", "create", "--confirm", gct("package", "preview", *at)["token"],
+                                       *at)))
+    token = gct("package", "preview", "--complete", *at)["token"]
+    text.append(("package create --complete",
+                 say("package", "create", "--complete", "--include-private", "--confirm", token, *at)))
+    folder = tmp_path / "responses"
+    folder.mkdir()
+    for n, (root, (command, answer)) in enumerate([*((lw["root"], x) for x in lw["responses"]),
+                                                   *((copy, x) for x in text)]):
+        places = {str(root), os.path.realpath(root)}
+        assert not command.startswith("report") or any(p in answer for p in places), command  # its folder named
+        for p in sorted(places, key=len, reverse=True):
+            answer = answer.replace(p, "<workspace>")
+        (folder / f"{n:02d} {command}.txt").write_text(answer, encoding="utf-8")
+    assert len(list(folder.iterdir())) == 12
+    assert leakage.found(folder, seeds) == {}
+
+
 MARKS = ("history_mark", "labels_mark", "hidden_by_archive", "History mark", "Labels mark")
 
 
@@ -628,9 +669,12 @@ def test_the_packages_hold_no_wal_shm_incoming_or_exports_file_and_no_private_or
 
 
 # AC 7a: the differential check (K12) on every rendered format, beside the seed scan. Clock parts, named up front:
-# an XLSX file's raw bytes and file hash (every zip member's date_time) and every part of its docProps/core.xml
-# (openpyxl stamps dcterms:created and dcterms:modified with the current time).
+# an XLSX file's raw bytes and file hash (every zip member's date_time) and the parts of its docProps/core.xml
+# (openpyxl stamps dcterms:created and dcterms:modified with the current time). Those parts are left out, and in
+# their place compared() compares what they hold besides the clock (Codex review F4): core.xml's bytes with only
+# the values of dcterms:created and dcterms:modified replaced, and each XLSX's zip fields but date_time.
 CLOCK = re.compile(r"^[^>]*\.xlsx(?:: raw bytes| > docProps/core\.xml(?:: (?:raw bytes|text|XML|HTML text))?)?$")
+STAMPS = re.compile(rb"(<dcterms:(created|modified)\b[^>]*>)[^<]*(</dcterms:\2>)")
 
 
 def normalised(root, mode="sanitised") -> dict:
@@ -648,7 +692,19 @@ def render(root, d, fmt, name) -> Path:
 
 
 def compared(folder) -> list:
-    return sorted(p for p in leakage.parts(folder) if not CLOCK.match(p[1]))
+    """The parts of a folder's files to compare: every part but the CLOCK ones, and for each XLSX its core.xml with
+    the two stamps' values replaced and its zip fields but date_time (archive comment; per member name, comment,
+    extra field, compression, attributes and size)."""
+    out = [p for p in leakage.parts(folder) if not CLOCK.match(p[1])]
+    for x in sorted(Path(folder).rglob("*.xlsx")):
+        name = x.relative_to(folder).as_posix()
+        with zipfile.ZipFile(x) as z:
+            core = STAMPS.sub(rb"\1<stamp>\3", z.read("docProps/core.xml"))
+            fields = [z.comment] + [(i.filename, i.comment, i.extra, i.compress_type, i.external_attr, i.file_size)
+                                    for i in z.infolist()]
+        out += [("text", f"{name} > docProps/core.xml: stamps replaced", core.decode("utf-8")),
+                ("text", f"{name}: zip fields but date_time", repr(fields))]
+    return sorted(out)
 
 
 @pytest.fixture(scope="module")
@@ -672,10 +728,35 @@ def test_sanitised_w_and_w_prime_render_equal_parts_and_complete_ones_differ(lw,
     assert compared(ca) != compared(cb)
 
 
+def test_non_clock_xlsx_metadata_that_differs_between_w_and_w_prime_fails_the_differential(lw, lw2, k12):
+    """Codex review F4's mutation, in the test: the sanitised XLSX of W and of W' compare equal; then W's files get
+    a core.xml description (the reviewer's "Private documents: N"), a changed dcterms:creator, or a zip comment,
+    one at a time, and each makes compared() differ, though no seed is in them."""
+    a, b = (render(ws["root"], k12["sanitised", x], "xlsx", "metadata") for x, ws in (("W", lw), ("W'", lw2)))
+    assert compared(a) == compared(b)
+    description = b'<dc:description xmlns:dc="http://purl.org/dc/elements/1.1/">Private documents: 16</dc:description>'
+    for change in (lambda n, d: (d.replace(b"</cp:coreProperties>", description + b"</cp:coreProperties>")
+                                 if n == "docProps/core.xml" else d),
+                   lambda n, d: d.replace(b"<dc:creator>openpyxl", b"<dc:creator>Acme") if n == "docProps/core.xml"
+                   else d, "comment"):
+        for x in sorted(a.glob("*.xlsx")):
+            data, buf = x.read_bytes(), io.BytesIO()
+            with zipfile.ZipFile(io.BytesIO(data)) as src, zipfile.ZipFile(buf, "w") as dst:
+                for i in src.infolist():
+                    dst.writestr(i, src.read(i) if change == "comment" else change(i.filename, src.read(i)))
+                dst.comment = b"Private documents: 16" if change == "comment" else src.comment
+            x.write_bytes(buf.getvalue())
+            assert compared(a) != compared(b), change
+            assert leakage.found(a, lw["seeds"]) == {}
+            x.write_bytes(data)
+            break
+
+
 def test_the_named_clock_parts_differ_when_the_clock_moves_and_no_other_part_does(lw, k12, tmp_path, monkeypatch):
     """AC 7a: two renders of one normalised dataset, the clock moved 400 days between them (time.time for zipfile's
     member date_time, openpyxl.packaging.core's datetime for core.xml): every XLSX part CLOCK names differs and
-    nothing else does; every zip member's date_time differs; JSON, CSV, PDF and page have no clock part."""
+    nothing else does, and compared() of the two renders is equal (only dcterms:created, dcterms:modified and
+    date_time moved); every zip member's date_time differs; JSON, CSV, PDF and page have no clock part."""
     d = k12["sanitised", "W"]
 
     def write(name):
@@ -704,6 +785,9 @@ def test_the_named_clock_parts_differ_when_the_clock_moves_and_no_other_part_doe
         clock = {(k, p) for k, p, _ in first[fmt] if CLOCK.match(p)}
         assert moved == clock, (fmt, sorted(moved ^ clock)[:5])
         assert bool(clock) == (fmt == "xlsx"), fmt
+        # what compared() keeps of the clock parts (core.xml but its two stamps, the zip fields) did not move
+        a, b = compared(tmp_path / "first" / fmt), compared(tmp_path / "second" / fmt)
+        assert a == b, (fmt, sorted(set(a) ^ set(b))[:3])
     for x in files_of(tmp_path / "first" / "xlsx", "xlsx"):
         with zipfile.ZipFile(x) as a, zipfile.ZipFile(tmp_path / "second" / "xlsx" / x.name) as b:
             assert all(i.date_time != j.date_time for i, j in zip(a.infolist(), b.infolist())), x.name
@@ -839,15 +923,19 @@ def test_missing_evidence_in_both_modes_of_every_report_output(lw):
 def test_the_k1_claim_shows_its_recomputed_review_state_in_every_sanitised_output(lw):
     """Review state of a shareable claim (K1, recompute): the claim 7.1's disagreement and raised flag sit on shows,
     in sanitised mode, a review text computed from shipped records only (no withheld marker), printed in every
-    format; that it equals sanitised(W') is the differential's (test_sanitised_w_and_w_prime_render_...)."""
+    format's own K1 row (read back, selected by claim_id); that it equals sanitised(W') is the differential's
+    (test_sanitised_w_and_w_prime_render_...)."""
     c, s = exported(lw, "complete"), exported(lw, "sanitised")
     k1 = next(r for r in c["evidence_index"] if r["label"] == "shareable" and "disagreement" in r["review_text"]
               and "flags raised" in r["review_text"])
     row = next(r for r in s["evidence_index"] if r["claim_id"] == k1["claim_id"])
     assert row["review_text"] != k1["review_text"] and "review_text" not in row["withheld"]
-    for fmt in FORMATS:
-        shown = module(fmt).printed(row["review_text"], row, "review_text", fmt)
-        assert has(files_of(lw["sanitised"], fmt), str(shown)), fmt
+    for fmt in FORMATS:  # the K1 row itself as each format reads it back (Codex review F3), not any text of the file
+        m = module(fmt)
+        claim = m.printed(row["claim_id"], row, "claim_id", fmt)
+        printed = [r for r in back(fmt, lw["sanitised"])["rows"]["evidence_index"] if r["claim_id"] == claim]
+        assert [r["review_text"] for r in printed] == [m.printed(x["review_text"], x, "review_text", fmt) for x in
+                                                        s["evidence_index"] if x["claim_id"] == row["claim_id"]], fmt
 
 
 def test_renewed_review_and_corrections_follow_their_labels(lw):
@@ -1361,6 +1449,86 @@ def test_a_marker_coloured_indexed_image_is_found_under_the_marker_seed(tmp_path
     p.write_bytes(indexed_pdf(b"/DeviceRGB", [bytes(leakage.MARKER)], 8, "string")[0])
     hit = leakage.found(p, [{"name": "MARK", "kind": "image", "expect": "never", "value": None}])
     assert hit == {"MARK": ["marker.pdf: object 4 image: marker colour"]}
+
+
+def decode_pdf(colour_space: bytes, bits: int, samples: bytes, decode: bytes | None) -> bytes:
+    """A 10 by 10 image XObject (object 4) drawn on the page, with an optional /Decode array."""
+    objects = {**PAGE, 3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /XObject << /Im 4 0 R"
+                          b" >> >> /Contents 5 0 R >>",
+               4: b"<< /Type /XObject /Subtype /Image /Width 10 /Height 10 /BitsPerComponent %d /ColorSpace %s%s"
+                  b" /Length %d >>\nstream\n%s\nendstream" % (
+                      bits, colour_space, b"" if decode is None else b" /Decode " + decode, len(samples), samples),
+               5: b"<< /Length 29 >>\nstream\nq 100 0 0 100 0 0 cm /Im Do Q\nendstream"}
+    return xref_pdf((objects, [(0, 6)], dict.fromkeys(objects, 1)))
+
+
+MARKED = [{"name": "MARK", "kind": "image", "expect": "never", "value": None},
+          {"name": "SOLID", "kind": "image", "expect": "never",
+           "value": hashlib.sha256(Image.new("RGB", (10, 10), leakage.MARKER).tobytes()).hexdigest()}]
+BLACK = {"name": "BLACK", "kind": "image", "expect": "never",
+         "value": hashlib.sha256(Image.new("RGB", (10, 10), (0, 0, 0)).tobytes()).hexdigest()}
+PALETTE = b"[/Indexed /DeviceRGB 1 <000000%s>]" % bytes(leakage.MARKER).hex().encode()
+
+
+@pytest.mark.parametrize("bits, samples, decode, seen", [
+    (1, b"\0" * 20, b"[1 0]", "marker"),  # Codex F2: zero samples decode to index 1, the marker
+    (1, b"\0" * 20, b"[0 1]", "black"),  # the default Decode, given: zero samples are index 0
+    (1, b"\0" * 20, None, "black"),  # no Decode
+    (2, b"\0" * 30, b"[1 0]", "marker"),  # 2 bits: sample 0 to 1 - 0 * 1 / 3 = 1
+    (8, b"\0" * 100, b"[1 1]", "marker")],  # every sample to index 1
+    ids=["1bit-inverted", "1bit-default-given", "1bit-no-decode", "2bit-inverted", "8bit-constant"])
+def test_an_indexed_images_decode_array_maps_samples_to_indices_before_the_palette(tmp_path, bits, samples, decode,
+                                                                                   seen):
+    """Codex review F2: an Indexed image's /Decode maps each sample to its index (Dmin + s (Dmax - Dmin) / (2^bits -
+    1)) before the palette lookup, so a [1 0] Decode over zero samples draws palette entry 1, the marker, and is
+    found under the marker seed and by its pixel hash; the default Decode, given or not, draws entry 0 (black)."""
+    p = tmp_path / "decode.pdf"
+    p.write_bytes(decode_pdf(PALETTE, bits, samples, decode))
+    hit = leakage.found(p, [*MARKED, BLACK])
+    where = "decode.pdf: object 4 image"
+    assert hit == ({"MARK": [f"{where}: marker colour"], "SOLID": [f"{where}: pixel hash"]} if seen == "marker"
+                   else {"BLACK": [f"{where}: pixel hash"]}), hit
+
+
+def test_a_device_images_decode_array_is_applied(tmp_path):
+    """The same rule for a direct image: 8-bit DeviceRGB samples 255, 55, 135 with /Decode [1 0 1 0 1 0] draw the
+    marker colour (0, 200, 120), found under the marker seed and by its pixel hash."""
+    p = tmp_path / "decode.pdf"
+    p.write_bytes(decode_pdf(b"/DeviceRGB", 8, bytes((255, 55, 135)) * 100, b"[1 0 1 0 1 0]"))
+    where = "decode.pdf: object 4 image"
+    assert leakage.found(p, MARKED) == {"MARK": [f"{where}: marker colour"], "SOLID": [f"{where}: pixel hash"]}
+
+
+def test_a_jpeg_images_decode_array_is_read_only_when_it_is_the_default(tmp_path):
+    """DCT data: the default Decode [0 1 0 1 0 1] is read as Pillow decodes it; [1 0 1 0 1 0] is Unreadable (not
+    applied on top of Pillow's reading)."""
+    jpeg = io.BytesIO()
+    Image.new("RGB", (10, 10), (40, 40, 40)).save(jpeg, "JPEG")
+    jpeg = jpeg.getvalue()
+    p = tmp_path / "jpeg.pdf"
+    for decode, unreadable in ((b"[0 1 0 1 0 1]", False), (b"[1 0 1 0 1 0]", True)):
+        p.write_bytes(decode_pdf(b"/DeviceRGB /Filter /DCTDecode", 8, jpeg, decode))
+        if unreadable:
+            with pytest.raises(leakage.Unreadable) as e:
+                leakage.found(p, MARKED)
+            assert [x.split(" (")[0] for x in e.value.places] == ["jpeg.pdf: object 4"], e.value.places
+        else:
+            assert leakage.found(p, MARKED) == {}
+
+
+@pytest.mark.parametrize("colour_space, decode", [(PALETTE, b"[0 1 0]"), (PALETTE, b"[0 2]"), (PALETTE, b"[/a /b]"),
+                                                  (b"/DeviceRGB", b"[1 0]")],
+                         ids=["indexed-three-numbers", "indexed-above-hival", "indexed-names", "rgb-one-pair"])
+def test_an_unsupported_decode_array_is_unreadable(tmp_path, colour_space, decode):
+    """A Decode of the wrong length, of names, or mapping a sample to an index above hival: Unreadable naming the
+    image, never a scan that passes."""
+    bits, samples = (1, b"\xff" * 20) if colour_space == PALETTE else (8, b"\0" * 300)
+    p = tmp_path / "bad.pdf"
+    p.write_bytes(decode_pdf(colour_space, bits, samples, decode))
+    with pytest.raises(leakage.Unreadable) as e:
+        leakage.found(p, MARKED)
+    assert [x.split(" (")[0] for x in e.value.places] == ["bad.pdf: object 4"], e.value.places
+    assert "Decode" in e.value.places[0]
 
 
 def test_an_inline_image_with_an_empty_filter_array_is_read(tmp_path):

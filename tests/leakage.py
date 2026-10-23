@@ -13,8 +13,9 @@ stream's decoded data never is; object stream members are read as objects. found
 seeds it finds: a hex image seed by exact pixel hash only, and a marker-colour hit only under the image seeds whose
 value is None (7.1 G). parts(path) gives the same parts for checks that are not seeds.
 
-Known ceilings (not decoded; recorded in the TASK-0224 worker notes): 16-bit PDF images and colour spaces other
-than device, ICCBased and Indexed over those (reported as unreadable, so a scan meeting one raises); UTF-16LE text without a BOM; free-page overflow chains and UTF-16
+Known ceilings (not decoded; recorded in the TASK-0224 worker notes): 16-bit PDF images, colour spaces other
+than device, ICCBased and Indexed over those, and DCT or JPX data with a non-default /Decode (reported as
+unreadable, so a scan meeting one raises); UTF-16LE text without a BOM; free-page overflow chains and UTF-16
 databases (only the dump and raw bytes are searched); a marker under MIN_PIXELS pixels, so a private crop's marker
 rectangle must stay above about 7 by 7 pixels at the smallest scale a renderer draws it. Test code only."""
 import base64
@@ -533,26 +534,39 @@ def _pdf_strings(obj):
 
 def _pdf_image(stream, where):
     """DCT and JPX data opened by Pillow; other data rebuilt from width, height and colour space (8-bit grey, RGB,
-    CMYK and ICCBased, 1-bit masks, and Indexed over one of those at 1, 2, 4 or 8 bits). Any other image raises, so
-    it is reported as unreadable."""
+    CMYK and ICCBased, 1-bit masks, and Indexed over one of those at 1, 2, 4 or 8 bits), each through its /Decode
+    array when it has one (an Indexed image's maps samples to indices). Any other image or Decode raises, so it is
+    reported as unreadable; DCT and JPX data with a Decode array other than the default raise too (Pillow's reading
+    of an Adobe CMYK JPEG already inverts it, so a Decode on top is not known to draw as a renderer would)."""
     from pdfminer.pdftypes import LITERALS_DCT_DECODE, LITERALS_JPX_DECODE, resolve1
 
     data = stream.get_data()
-    if any(f in LITERALS_DCT_DECODE or f in LITERALS_JPX_DECODE for f, _ in stream.get_filters()):
-        yield "image", where, Image.open(io.BytesIO(data))
-        return
     a = {k: resolve1(v) for k, v in stream.attrs.items()}
+    if any(f in LITERALS_DCT_DECODE or f in LITERALS_JPX_DECODE for f, _ in stream.get_filters()):
+        image = Image.open(io.BytesIO(data))
+        decode = a.get("Decode", a.get("D"))
+        if decode is not None and [resolve1(x) for x in decode] != [0, 1] * len(image.mode):
+            raise ValueError(f"image Decode {decode!r} on DCT or JPX data is not decoded")
+        yield "image", where, image
+        return
     cs, bits = a.get("ColorSpace", a.get("CS")), a.get("BitsPerComponent", a.get("BPC"))
     size = (a.get("Width", a.get("W")), a.get("Height", a.get("H")))
     if isinstance(cs, list) and getattr(cs[0], "name", None) in ("Indexed", "I"):
-        yield "image", where, _indexed(cs, bits, size, data)
+        yield "image", where, _indexed(cs, bits, size, data, a.get("Decode", a.get("D")))
         return
     mode = _mode(cs)
     if a.get("ImageMask", a.get("IM")) is True or (mode == "L" and bits == 1):
         mode = "1"
     elif mode is None or bits != 8:
         raise ValueError(f"image colour space {cs!r} at {bits} bits is not decoded")
-    yield "image", where, Image.frombytes(mode, size, data)
+    image = Image.frombytes(mode, size, data)
+    decode = a.get("Decode", a.get("D"))
+    if decode is not None:  # each component through its [Dmin Dmax] range, as a renderer draws it (clipped to 0-1)
+        tables = _decode(decode, 1 if mode == "1" else 8, 1 if mode == "1" else len(mode))
+        if mode == "1":  # Pillow holds the two samples as 0 and 255
+            image, tables = image.convert("L"), [[t[v >= 128] for v in range(256)] for t in tables]
+        image = image.point([round(min(max(v, 0), 1) * 255) for t in tables for v in t])
+    yield "image", where, image
 
 
 def _mode(cs):
@@ -565,10 +579,11 @@ def _mode(cs):
     return MODES.get(getattr(cs, "name", None))
 
 
-def _indexed(cs, bits, size, data):
+def _indexed(cs, bits, size, data, decode=None):
     """An Indexed image ([/Indexed base hival lookup], 1, 2, 4 or 8 bits) as the image of its base colour space whose
-    pixels are the palette entries its indices pick, so it hashes as that direct image would. An index above hival
-    or a lookup shorter than its entries raises."""
+    pixels are the palette entries its indices pick, so it hashes as that direct image would; a Decode array maps
+    each sample to its index first. An index above hival (after Decode), an unsupported Decode or a lookup shorter
+    than its entries raises."""
     from pdfminer.pdftypes import PDFStream, resolve1
 
     base, hival, lookup = _mode(cs[1]), resolve1(cs[2]), resolve1(cs[3])
@@ -580,11 +595,29 @@ def _indexed(cs, bits, size, data):
     if len(lookup) < (hival + 1) * n:
         raise ValueError(f"Indexed lookup holds {len(lookup)} bytes, fewer than {(hival + 1) * n}")
     indices = Image.frombytes("P", size, data, "raw", "P" if bits == 8 else f"P;{bits}").tobytes()
+    if decode is not None:  # each sample to its index, before the palette
+        index = [round(v) for v in _decode(decode, bits, 1)[0]]
+        if any(not 0 <= index[s] <= hival for s in set(indices)):
+            raise ValueError(f"Indexed image Decode {decode!r} gives an index outside 0 to hival {hival}")
+        indices = indices.translate(bytes(i if 0 <= i <= hival else 0 for i in index + [0] * (256 - len(index))))
     if max(indices, default=0) > hival:
         raise ValueError(f"Indexed image index {max(indices)} above hival {hival}")
     planes = [Image.frombytes("L", size, indices.translate(bytes(lookup[i * n + k] if i <= hival else 0
                                                                 for i in range(256)))) for k in range(n)]
     return Image.merge(base, planes)
+
+
+def _decode(decode, bits, n):
+    """Per component, the value each sample s (0 to 2 ** bits - 1) decodes to under a Decode array of n [Dmin Dmax]
+    pairs: Dmin + s * (Dmax - Dmin) / (2 ** bits - 1), a colour component from 0 to 1 or an Indexed index. Any other
+    Decode (wrong length, not numbers) raises, so the image is unreadable."""
+    from pdfminer.pdftypes import resolve1
+
+    d = [resolve1(x) for x in decode] if isinstance(decode, list) else None
+    if d is None or len(d) != 2 * n or not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in d):
+        raise ValueError(f"image Decode {decode!r} is not decoded")
+    last = 2 ** bits - 1
+    return [[d[2 * k] + s * (d[2 * k + 1] - d[2 * k]) / last for s in range(last + 1)] for k in range(n)]
 
 
 def _sqlite(data, place, tmp, wal):
