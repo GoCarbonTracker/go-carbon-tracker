@@ -1337,9 +1337,9 @@ def credential_workspace(root, legacy=None, tokens=TOKENS):
 @pytest.mark.parametrize("legacy", [False, True])
 def test_a_credential_in_a_claim_text_reaches_no_key_in_either_package(tmp_path, monkeypatch, legacy):
     """legacy: the two review keys as match.py wrote them before it scrubbed (the token lowercased in the metric, and
-    lowercased with its space removed in the unit): the package scrubs them; the metric one is still the series the
-    package forms, the unit as printed one ("printed:[redacted]" against "printed:redacted") is not, so the sanitised
-    package withholds it."""
+    lowercased with its space removed in the unit): the package writes them with the key rule, which gives the keys
+    match.py now builds (a label or unit holding a credential is the mark alone), so both still name series the
+    package forms and both ship."""
     from gct.stages import match
     t1, t2, t3 = TOKENS.values()
     root = tmp_path / "w" / "ws"
@@ -1352,7 +1352,7 @@ def test_a_credential_in_a_claim_text_reaches_no_key_in_either_package(tmp_path,
     assert set(leakage.found(root / layout.DB_NAME, SEEDS)) == set(TOKENS)  # each token is in the source
     out = packages(g, root)
     for mode, (back, p) in out.items():
-        assert len(back["workspace"]["match_review"]) == (1 if legacy and mode == "sanitised" else 2), mode
+        assert len(back["workspace"]["match_review"]) == 2, mode
         folder = root / "exports" / next(n for n in made(root) if n.endswith(mode))
         for db in (folder / layout.DB_NAME, folder / "published" / "v1.db"):  # the original PDF prints TOKEN2
             assert leakage.found(db, SEEDS) == {}, (mode, db)
@@ -1361,9 +1361,8 @@ def test_a_credential_in_a_claim_text_reaches_no_key_in_either_package(tmp_path,
         conn = store.connect(folder / layout.DB_NAME)
         formed = {s["key"] for s in match.compute(conn)["series"].values()}
         conn.close()
-        if mode == "sanitised" or not legacy:
-            assert {r["series_key"] for r in back["workspace"]["match_review"]} <= formed, mode
-    assert out["sanitised"][1]["withheld"]["selection_recomputed"] == (1 if legacy else 0)
+        assert {r["series_key"] for r in back["workspace"]["match_review"]} <= formed, mode
+    assert out["sanitised"][1]["withheld"]["selection_recomputed"] == 0
 
 
 # Round 3, F1 (the reviewer's fix2-limits short-legacy case): an 8-character token typed as a unit, its review
@@ -1387,7 +1386,7 @@ def test_a_short_bearer_token_in_a_legacy_key_reaches_neither_package(tmp_path, 
 
 # Round 3, F2 (the reviewer's fix2-prose case): ordinary prose after "bearer" stays in every prose field of both
 # packages and of every report format in both modes; a credential-shaped token after a lowercase "bearer" does not.
-# A series label is key text, so it reads "the [redacted] risk".
+# A series label is key text, so it is the mark alone.
 def test_ordinary_bearer_prose_stays_and_a_token_after_it_does_not(tmp_path):
     from gct.reports import export
     token = "gctsynthtoken6" + "q" * 20
@@ -1410,6 +1409,127 @@ def test_ordinary_bearer_prose_stays_and_a_token_after_it_does_not(tmp_path):
         assert leakage.found(folder, seeds) == {}, flags
 
 
+# Round 4, F1 (the reviewer's fix3-normalization case plus more separators): the normalisers drop the marks,
+# brackets and words that kept a token apart from "bearer" ("bEaReR (q7Canary)" was "printed:bearerq7canary",
+# "bEaReR*q7Canary" was "bearer q7canary"). A label or unit holding a credential before or after normalising is the
+# mark alone. Row 1 carries the reviewer's short token: no key column (series, candidates, reviews, restatements,
+# group keys) of either package holds it in any case; as prose it is not credential-shaped, so the claim text keeps it
+# (the round-3 prose ruling). Row 2 carries a credential-shaped token: neither package (found, raw bytes, .dump in any
+# case) nor any report format in either mode holds it; "bearer in <token>" is prose with "in" after "bearer", so only
+# its keys are checked.
+LONG = "GCTSYNTHTOKEN7" + "q" * 20
+
+
+@pytest.mark.parametrize("field, form", [("unit", "bEaReR ({})"), ("unit", "bearer[{}]"), ("unit", "bearer in {}"),
+                                         ("metric", "bEaReR*{}"), ("metric", "Bearer#{}"), ("metric", "bearer†{}")])
+def test_a_token_the_normalisers_join_to_bearer_reaches_no_key(tmp_path, field, form):
+    from gct.reports import export
+    seeds = [{"name": "CRED-NORMALIZED-02", "kind": "credential", "expect": "never", "value": LONG}]
+    root = tmp_path / "w" / "ws"
+    root.parent.mkdir()
+    g, doc, claims = small(root, gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "100", "110", "120"],
+                                                    [gate_fixture.SCOPE_1, "tCO2e", "200", "210", "220"]],
+                                                   ["FY 2024-25"] * 3))
+    rows = g("claims", "list", "--doc", doc)["claims"]
+    for r in rows:
+        g("correct", r["id"], f"--{field}", form.format("q7Canary" if "r1" in r["locator"] else LONG),
+          *gate_fixture.WHO)
+    g("infer")
+    for group in g("infer", "groups", "--state", "proposed")["groups"]:
+        g("infer", "accept", group["id"], *gate_fixture.WHO)
+    g("match")
+    out = packages(g, root)
+    for mode, (back, p) in out.items():
+        series = back["published"]["series"]
+        assert len(series) == 2 and {s["label"] if field == "metric" else s["unit_family"] for s in series} == {
+            "[redacted]" if field == "metric" else "printed:[redacted]"}, (mode, series)
+        folder = root / "exports" / next(n for n in made(root) if n.endswith(mode))
+        conn = store.connect(folder / "published" / "v1.db")
+        machine = [json.dumps([dict(r) for r in conn.execute(f"SELECT * FROM {t}")]) for t in ("series",
+                                                                                                "match_candidate")]
+        conn.close()
+        ws = back["workspace"]
+        machine += [r["series_key"] for t in package.SERIES_NAMED for r in ws[t]] + [
+            i["group_key"] for i in ws["inference"]]
+        assert not [m for m in machine if "q7canary" in m.casefold() or LONG.casefold() in m.casefold()], mode
+        if "in" not in form:
+            for db in (folder / layout.DB_NAME, folder / "published" / "v1.db"):
+                assert leakage.found(db, seeds) == {} and LONG.casefold() not in dump_text(db).casefold(), (mode, db)
+    assert out["sanitised"][1]["withheld"]["selection_recomputed"] == 0
+    for flags in ((), ("--complete",)):
+        folder = Path(g("report", "all", "--format", ",".join(sorted(export.FORMATS)), *flags)["folder"])
+        log = json.loads(next(folder.rglob("dataset.json")).read_text(encoding="utf-8"))
+        assert "q7canary" not in json.dumps([r.get("unit_family") for r in log["restatement_log"]]).casefold()
+        if "in" not in form:
+            assert leakage.found(folder, seeds) == {}, flags
+
+
+# Round 4, F2 (the reviewer's fix3-currency case): a reread interrupted before extraction leaves a public claim not
+# current; its later resolutions never let it form a series. At the link, every rule point is the private
+# document's, so the review names a private-only series: the sanitised package of W withholds it
+# (selection_recomputed 1), as W' (no private document, no series to link) holds none; the complete package keeps it.
+def test_resolutions_on_a_claim_that_was_not_current_support_no_history(tmp_path):
+    from gct.stages import correct, match
+    got = {}
+    for name, private in (("w", True), ("w2", False)):
+        root = tmp_path / name / "ws"
+        root.parent.mkdir()
+        gate_fixture.gct("workspace", "init", root)
+
+        def g(*argv):
+            return gate_fixture.gct(*argv, "--workspace", root)
+
+        g("company", "add", "Acme")
+        g("contributor", "add", "ana", "--name", "Ana")
+        if private:
+            path = root.parent / "private.pdf"
+            path.write_bytes(gate_fixture.make_pdf([gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "999"]],
+                                                                      ["FY 2024-25"])]))
+            pd = g("doc", "add", path, "--company", "Acme")["items"][0]["document"]["id"]
+        path = root.parent / "shared.pdf"
+        path.write_bytes(gate_fixture.make_pdf([
+            gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "100"]], ["FY 2024-25"], boundary=""),
+            gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "110"]], ["FY 2024-25"], boundary="")]))
+        doc = g("doc", "add", path, "--company", "Acme", "--privacy", "shareable")["items"][0]["document"]["id"]
+        for step in ("read", "extract", "match", "infer"):
+            g(step)
+        if private:
+            for b in g("infer", "bases")["bases"]:
+                if b["kind"] == "reporting_boundary":
+                    g("infer", "scope", b["id"], "--pages", 1, *gate_fixture.WHO)
+        g("infer")
+        if private:
+            for group in g("infer", "groups", "--state", "proposed")["groups"]:
+                if group["document"] == pd:
+                    g("infer", "accept", group["id"], *gate_fixture.WHO)
+        rows = g("claims", "list", "--doc", doc)["claims"]
+        a, c = (next(r["id"] for r in rows if r["page_number"] == n) for n in (1, 2))
+        period = ("--field", "period", "--kind", "fiscal_year", "--start", "2024-04-01", "--end", "2025-03-31")
+        g("infer", "resolve", c, *period, *gate_fixture.WHO)
+        conn = store.connect(root / layout.DB_NAME)
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(page)") if r["name"] != "id"]
+        with store.transaction(conn):  # a reread of page 1 interrupted before extraction (an append-only page row)
+            conn.execute(f"INSERT INTO page ({', '.join(cols)}) SELECT {', '.join(cols)} FROM page WHERE document_id = ?"
+                         " AND page_number = 1 ORDER BY id DESC LIMIT 1", (doc,))
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert correct.states(conn, doc)[a] == correct.NOT_EXTRACTED
+        conn.close()
+        g("infer", "resolve", a, *period, *gate_fixture.WHO)
+        g("infer", "resolve", a, "--field", "boundary", "--boundary", "standalone", *gate_fixture.WHO)
+        conn = store.connect(root / layout.DB_NAME)
+        actual = match.compute(conn)["series"]
+        conn.close()
+        assert all(p["document_id"] == pd for s in actual.values() for p in s["points"]) if private else actual == {}
+        if private:
+            g("match", "link", c, "--series", next(iter(actual)), *gate_fixture.WHO)
+        g("infer", "resolve", a, "--field", "boundary", "--boundary", "consolidated", *gate_fixture.WHO)
+        got[name] = packages(g, root)
+    san, p = got["w"]["sanitised"]
+    assert san["workspace"]["match_review"] == [] and p["withheld"]["selection_recomputed"] == 1
+    assert got["w2"]["sanitised"][0]["workspace"]["match_review"] == []
+    assert len(got["w"]["complete"][0]["workspace"]["match_review"]) == 1
+
+
 # In an unambiguous workspace (match first; mapped, unmapped and unit as printed series) the replay of
 # package.history_keys reaches every key match.compute forms now, on the source and on both packages: the check that
 # ties its copy of the key shape to match.py
@@ -1426,7 +1546,8 @@ def test_history_keys_reach_what_match_compute_forms(tmp_path):
         conn = store.connect(db)
         try:
             return {t: [dict(r) for r in conn.execute(f"SELECT * FROM {t} ORDER BY id")] for t in (
-                "claim", "claim_version", "metric_assignment", "inference", "inference_review")}
+                "document", "page", "attempt", "claim_seen", "claim", "claim_version", "metric_assignment", "inference",
+                "inference_review")}
         finally:
             conn.close()
 
@@ -1460,6 +1581,17 @@ def test_scrub_catches_a_bearer_scheme_in_any_case_and_form(monkeypatch):
                          ('["doc:3:p1:t0r1:bearer  q7", "kl"]', '["doc:3:p1:t0r1:[redacted]", "kl"]')):
         assert redact.scrub_key(key) == written, key
     assert redact.scrub_key(None) is None and redact.scrub_key("") == ""
+    for apart in (f"bEaReR ({token})", f"bearer[{token}]", f"bearer*{token}", f"bearer #{token}"):  # round 4
+        assert token not in redact.scrub(apart).casefold(), apart
+    assert redact.scrub("bEaReR (q7Canary)") == "bEaReR (q7Canary)"  # prose: not credential-shaped
+    from gct.stages import match
+    for normalise, short, mark in ((match.key_unit, "bEaReR (q7Canary)", redact.MARK),
+                                   (match.key_unit, "bearer in q7Canary", redact.MARK),
+                                   (match.key_label, "bEaReR*q7Canary", redact.MARK),
+                                   (match.key_label, "water [redacted]", redact.MARK),
+                                   (match.key_unit, "tCO2e (in GJ)", "tco2egj"),
+                                   (match.key_label, "Total Scope 1 emissions*", "total scope 1 emissions")):
+        assert normalise(short) == mark, (normalise, short)
     monkeypatch.setattr(redact, "_names", lambda: ("GCT_SYNTH_KEY",))
     monkeypatch.setenv("GCT_SYNTH_KEY", env.upper())
     assert redact.scrub(f"acme and {env}") == redact.scrub_key(f"acme and {env}") == "acme and [redacted]"

@@ -993,5 +993,5 @@ def test_a_credential_in_a_claim_text_reaches_no_report(tmp_path):
         folder = Path(g("report", "all", "--format", ",".join(sorted(export.FORMATS)), *flags)["folder"])
         assert {p.suffix for p in folder.rglob("*") if p.is_file()} >= {".json", ".xlsx", ".csv", ".pdf"}, flags
         log = json.loads(next(folder.rglob("dataset.json")).read_text(encoding="utf-8"))["restatement_log"]
-        assert "printed:redacted" in {r["unit_family"] for r in log}, flags
+        assert "printed:[redacted]" in {r["unit_family"] for r in log}, flags
         assert leakage.found(folder, SEEDS) == {}, flags

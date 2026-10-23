@@ -273,12 +273,14 @@ def history_keys(ship: dict) -> set:
     for i in inferences.values():
         k = i["claim_version_id"], i["field"]
         newest_inference[k] = max(newest_inference.get(k, 0), i["id"])
+    current = _current_from(ship, claims, versions)
     state, held, holders, out, elapsed = {}, {}, Counter(), set(), 0
 
     def update(vid):
         v, a, s = versions[vid], single.get(vid), state[vid]
         ordinary = printed = None
-        if newest_version[v["claim_id"]] == vid and a is not None and a["run_id"] < elapsed:
+        if newest_version[v["claim_id"]] == vid and a is not None and a["run_id"] < elapsed and vid in current and \
+                current[vid] <= elapsed:
             ordinary, printed = _key(claims[v["claim_id"]], v, a, s.get("boundary"), s.get("period"))
         if ordinary:
             out.add(ordinary)
@@ -308,13 +310,45 @@ def history_keys(ship: dict) -> set:
     return out
 
 
+def _current_from(ship: dict, claims: dict, versions: dict) -> dict:
+    """{claim version id: the run after which the version was provably current (correct.states), and stayed so}.
+    The claim's page reading that is newest now is the newest at any moment, since page rows are append-only; the
+    version was current at a moment once that reading had an ok extract attempt and a claim_seen row of the version,
+    both under the current extract config, in runs that ended before it. A version of a spreadsheet document, or with
+    no such rows, is never proven current."""
+    from gct.stages import extract
+    config, pdf = extract.extract_config(), {d["id"] for d in ship["document"] if d["file_type"] == "pdf"}
+    newest = {}
+    for p in ship["page"]:
+        k = p["document_id"], p["page_number"]
+        newest[k] = max(newest.get(k, 0), p["id"])
+    extracted = {}
+    for t in ship["attempt"]:
+        if t["stage"] == "extract" and t["outcome"] == "ok" and t["config_version"] == config:
+            k = t["item"].split(":", 1)[0], t["input_version"]
+            extracted[k] = min(extracted.get(k, t["run_id"]), t["run_id"])
+    seen = {}
+    for s in ship["claim_seen"]:
+        if s["config_version"] == config:
+            k = s["claim_version_id"], s["page_id"]
+            seen[k] = min(seen.get(k, s["run_id"]), s["run_id"])
+    out = {}
+    for vid, v in versions.items():
+        c = claims[v["claim_id"]]
+        page = newest.get((c["document_id"], c["page_number"]))
+        runs_ = (extracted.get((str(c["document_id"]), f"page {page}")), seen.get((vid, page)))
+        if c["document_id"] in pdf and page and None not in runs_:
+            out[vid] = max(runs_)
+    return out
+
+
 def _key(c, v, a, boundary, kind) -> tuple:
     """(ordinary key, unit as printed key) of one claim version in one state, as JSON (match.compute, match._series),
     from claim text through redact.scrub_key, as match.compute builds it."""
     if a is None or kind is None or boundary is None or boundary[0] in (None, "unknown"):
         return None, None
     row, doc = match._row(c["locator"]), c["document_id"]
-    label = match.label_of(scrub_key(v["metric_text"]))
+    label = match.key_label(v["metric_text"])
     if a["metric_key"] is None and not (label and row):
         return None, None
     head = [c["company_id"], a["metric_key"] or f"doc:{doc}:p{c['page_number']}:{row}:{label}", boundary[0],
@@ -322,7 +356,7 @@ def _key(c, v, a, boundary, kind) -> tuple:
     family = a["unit_key"]
     if family is not None and (a["metric_key"] is None or family in match.ACCEPTS[a["metric_key"]]):
         return json.dumps(head + [family, doc if a["metric_key"] is None else None, kind], ensure_ascii=False), None
-    unit = match.unit_text_of(scrub_key(v["unit_text"]) or "") or "-"
+    unit = match.key_unit(v["unit_text"]) or "-"
     return None, row and json.dumps(head + [f"printed:{unit}", doc, kind, f"p{c['page_number']}:{row}"],
                                     ensure_ascii=False)
 

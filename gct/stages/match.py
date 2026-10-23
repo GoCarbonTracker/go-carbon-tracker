@@ -5,7 +5,7 @@ import re
 
 from collections import Counter
 
-from gct.models.redact import scrub_key
+from gct.models.redact import MARK, scrub_key
 from gct.stages import Stage, correct, infer, run_stage, version_of
 from gct.stages.extract import WESTERN
 from gct.stages.link import EXTRACT_FIRST
@@ -105,6 +105,25 @@ def unit_text_of(text: str) -> str:
     """A unit text as looked up: lowercased, the word 'in', brackets and whitespace removed."""
     s = re.sub(r"\bin\b", " ", text.lower().replace("’", "'"))
     return re.sub(r"[\s()\[\]{}]", "", s)
+
+
+def _machine(normalise, text) -> str:
+    """normalise(text), or the redaction mark alone when the text holds the mark or the key rule (redact.scrub_key)
+    finds a credential in the text or in its normalised value: label_of and unit_text_of drop the marks, brackets,
+    spaces and words that kept a token apart from "bearer", and scrubbing either side alone can leave one. A text a
+    package wrote scrubbed (holding the mark) gives the same value as its source text."""
+    out = normalise(text or "")
+    return MARK if MARK in (text or "") or scrub_key(text) != text or scrub_key(out) != out else out
+
+
+def key_label(text) -> str:
+    """An unmapped metric's label as a series key and label hold it."""
+    return _machine(label_of, text)
+
+
+def key_unit(text) -> str:
+    """A unit as a unit as printed family holds it."""
+    return _machine(unit_text_of, text)
 
 
 def _lookup(text: str) -> tuple[str, float] | None:
@@ -349,7 +368,7 @@ def compute(conn, company=None) -> dict:
         if p["state"] not in KNOWN:
             _state(c, NOT_MATCHABLE, PERIOD_UNKNOWN)
             continue
-        label = label_of(scrub_key(c["metric_text"]))  # scrubbed first: a key holds the text lowercased
+        label = key_label(c["metric_text"])
         if c["metric_key"] is None and not label:
             _state(c, NOT_MATCHABLE, NO_LABEL)
             continue
@@ -369,7 +388,7 @@ def compute(conn, company=None) -> dict:
             _state(c, SERIES, sid=series_id(key))
             continue
         if c["boundary_known"] and row:  # a unit not usable across documents may still join the columns of its row
-            c["printed"] = head + [f"printed:{unit_text_of(scrub_key(c['unit_text']) or '') or '-'}", c["document_id"], p["kind"],
+            c["printed"] = head + [f"printed:{key_unit(c['unit_text']) or '-'}", c["document_id"], p["kind"],
                                    f"p{c['page_number']}:{row}"]
         waiting.append(c)
     printed = {}

@@ -7,9 +7,9 @@ import re
 
 MARK = "[redacted]"
 # Prose: "Bearer" and any token (as before), and in any case a credential-shaped token (16 or more token characters)
-# after "bearer", spaced or joined; "the bearer of" stays
+# after "bearer", joined or apart by spaces, brackets or the marks match.label_of drops; "the bearer of" stays
 PATTERNS = re.compile(r'(?i:(?<![A-Za-z0-9])(?:sk|nvapi)-[A-Za-z0-9_-]{16,})|Bearer\s+[^\s"]+'
-                      r'|(?i:bearer)\s*[A-Za-z0-9._~+/=-]{16,}')
+                      r'|(?i:bearer)[\s()\[\]{}#*†]*[A-Za-z0-9._~+/=-]{16,}')
 # Key text (a series key, a group key, a unit family, a series label) is machine text that match.label_of lowercases
 # and match.unit_text_of joins: "bearer" with any token after it, spaced or joined, is a credential there
 KEY_PATTERN = re.compile(r'bearer\s*[A-Za-z0-9._~+/=-]+', re.I)
