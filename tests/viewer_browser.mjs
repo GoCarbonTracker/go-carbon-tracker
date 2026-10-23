@@ -585,7 +585,7 @@ if (mode === "stale") {
       await g.wait(() => g.shell().includes("9 claims") && g.drawn(9), "Acme's graph");
       const acme = { shell: g.shell(), graph: g.graph(), tables: await tables(tablesAll.rows) };
       g.tick("Company", "Acme");
-      await g.wait(() => g.drawn(14), "every claim again");
+      await g.wait(() => g.shell().includes("14 claims") && g.drawn(14), "every claim again");
       const text = document.querySelector(".graphs").innerText;
       return { before, after: g.loaded(/cytoscape/).length, shell: g.shell(), graph: g.graph(), tablesAll, acme,
         role: canvas.getAttribute("role"), label: canvas.getAttribute("aria-label"),
