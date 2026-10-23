@@ -5,6 +5,7 @@ from collections import Counter
 
 import pdfplumber
 import pytest
+from pdfplumber.utils.exceptions import PdfminerException
 
 from conftest import PDF, grid, make_pdf
 from old_code import NOW, old_tree, run_old  # noqa: F401 (old_tree is a fixture)
@@ -12,7 +13,7 @@ from test_extract import PAGE
 from test_link import add_reading
 from test_resume import FIVE, failing
 from gct.stages import extract, missing, read
-from gct.workspace import layout, published, store
+from gct.workspace import layout, published, registry, store
 
 OTHER = make_pdf([{"text": [(72, 300, "Water withdrawn 120 kL")]}])
 WHO = ("--as", "ana", "--capacity", "analyst", "--rationale", "looked at the page")
@@ -350,8 +351,8 @@ def acceptance(db, doc: int, page: int) -> dict:
 def test_the_published_version_holds_page_limits_and_ids_only(ws, db, gct, limits, monkeypatch):
     for argv in CHANGES[1:4]:
         assert gct(*argv).code == 0
-    opened, real = Counter(), pdfplumber.open
-    monkeypatch.setattr(pdfplumber, "open", lambda path, *a, **k: opened.update([str(path)]) or real(path, *a, **k))
+    opened, real = Counter(), missing._count
+    monkeypatch.setattr(missing, "_count", lambda path: opened.update([str(path)]) or real(path))
     assert gct("publish", "build").code == 0
     # Each stored PDF that is active is opened once, though four expectations and two companies read document 2's file
     assert len(opened) == 5 and set(opened.values()) == {1}
@@ -397,6 +398,42 @@ def test_the_published_version_holds_page_limits_and_ids_only(ws, db, gct, limit
     assert json.loads(checked) == [{"id": x["id"], "artifacts": x["artifacts"]} for x in json.loads(stored)]
     assert "sha256" not in checked and json.loads(checked)[0]["id"] == 2
     conn.close()
+
+
+# Fix round 1 (H1): the page count is pdfplumber's, without walking every page object.
+def test_the_page_count_is_pdfplumbers(tmp_path, monkeypatch):
+    def write(name: str, data: bytes):
+        path = registry.stored_path(tmp_path, name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
+    def plumber(path):
+        with pdfplumber.open(path) as pdf:
+            return len(pdf.pages)
+
+    without_count = FIVE.replace(b"/Count 5", b"/Count 0")  # same length, so the xref offsets still hold
+    assert without_count != FIVE
+    pdfs = {"page": make_pdf([PAGE]), "other": OTHER, "five": FIVE, "one": one_page("x"), "no eof": FIVE[:-6],
+            "two": make_pdf([{"text": [(72, 300, "a")]}] * 2)}
+    for name, data in pdfs.items():
+        path = write(name, data)
+        assert missing._count(path) == plumber(path), name
+    assert missing._count(write("count 0", without_count)) == 5  # no usable /Count: the walk
+    # The files that do not open are pdfplumber's: a repairable xref that pdfium would count stays unopened.
+    broken = {"conftest PDF": PDF, "broken": b"%PDF-1.4 broken", "truncated": FIVE[: len(FIVE) // 2],
+              "xref damaged": FIVE.replace(b"xref", b"xrex"), "csv": b"metric,value\nwater,5\n", "empty": b""}
+    for name, data in broken.items():
+        path = write(name, data)
+        with pytest.raises(PdfminerException):
+            plumber(path)
+        assert missing.page_count(tmp_path, {"file_type": "pdf", "sha256": name}) == (None, "not opened"), name
+    five = write("five", FIVE)
+    monkeypatch.setattr(pdfplumber, "open", lambda path: 1 / 0)  # from here the walk, if taken, raises
+    assert missing._count(five) == 5  # /Count used, no walk
+    monkeypatch.setattr(missing, "MAX_PAGES", 4)
+    with pytest.raises(ZeroDivisionError):
+        missing._count(five)  # a /Count above the cap: the walk
 
 
 # B9 (R3): the CLI prints what the code before projection 15 printed, and a confirmation it stored stays current.

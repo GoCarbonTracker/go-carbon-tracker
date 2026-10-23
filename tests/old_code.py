@@ -38,10 +38,10 @@ def old_tree(tmp_path_factory) -> Path:
         data = subprocess.run(["git", "archive", BASE, "gct"], cwd=Path(__file__).resolve().parent.parent,
                               capture_output=True, check=True).stdout
     except (OSError, subprocess.CalledProcessError):
-        pytest.skip(f"needs a git checkout that holds {BASE}")
+        pytest.skip(f"needs a git checkout containing {BASE}")
     tree = tmp_path_factory.mktemp("old-code")
-    with tarfile.open(fileobj=io.BytesIO(data)) as t:
-        t.extractall(tree, filter="data")
+    with tarfile.open(fileobj=io.BytesIO(data)) as t:  # extraction filters arrived in Python 3.11.4
+        t.extractall(tree, **({"filter": "data"} if hasattr(tarfile, "data_filter") else {}))
     return tree
 
 
