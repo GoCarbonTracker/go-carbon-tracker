@@ -217,11 +217,8 @@ def test_the_third_company_and_its_canary_are_absent_from_both_sanitised_outputs
 
 
 def p_match_rows(d) -> dict:
-    """{(document name, period label): (match state, reason, series boundary detail)} of acme-review.pdf and
+    """{(document name, period label): (match state, match reason)} of acme-review.pdf and
     acme-printed.pdf's Scope 1 claims."""
-    series = {}
-    for r in d["evidence_index"]:
-        series.setdefault(r["claim_id"], r)
     return {(r["document_name"], r["period_label"]): (r["match_state"], r["match_reason"]) for r in d["evidence_index"]
             if r["document_name"] in ("acme-review.pdf", "acme-printed.pdf") and r["metric_text"] == f.SCOPE_1}
 
