@@ -1436,6 +1436,7 @@ def cmd_run_resume(args) -> int:
 def cmd_run_retry(args) -> int:
     conn = _open(args)
     r = _of_run(conn, args.id, "retried")
+    sel = _selection(conn, r)  # as resume: a run with no record of what it was given is never replayed
     note, head = f"retries failed items of run {args.id}", f"Run {{}} retries the failed items of run {args.id}."
     stage, out = STAGES.get(r["command"], (intake, None))
     wanted = stage.failed(conn, args.id)
@@ -1446,7 +1447,7 @@ def cmd_run_retry(args) -> int:
     if out:
         run_id, docs = stage.retry(conn, args.root, wanted, [note])
         return out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": args.id})
-    return _replay(args, conn, r, {**_selection(conn, r), "sources": wanted}, note, head)
+    return _replay(args, conn, r, {**sel, "sources": wanted}, note, head)
 
 
 def cmd_approve_spend(args) -> None:

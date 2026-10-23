@@ -292,6 +292,36 @@ def test_a_complete_package_needs_include_private_and_carries_every_row(src, gct
     assert gct("publish", "build", *w, "--json").data["version"] == 2
 
 
+# D7 (review finding): a shipped failed attempt is never replayed in a sanitised package; the source still retries it
+def test_retry_of_a_shipped_failed_run_is_refused_in_the_package_and_works_in_the_source(ws, gct, tmp_path,
+                                                                                        monkeypatch):
+    from conftest import make_pdf
+    from gct.stages import read
+
+    gct("company", "add", "Acme")
+    path = tmp_path / "shared.pdf"
+    path.write_bytes(make_pdf([{"text": [(40, 80, "Total Scope 1 emissions 1,234")], "lines": []}]))
+    assert gct("doc", "add", path, "--company", "Acme", "--privacy", "shareable").code == 0
+    with monkeypatch.context() as m:
+        m.setattr(read, "_work", lambda *a: (_ for _ in ()).throw(OSError("transient")))
+        assert gct("read", 1).code == 4
+    failed = dump(ws)["run"][-1][0]
+    assert gct("publish", "build").code == 0
+    folder = ws / create(gct).data["folder"]
+    conn = store.connect(folder / layout.DB_NAME)
+    assert conn.execute("SELECT COUNT(*) FROM attempt WHERE run_id = ? AND outcome = 'failed'", (failed,)).fetchone()[0]
+    assert runs.selection(conn, failed) is None
+    conn.close()
+    before, files = dump(folder), tree(folder)
+    r = gct("run", "retry", failed, "--workspace", folder, "--json")
+    assert (r.code, r.data["cause"], r.data["next_action"]) == (
+        4, f"Run {failed} has no record of what it was given, so it cannot be replayed.",
+        "Run gct read again with the same documents.")
+    assert dump(folder) == before and tree(folder) == files
+    again = gct("run", "retry", failed, "--json")
+    assert again.code == 0 and again.data["of_run"] == failed and again.data["documents"][0]["read"] == 1
+
+
 def test_without_private_documents_the_complete_refusal_names_none(src, gct):
     for d in (4, 6, 7):
         assert gct("doc", "label", d, "--privacy", "shareable", *WHO).code == 0
