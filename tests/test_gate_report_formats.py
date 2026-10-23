@@ -66,6 +66,8 @@ ADJUDICATION = {"low_version_id": "low_version_id", "high_version_id": "high_ver
 def check(row, src, fields, sanitised):
     """Each field equals its projected column after scrub; in sanitised mode a withheld field is null and named, and
     a contributor is a pseudonym."""
+    if sanitised:  # C7: every identity and contributor-text field of the row is withheld (no inclusion class given)
+        assert {k for k in fields if k in labels.CONTRIBUTOR_TEXT | labels.IDENTITY} <= set(row["withheld"]), row
     for key, col in fields.items():
         want = src[col]
         want = bool(want) if key in ("binds", "latest") else s(want)
