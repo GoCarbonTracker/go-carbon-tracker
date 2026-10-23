@@ -14,7 +14,7 @@ import pypdfium2 as pdfium
 import pytest
 from PIL import Image
 
-from leakage import MARKER, found
+from leakage import MARKER, Unreadable, found
 from pdf_layouts import pdf as text_pdf
 from test_deletion import scan  # the 4.5 raw byte search
 
@@ -53,13 +53,13 @@ def pixels(img) -> str:
     return hashlib.sha256(img.convert("RGB").tobytes()).hexdigest()
 
 
-def text_seed(value, kind="document text"):
+def text_seed(value, kind="document_text"):
     return {"name": value, "kind": kind, "expect": "complete_only", "value": value}
 
 
 CROP_A, CROP_B, RENDER, HASHED = crop((30, 20)), crop((24, 18)), png(picture(GREY, (30, 30))), b"shareable bytes\n"
 SEEDS = [text_seed(v) for v in V.values()] + [
-    {"name": "GCT-LEAK-SCAN-HASH-25", "kind": "file hash", "expect": "complete_only",
+    {"name": "GCT-LEAK-SCAN-HASH-25", "kind": "file_hash", "expect": "complete_only",
      "value": hashlib.sha256(HASHED).hexdigest()},
     {"name": "GCT-LEAK-SCAN-CROPA-26", "kind": "image", "expect": "complete_only", "value": pixels(CROP_A)},
     {"name": "GCT-LEAK-SCAN-CROPB-27", "kind": "image", "expect": "complete_only", "value": pixels(CROP_B)},
@@ -111,14 +111,48 @@ def hand_pdf(v, mark, crop_a, crop_b) -> bytes:
         _stream(b"/Filter /FlateDecode", zlib.compress(f"BT ({v['unused']}) Tj ET".encode())),
         _stream(img % crop_b.size + b"/Filter /FlateDecode", zlib.compress(crop_b.tobytes())),
     ]
+    return assemble(objs, info=12)
+
+
+def assemble(objs, info=None, update=None) -> bytes:
+    """A PDF of the object bodies (object n is objs[n - 1]); update {n: body} appends an incremental update section
+    that replaces or adds those objects, leaving the earlier copies in the file."""
     out, offsets = bytearray(b"%PDF-1.4\n"), []
     for n, body in enumerate(objs, 1):
         offsets.append(len(out))
         out += b"%d 0 obj\n" % n + body + b"\nendobj\n"
-    xref = len(out)
+    xref, size = len(out), len(objs) + 1 + len(set(update or ()) - set(range(1, len(objs) + 1)))
+    info = b" /Info %d 0 R" % info if info else b""
     out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1) + b"".join(b"%010d 00000 n \n" % o for o in offsets)
-    out += b"trailer\n<< /Size %d /Root 1 0 R /Info 12 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    out += b"trailer\n<< /Size %d /Root 1 0 R%s >>\nstartxref\n%d\n%%%%EOF\n" % (size, info, xref)
+    if update:
+        new = {}
+        for n, body in update.items():
+            new[n] = len(out)
+            out += b"%d 0 obj\n" % n + body + b"\nendobj\n"
+        prev, xref = xref, len(out)
+        out += b"xref\n" + b"".join(b"%d 1\n%010d 00000 n \n" % (n, o) for n, o in sorted(new.items()))
+        out += b"trailer\n<< /Size %d /Root 1 0 R%s /Prev %d >>\nstartxref\n%d\n%%%%EOF\n" % (size, info, prev, xref)
     return bytes(out)
+
+
+def coded(s: str):
+    """A font whose codes are not ASCII (as a TrueType subset): code i + 1 draws the i-th distinct character of s.
+    Returns the font object and s as a hex string in those codes; only extract_text or form text can read it."""
+    glyph = {"-": "hyphen", **dict(zip("0123456789", "zero one two three four five six seven eight nine".split()))}
+    chars = sorted(set(s))
+    names = b" ".join(b"/" + glyph.get(c, c).encode() for c in chars)
+    font = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding << /Type /Encoding /Differences [1 %s] >> >>"
+    return font % names, b"<" + bytes(chars.index(c) + 1 for c in s).hex().encode() + b">"
+
+
+def page_pdf(content: bytes, font=b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", extra=(), page=b"",
+             **kw) -> bytes:
+    """One page drawing content (Flate) with font F1 as object 5; extra objects from 6 on; page adds page entries."""
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> "
+            b"/Contents 4 0 R %s>>" % page, _stream(b"/Filter /FlateDecode", zlib.compress(content)), font, *extra]
+    return assemble(objs, **kw)
 
 
 def zipped(members: dict) -> bytes:
@@ -225,7 +259,7 @@ EXPECTED = {
     V["uri"]: ["doc.pdf: object 9"],
     V["outline"]: ["doc.pdf: object 11"],
     V["unused"]: ["doc.pdf: object 13 stream: raw bytes"],
-    V["shared"]: ["book.xlsx > xl/sharedStrings.xml: XML", "book.xlsx > xl/sharedStrings.xml: unescaped"],
+    V["shared"]: ["book.xlsx > xl/sharedStrings.xml: XML", "book.xlsx > xl/sharedStrings.xml: text, unescaped"],
     V["inline"]: ["book.xlsx > xl/worksheets/sheet1.xml: XML"],
     V["sheet"]: ["book.xlsx > xl/workbook.xml: XML"],
     V["core"]: ["book.xlsx > docProps/core.xml: XML"],
@@ -233,9 +267,9 @@ EXPECTED = {
     V["csv"]: ["table.csv: text"],
     V["case"]: ["table.csv: text"],
     V["utf16"]: ["table16.csv: text"],
-    V["json"]: ["data.json: JSON strings"],
-    V["entity"]: ["page.html: unescaped"],
-    V["datajson"]: ["page.html > data URI 1: JSON strings"],
+    V["json"]: ["data.json: text, unescaped"],
+    V["entity"]: ["page.html: text, unescaped"],
+    V["datajson"]: ["page.html > data URI 1: text"],
     V["row"]: ["db/w.db: raw bytes", "db/w.db: database dump"],
     V["index"]: ["db/w.db: raw bytes"],
     V["wal"]: ["db/w.db-wal: raw bytes", "db/w.db: -wal raw bytes", "db/w.db: database dump"],
@@ -249,7 +283,7 @@ EXPECTED = {
     "GCT-LEAK-SCAN-CROPB-27": ["doc.pdf: object 14 image: pixel hash"],
     "GCT-LEAK-SCAN-RENDER-28": ["render.png: file hash"],
 }
-MARKED = ["doc.pdf: object 6 image", "doc.pdf: object 8 image", "doc.pdf: page 1 inline image",
+MARKED = ["doc.pdf: object 6 image", "doc.pdf: object 8 image", "doc.pdf: page 1 inline image 1",
           "book.xlsx > xl/media/image1.png", "page.html > data URI 2"]
 for _name in IMAGES:
     EXPECTED[_name] = EXPECTED[_name] + [f"{m}: marker colour" for m in MARKED]
@@ -339,7 +373,7 @@ def test_the_scanner_writes_nothing(planted, tmp_path):
 @pytest.mark.parametrize("value", ["GCT LEAK", "GCT_LEAK-01", "GCT-LÉAK-01", "GCT-LEAK/01", "", None])
 def test_seed_hygiene_refuses_unsafe_text(tmp_path, value):
     """AC 5: a text seed outside [A-Za-z0-9-] is refused, for every text kind."""
-    for kind in ("document text", "contributor", "credential", "path"):
+    for kind in ("document_text", "contributor", "credential", "path"):
         with pytest.raises(ValueError, match="uses only"):
             found(tmp_path, [{"name": "s", "kind": kind, "expect": "never", "value": value}])
 
@@ -352,10 +386,13 @@ def test_seed_hygiene_refuses_substrings_and_bad_shapes(tmp_path):
             found(tmp_path, [text_seed(pair[0]), text_seed(pair[1])])
     with pytest.raises(ValueError, match="repeat"):
         found(tmp_path, [text_seed("GCT-LEAK-CANARY-01"), dict(text_seed("GCT-LEAK-CANARY-02"), name="GCT-LEAK-CANARY-01")])
-    with pytest.raises(ValueError, match="unknown kind"):
-        found(tmp_path, [text_seed("GCT-LEAK-CANARY-01", kind="supplier")])
+    for kind in ("supplier", "document text", "document-text", "file hash", "Image"):  # 7.1 G's exact tokens only
+        with pytest.raises(ValueError, match="unknown kind"):
+            found(tmp_path, [text_seed("GCT-LEAK-CANARY-01", kind=kind)])
+    with pytest.raises(ValueError, match="value is a sha256 hex digest"):  # an image value is the decoded RGB hash
+        found(tmp_path, [{"name": "i", "kind": "image", "expect": "complete_only", "value": "marker"}])
     with pytest.raises(ValueError, match="hex digest"):
-        found(tmp_path, [{"name": "h", "kind": "file hash", "expect": "complete_only", "value": "GCT-LEAK-CANARY-01"}])
+        found(tmp_path, [{"name": "h", "kind": "file_hash", "expect": "complete_only", "value": "GCT-LEAK-CANARY-01"}])
     with pytest.raises(ValueError, match="hex digest"):
         found(tmp_path, [{"name": "i", "kind": "image", "expect": "complete_only", "value": None,
                           "render_sha256": "not-a-digest"}])
@@ -367,12 +404,218 @@ def test_seed_lists_in_the_7_1_shape_are_accepted_together(tmp_path):
     digest = hashlib.sha256(b"x").hexdigest()
     seeds_7_1 = [text_seed("GCT-PRIVATE-CANARY-01"), text_seed("GCT-PRIVATE-CANARY-02", "contributor"),
                  text_seed("sk-GCTFAKEKEY0001", "credential"), text_seed("GCT-PATH-CANARY", "path"),
-                 {"name": "GCT-PRIVATE-CANARY-03", "kind": "image", "expect": "complete_only", "value": "marker",
+                 {"name": "GCT-PRIVATE-CANARY-03", "kind": "image", "expect": "complete_only", "value": None,
                   "render_sha256": digest.upper()},
-                 {"name": "GCT-PRIVATE-CANARY-04", "kind": "file hash", "expect": "complete_only",
+                 {"name": "GCT-PRIVATE-CANARY-04", "kind": "file_hash", "expect": "complete_only",
                   "value": hashlib.sha256(b"y").hexdigest()}]
     seeds_7_7 = [text_seed("GCT-LEAK-CANARY-01"), text_seed("GCT-LEAK-ROOT-01", "path"),
                  {"name": "GCT-LEAK-CANARY-02", "kind": "image", "expect": "complete_only", "value": digest[::-1]}]
     assert found(tmp_path, seeds_7_1 + seeds_7_7) == {}
     (tmp_path / "x.bin").write_bytes(b"x")
     assert found(tmp_path, seeds_7_1 + seeds_7_7) == {"GCT-PRIVATE-CANARY-03": ["x.bin: file hash"]}
+
+
+# --- review fix round 1 (Xiao's probes, /tmp/xiao-7-7-a-review/) -----------------------------------------------------
+
+def put(folder, files: dict):
+    for name, data in files.items():
+        (folder / name).parent.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_bytes(data)
+    return folder
+
+
+def where(result, name, place):
+    """True when one of the seed's places starts with place."""
+    return any(p.startswith(place) for p in result.get(name, ()))
+
+
+def ahx(data: bytes) -> bytes:
+    """A stream only pdfminer decodes: ASCIIHex is neither Flate nor a <...> string token."""
+    return _stream(b"/Filter /ASCIIHexDecode", data.hex().encode() + b">")
+
+
+RGB_IMAGE = b"/Type /XObject /Subtype /Image /Width %d /Height %d /BitsPerComponent %d /ColorSpace %s "
+BAD_INLINE = b"q 10 0 0 10 72 340 cm BI /W 10 /H 10 /CS /RGB /BPC 8 ID\n" + b"\x80" * 30 + b"\nEI Q\n"
+
+
+def test_an_unreadable_part_is_reported_and_the_rest_is_read(tmp_path):
+    """B1: one bad inline image, one bad image object or one zip member with a bad CRC neither stops the rest of the
+    file (later pages, metadata, later objects and members) nor passes silently: found raises Unreadable naming
+    every bad place, with what the rest of the scan found."""
+    page2, title, later, member = (f"GCT-LEAK-FIX-{k}-01" for k in ("PAGE", "TITLE", "LATER", "MEMBER"))
+    font, codes = coded(page2)
+    res = b"/Resources << /Font << /F1 5 0 R >> >>"
+    two_pages = assemble([
+        b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R 7 0 R] /Count 2 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] %s /Contents 4 0 R >>" % res,
+        _stream(b"/Filter /FlateDecode", zlib.compress(b"BT /F1 12 Tf 72 700 Td <01> Tj ET\n" + BAD_INLINE)), font,
+        b"<< /Title %s >>" % _utf16(title),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] %s /Contents 8 0 R >>" % res,
+        _stream(b"/Filter /FlateDecode", zlib.compress(b"BT /F1 12 Tf 72 700 Td " + codes + b" Tj ET"))], info=6)
+    bad_object = page_pdf(b"BT /F1 12 Tf 72 700 Td (clean) Tj ET", extra=[
+        _stream(RGB_IMAGE % (10, 10, 8, b"/DeviceRGB") + b"/Filter /FlateDecode", zlib.compress(b"\x80" * 30)),
+        ahx(f"({later})".encode())])
+    zip_ok = zipped({"a.txt": b"clean", "b.txt": member.encode()})
+    i, j = zip_ok.index(b"PK\x03\x04") + 14, zip_ok.index(b"PK\x01\x02") + 16  # the first member's CRC, twice
+    bad_zip = zip_ok[:i] + b"\0\0\0\0" + zip_ok[i + 4:j] + b"\0\0\0\0" + zip_ok[j + 4:]
+    put(tmp_path, {"two.pdf": two_pages, "object.pdf": bad_object, "c.zip": bad_zip})
+    seeds = [text_seed(s) for s in (page2, title, later, member)]
+    with pytest.raises(Unreadable) as e:
+        found(tmp_path, seeds)
+    assert [p.split(" (")[0] for p in e.value.places] == ["c.zip > a.txt", "object.pdf: object 6",
+                                                          "two.pdf: page 1 inline image 1"], e.value.places
+    assert where(e.value.found, page2, "two.pdf: page 2 text")
+    assert where(e.value.found, title, "two.pdf: metadata")
+    assert where(e.value.found, later, "object.pdf: object 7 stream")
+    assert where(e.value.found, member, "c.zip > b.txt")
+
+
+def test_superseded_and_every_xref_section_are_read(tmp_path):
+    """I1: an incremental update replaces the page content (Flate) and the UTF-16BE /Info /Title; the old copies stay
+    in the file and are found. Objects only in the older and only in the newer section are both walked."""
+    content, info, old, new = (f"GCT-LEAK-FIX-{k}-02" for k in ("CONTENT", "INFO", "OLDSECTION", "NEWSECTION"))
+    pdf = page_pdf(b"BT /F1 12 Tf 72 700 Td (%s) Tj ET" % content.encode(),
+                   extra=[b"<< /Title %s >>" % _utf16(info), ahx(f"({old})".encode())], info=6,
+                   update={4: _stream(b"/Filter /FlateDecode", zlib.compress(b"BT /F1 12 Tf 72 700 Td (clean) Tj ET")),
+                           6: b"<< /Title (clean) >>", 8: ahx(f"({new})".encode())})
+    result = found(put(tmp_path, {"a.pdf": pdf}), [text_seed(s) for s in (content, info, old, new)])
+    assert where(result, content, "a.pdf: raw stream 1")
+    assert where(result, info, "a.pdf: string tokens")
+    assert where(result, old, "a.pdf: object 7 stream") and where(result, new, "a.pdf: object 8 stream")
+    assert not where(result, content, "a.pdf: page 1 text")  # the page shows the new content only
+
+
+def test_pdf_text_extract_text_misses(tmp_path):
+    """I2: hex and octal strings in an unused stream, coded text drawn bottom to top, an undrawn form XObject and an
+    annotation appearance stream (interpreted for their text), a token kerned apart into two words, a name written
+    with #-escapes, and a header after a leading byte."""
+    s = {k: f"GCT-LEAK-FIX-{k}-03" for k in ("HEX", "OCTAL", "ROTATED", "FORM", "APPEARANCE", "KERNED", "NAME",
+                                            "PREFIX")}
+    blank = b"BT /F1 12 Tf 72 700 Td (clean) Tj ET"
+    files = {
+        "hex.pdf": page_pdf(blank, extra=[_stream(b"/Filter /FlateDecode", zlib.compress(
+            b"BT <%s> Tj ET" % s["HEX"].encode().hex().encode()))]),
+        "octal.pdf": page_pdf(blank, extra=[_stream(b"/Filter /FlateDecode", zlib.compress(
+            b"BT (" + b"".join(b"\\%03o" % c for c in s["OCTAL"].encode()) + b") Tj ET"))]),
+        "kerned.pdf": page_pdf(b"BT /F1 12 Tf 72 700 Td [(%s) -1000 (%s)] TJ ET" % (
+            s["KERNED"][:9].encode(), s["KERNED"][9:].encode())),
+        "name.pdf": page_pdf(blank, extra=[b"<< /Label /#47%s >>" % s["NAME"][1:].encode()]),
+        "prefix.pdf": b"\n" + page_pdf(b"BT /F1 12 Tf 72 700 Td (%s) Tj ET" % s["PREFIX"].encode()),
+    }
+    font, codes = coded(s["ROTATED"])
+    files["rotated.pdf"] = page_pdf(b"BT /F1 12 Tf 0 12 -12 0 72 300 Tm " + codes + b" Tj ET", font)
+    font, codes = coded(s["FORM"])
+    files["form.pdf"] = page_pdf(blank, font, extra=[_stream(
+        b"/Type /XObject /Subtype /Form /BBox [0 0 600 100] /Resources << /Font << /F1 5 0 R >> >> "
+        b"/Filter /FlateDecode", zlib.compress(b"BT /F1 12 Tf 10 10 Td " + codes + b" Tj ET"))])
+    font, codes = coded(s["APPEARANCE"])
+    files["appearance.pdf"] = page_pdf(blank, font, page=b"/Annots [6 0 R] ", extra=[
+        b"<< /Type /Annot /Subtype /Widget /Rect [72 300 300 320] /AP << /N 7 0 R >> >>",
+        _stream(b"/BBox [0 0 228 20] /Resources << /Font << /F1 5 0 R >> >>",
+                b"BT /F1 12 Tf 2 5 Td " + codes + b" Tj ET")])
+    result = found(put(tmp_path, files), [text_seed(v) for v in s.values()])
+    assert where(result, s["HEX"], "hex.pdf: object 6 stream string tokens")
+    assert where(result, s["OCTAL"], "octal.pdf: object 6 stream string tokens")
+    assert where(result, s["ROTATED"], "rotated.pdf: page 1 text reversed")
+    assert where(result, s["FORM"], "form.pdf: object 6 form text")
+    assert where(result, s["APPEARANCE"], "appearance.pdf: object 7 form text")
+    assert where(result, s["KERNED"], "kerned.pdf: page 1 text")
+    assert where(result, s["NAME"], "name.pdf: object 6")
+    assert where(result, s["PREFIX"], "prefix.pdf: page 1 text")
+    assert scan(tmp_path, canaries=tuple(s.values())) == set()  # none of them is in the raw bytes
+
+
+def test_text_split_by_markup_escapes_or_invisible_characters(tmp_path):
+    """I3 and the text item: rich-text runs in a shared string, <mark> and <wbr> inside a word, &shy; and &#8203;
+    inside a word, a \\u escape in NDJSON and in a JSON <script>, an entity in a Markdown file, a percent-encoded
+    data: URI and a seed in a zip member's name."""
+    s = {k: f"GCT-LEAK-FIX-{k}-04" for k in ("RICH", "MARK", "WBR", "SHY", "ZWSP", "NDJSON", "SCRIPT", "MARKDOWN",
+                                            "PERCENT", "MEMBERNAME")}
+    ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+    rich = f'<sst {ns}><si><r><t>{s["RICH"][:9]}</t></r><r><rPr><b/></rPr><t>{s["RICH"][9:]}</t></r></si></sst>'
+    u = lambda v: "\\u%04x%s" % (ord(v[0]), v[1:])  # noqa: E731
+    files = {
+        "rich.xlsx": zipped({"xl/sharedStrings.xml": rich}),
+        "mark.html": f"<!doctype html><p>{s['MARK'][:9]}<mark>{s['MARK'][9:14]}</mark>{s['MARK'][14:]}</p>".encode(),
+        "wbr.html": f"<!doctype html><p>{s['WBR'][:9]}<wbr>{s['WBR'][9:]}</p>".encode(),
+        "shy.html": f"<!doctype html><p>{s['SHY'][:9]}&shy;{s['SHY'][9:]}</p>".encode(),
+        "zwsp.html": f"<!doctype html><p>{s['ZWSP'][:9]}&#8203;{s['ZWSP'][9:]}</p>".encode(),
+        "rows.jsonl": ('{"a": "%s"}\n{"b": 1}\n' % u(s["NDJSON"])).encode(),
+        "script.html": ('<!doctype html><script type="application/json">{"a": "%s"}</script>' % u(s["SCRIPT"])).encode(),
+        "notes.md": f"# notes\n&#{ord(s['MARKDOWN'][0])};{s['MARKDOWN'][1:]}\n".encode(),
+        "percent.html": f'<!doctype html><a href="data:text/plain,%{ord(s["PERCENT"][0]):02X}{s["PERCENT"][1:]}">'
+                        "p</a>".encode(),
+        "names.zip": zipped({f"{s['MEMBERNAME']}.txt": b"clean"}),
+    }
+    result = found(put(tmp_path, files), [text_seed(v) for v in s.values()])
+    assert where(result, s["RICH"], "rich.xlsx > xl/sharedStrings.xml: XML")
+    for k in ("MARK", "WBR", "SHY", "ZWSP"):
+        assert where(result, s[k], f"{k.lower()}.html: HTML text"), k
+    assert where(result, s["NDJSON"], "rows.jsonl: text, unescaped")
+    assert where(result, s["SCRIPT"], "script.html: text, unescaped")
+    assert where(result, s["MARKDOWN"], "notes.md: text, unescaped")
+    assert where(result, s["PERCENT"], "percent.html > data URI 1: text")
+    assert where(result, s["MEMBERNAME"], f"names.zip > {s['MEMBERNAME']}.txt: member name")
+
+
+def test_pdf_image_colour_spaces(tmp_path):
+    """I4: ICCBased (N 3) and DeviceCMYK images in the marker colour, DeviceGray and 1-bit images by pixel hash; an
+    Indexed and a 16-bit image are not decoded and are reported as unreadable (known ceiling, loud)."""
+    marker_cmyk = Image.new("CMYK", (20, 20), (255, 55, 135, 0))
+    assert marker_cmyk.convert("RGB").getpixel((0, 0)) == MARKER
+    grey, mask = Image.linear_gradient("L").resize((16, 12)), Image.new("1", (13, 9))
+    mask.paste(1, (2, 2, 9, 7))
+    icc = _stream(b"/N 3 /Filter /FlateDecode", zlib.compress(b"icc"))
+    good = page_pdf(b"BT /F1 12 Tf 72 700 Td (clean) Tj ET", extra=[
+        _stream(RGB_IMAGE % (20, 20, 8, b"[/ICCBased 7 0 R]") + b"/Filter /FlateDecode",
+                zlib.compress(picture(MARKER, (20, 20)).tobytes())), icc,
+        _stream(RGB_IMAGE % (20, 20, 8, b"/DeviceCMYK") + b"/Filter /FlateDecode", zlib.compress(marker_cmyk.tobytes())),
+        _stream(RGB_IMAGE % (16, 12, 8, b"/DeviceGray") + b"/Filter /FlateDecode", zlib.compress(grey.tobytes())),
+        _stream(RGB_IMAGE % (13, 9, 1, b"/DeviceGray") + b"/Filter /FlateDecode", zlib.compress(mask.tobytes()))])
+    seeds = [{"name": n, "kind": "image", "expect": "complete_only", "value": v}
+             for n, v in (("GCT-LEAK-FIX-GREY-05", pixels(grey)), ("GCT-LEAK-FIX-MASK-05", pixels(mask)))]
+    result = found(put(tmp_path / "good", {"a.pdf": good}), seeds)
+    for obj in (6, 8):
+        assert where(result, "GCT-LEAK-FIX-GREY-05", f"a.pdf: object {obj} image: marker colour"), obj
+    assert where(result, "GCT-LEAK-FIX-GREY-05", "a.pdf: object 9 image: pixel hash")
+    assert where(result, "GCT-LEAK-FIX-MASK-05", "a.pdf: object 10 image: pixel hash")
+
+    palette = bytes(MARKER) + bytes(GREY)
+    bad = page_pdf(b"BT /F1 12 Tf 72 700 Td (clean) Tj ET", extra=[
+        _stream(RGB_IMAGE % (20, 20, 8, b"[/Indexed /DeviceRGB 1 <%s>]" % palette.hex().encode())
+                + b"/Filter /FlateDecode", zlib.compress(b"\0" * 400)),
+        _stream(RGB_IMAGE % (20, 20, 16, b"/DeviceRGB") + b"/Filter /FlateDecode",
+                zlib.compress(bytes((0, 0, 0, 200, 0, 120)) * 400))])
+    with pytest.raises(Unreadable) as e:
+        found(put(tmp_path / "bad", {"b.pdf": bad}), seeds)
+    assert [p.split(" (")[0] for p in e.value.places] == ["b.pdf: object 6", "b.pdf: object 7"]
+
+
+def test_any_image_pillow_opens(tmp_path):
+    """The images item: GIF and WebP files, and a marker only in the second frame of an animated GIF."""
+    scene = picture(GREY, (100, 100))
+    scene.paste(picture(MARKER), (30, 30))
+    files = {}
+    for fmt, kw in (("GIF", {}), ("WEBP", {"lossless": True})):
+        out = io.BytesIO()
+        scene.save(out, fmt, **kw)
+        files[f"a.{fmt.lower()}"] = out.getvalue()
+    out = io.BytesIO()
+    picture(GREY, (100, 100)).save(out, "GIF", save_all=True, append_images=[scene], duration=100)
+    files["animated.gif"] = out.getvalue()
+    seed = {"name": "GCT-LEAK-FIX-IMAGE-06", "kind": "image", "expect": "complete_only", "value": None}
+    assert found(put(tmp_path, files), [seed]) == {"GCT-LEAK-FIX-IMAGE-06": [
+        "a.gif: marker colour", "a.webp: marker colour", "animated.gif frame 2: marker colour"]}
+
+
+def test_symbolic_links_are_refused(tmp_path):
+    """The symlinks item: a linked folder, a linked file and a dangling link are refused before anything is read."""
+    outside = tmp_path / "outside"
+    put(outside, {"x.txt": b"GCT-LEAK-FIX-LINKED-07"})
+    folder = put(tmp_path / "scanned", {"plain.txt": b"clean"})
+    (folder / "dir").symlink_to(outside, target_is_directory=True)
+    (folder / "file.txt").symlink_to(outside / "x.txt")
+    (folder / "dangling").symlink_to(tmp_path / "nowhere")
+    with pytest.raises(ValueError, match="symbolic links") as e:
+        found(folder, [text_seed("GCT-LEAK-FIX-LINKED-07")])
+    assert all(str(folder / n) in str(e.value) for n in ("dir", "file.txt", "dangling"))
