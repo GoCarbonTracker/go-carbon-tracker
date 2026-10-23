@@ -702,6 +702,23 @@ def test_a_shareable_twin_of_a_private_file_is_withheld_as_same_bytes(base, tmp_
     assert 3 not in [x["document_id"] for x in s["gap_report"]["documents_checked"]]
 
 
+def test_a_twin_private_only_by_absence_from_the_version_still_withholds(base, tmp_path):
+    """Moka's Q1 ruling: _twins names only the cause; labels.effective decides. A shareable twin added after the build
+    is private by rule 1, so document 3 is private by rule 3 and withheld, whatever cause the preview names."""
+    w = world(base, tmp_path / "w")
+    assert 3 in {r["document_id"] for r in build(w)[0]["evidence_index"]}  # it ships without the twin
+    conn = store.connect(w / layout.DB_NAME)
+    sha = conn.execute("SELECT sha256 FROM document WHERE id = 3").fetchone()[0]
+    conn.close()
+    src = tmp_path / "beta-meter.csv"
+    src.write_bytes((w / "files" / sha[:2] / sha).read_bytes())
+    run(w, "doc", "add", src, "--company", "Beta", "--kind", "evidence", "--privacy", "shareable")
+    s, p = build(w)
+    assert 3 not in {r["document_id"] for r in s["evidence_index"]}
+    assert 3 not in [x["document_id"] for x in s["gap_report"]["documents_checked"]]
+    assert p["withheld"]["same_bytes_private"] >= 1  # document 3's stored label is shareable; its twin is private
+
+
 # C6: the preview's counts equal the hand counts
 
 def test_the_preview_counts_each_withheld_row_once_under_its_first_cause(base):
