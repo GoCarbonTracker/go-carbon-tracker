@@ -10,6 +10,7 @@ import pytest
 
 from conftest import PDF
 from old_code import old_tree, run_old  # noqa: F401 (old_tree is a fixture)
+from test_intake import web  # noqa: F401 (a fixture)
 from gct.stages import deletion
 from gct.workspace import labels, layout, lock, published, runs, store
 
@@ -89,7 +90,10 @@ def test_an_explicit_privacy_overrides_a_public_report(acme, gct, make_file):
     assert r.data["items"][0]["document"]["privacy"] == "private"
 
 
-def test_a_name_folder_or_type_never_sets_the_label(acme, gct, make_file, tmp_path):
+def test_a_name_folder_url_or_type_never_sets_the_label(acme, gct, make_file, tmp_path, web):
+    r = gct("doc", "add", web.url("/r.pdf"), "--company", "Acme", "--kind", "report", "--json")
+    assert (r.data["items"][0]["document"]["privacy"], r.data["items"][0]["document"]["availability"]) == (
+        "private", "unknown")  # a report fetched from a public address is still availability unknown
     folder = tmp_path / "public shareable reports"
     folder.mkdir()
     (folder / "public-annual-report-shareable.pdf").write_bytes(PDF + b"1")
