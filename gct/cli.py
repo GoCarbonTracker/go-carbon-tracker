@@ -9,7 +9,6 @@ import webbrowser
 from collections import Counter
 
 from gct import __version__
-from gct.api import server
 from gct.measure import g2
 from gct.models import adapters, policy
 from gct.reports import dataset
@@ -1613,6 +1612,8 @@ def cmd_report_preview(args) -> None:
 
 
 def cmd_serve(args) -> None:
+    from gct.api import server  # FastAPI and uvicorn add about 30 MB to every other command's memory (AC 17)
+
     _open(args, write=False).close()  # locate and upgrade the workspace like every other command
     srv = server.serve(args.root, args.port)
     _print(args, {"status": "ok", "url": srv.url, "port": srv.port},

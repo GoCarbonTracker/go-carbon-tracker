@@ -6,9 +6,12 @@ import ast
 import copy
 import gc
 import json
+import os
 import re
 import shutil
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -898,6 +901,14 @@ def renderer_problems(source: str) -> list[str]:
                     len(n.args) > 1 and isinstance(n.args[1], ast.Constant) and str(n.args[1].value).startswith("x")):
                 out.append("open")
     return out
+
+
+def test_the_cli_loads_the_web_server_only_for_serve():
+    """AC 17 (Moka's re-run of 472434b): FastAPI and uvicorn add about 30 MB to gct report preview's memory."""
+    code = "import sys, gct.cli; print(sorted(m for m in ('fastapi', 'uvicorn', 'gct.api.server') if m in sys.modules))"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                         env={**os.environ, "PYTHONPATH": str(GCT.parent)}).stdout
+    assert out.strip() == "[]"
 
 
 def test_no_renderer_imports_the_workspace_or_reads_a_file():
