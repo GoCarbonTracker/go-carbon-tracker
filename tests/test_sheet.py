@@ -105,7 +105,7 @@ def test_migration_15_applies_to_a_version_12_workspace(tmp_path, gct):
     c.close()
     assert gct("contributor", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")] == [*range(1, 20)]
+    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")] == [*range(1, 21)]
     c.close()
 
 
