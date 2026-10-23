@@ -287,7 +287,9 @@ conn = store.connect(root / "workspace.db")
 _, path = published.current_version(conn, root)
 conn.close()
 pconn = published.open_version(path)
-out = {"view": {shape: view.answer(pconn, {}, shape) for shape in view.SHAPES}}
+sids = [s for (s,) in pconn.execute("SELECT id FROM series ORDER BY id")]
+out = {"view": {shape: view.answer(pconn, {}, shape) for shape in view.SHAPES},
+       "series": {s: view.answer(pconn, {"series": [s]}, "series") for s in sids}}
 pconn.close()
 srv = server.serve(root, port=0)
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -302,7 +304,8 @@ try:
                   "claims": {d: ask(f"/api/documents/{d}/claims") for d in docs},
                   "history": {c: ask(f"/api/claims/{c}/history") for c in claims},
                   "candidates": ask("/api/companies/1/candidates"), "questions": ask("/api/questions"),
-                  "records": {s: ask("/api/records", {"shape": s}) for s in view.SHAPES}}
+                  "records": {s: ask("/api/records", {"shape": s}) for s in view.SHAPES},
+                  "series": {s: ask("/api/records", {"shape": "series", "filter": {"series": [s]}}) for s in sids}}
 finally:
     srv.stop()
 print(json.dumps({"gct": gct.__file__, **out}))
@@ -327,6 +330,9 @@ def test_the_projection_15_reader_reads_a_16_file_unchanged(world, db, gct, e6_t
     on_15 = old_python(e6_tree, READER, ws, claims)
     assert on_16["api"]["records"]["table"]["data_version"] == 3 and on_15["api"]["records"]["table"]["data_version"] == 2
     assert on_16["view"]["table"]["rows"] and on_16["api"]["claims"]
+    std = on_16["series"][world["series"]["std"]]  # the reviewed point of d is read from the 16 file
+    assert [p["not_comparable_reason"] for p in std["points"] if p["claim"]["id"] == world["claims"]["d"]] == [
+        "boundary unknown"] and on_16["api"]["series"][world["series"]["std"]]["points"]
     assert _unversioned(on_16) == _unversioned(on_15)
 
 
