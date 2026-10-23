@@ -1256,6 +1256,20 @@ def test_series_keys_cover_what_match_compute_forms(rw, tmp_path, monkeypatch, g
         assert formed and formed <= set(package.series_keys(rows(db))), db
 
 
+# A complete package's key that no shipped state explains is scrubbed part by part in any case: a lowercased bearer
+# token with squeezed spaces inside series_key[1], and a configured key's value lowercased in the boundary detail
+def test_an_unexplained_key_is_scrubbed_in_any_case(monkeypatch):
+    from gct.models import redact
+    bearer, env = (f"gctsynthtoken{n}{'q' * 20}" for n in (4, 5))
+    monkeypatch.setattr(redact, "_names", lambda: ("GCT_SYNTH_KEY",))
+    monkeypatch.setenv("GCT_SYNTH_KEY", env.upper())
+    key = [1, f"doc:3:p1:t0r1:bearer   {bearer}", "subsidiary_set", f"acme and {env}", "tco2e", 3, "fiscal_year"]
+    written = package._scrub_key(json.dumps(key))
+    assert bearer not in written.casefold() and env not in written.casefold(), written
+    assert json.loads(written)[1] == "doc:3:p1:t0r1:[redacted]" and json.loads(written)[3] == "acme and [redacted]"
+    assert json.loads(written)[0::4] == [1, "tco2e"] and package._scrub_key("") == ""
+
+
 # F2: an unmapped metric's series key holds its document id inside the metric ("doc:N:..."); ID_TEXT declares it, so
 # the sanitised packages of W (a private PDF added first) and W' hold equal keys once renumbered
 def test_an_unmapped_metric_series_key_renumbers_equal_in_w_and_w_prime(tmp_path):
