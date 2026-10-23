@@ -173,7 +173,8 @@ def _page(dataset, report, reports, shown, cap) -> str:
         name = _shown(documents[e["document_id"]]["name"], None, None, words)
         loc = [("document_name", name)] + ([("page", e["page"])] if e["page"] is not None else
                                            [("sheet", e["sheet"]), ("cell", e["cell"])])
-        out = [f'<div class="evidence"><p>{esc(sep.join([f"E{int(i)}"] + [f"{headings[k]}: {_shown(v, None, k, words)}" for k, v in loc]))}</p>']
+        text = sep.join([f"E{int(i)}"] + [f"{headings[k]}: {_shown(v, None, k, words)}" for k, v in loc])
+        out = [f'<div class="evidence"><p>{esc(text)}</p>']
         if i in shown and row.get("binds") is not False:
             claim = row.get("claim_id")
             alt = (fixed["image_alt"].format(claim=claim, document=name, page=e["page"]) if claim is not None else
