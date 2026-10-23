@@ -160,11 +160,17 @@ def lines(d, head=""):
             yield f"{key}: {v if isinstance(v, str) else json.dumps(v)}"
 
 
-def write(conn, root: Path, given: list[Path]) -> dict:
-    """Writes exports/troubleshooting-<stamp>/ with FILES. given: the workspace folder as the user named it."""
-    folders = {str(p): "<workspace>" for g in [root, *given] for p in (g, g.resolve())}
+def placeholders(root: Path, given: list[Path]) -> list[tuple[str, str]]:
+    """(folder, placeholder), longest first: the workspace resolved and as the user named it, the home folder as
+    given and resolved (a symlinked home)."""
+    folders = {str(p): "<workspace>" for p in (root, *given)}
     folders |= {str(p): "<home>" for p in (Path.home(), Path.home().resolve())}
-    d = clean(collect(conn, root), sorted(folders.items(), key=lambda kv: -len(kv[0])))
+    return sorted(folders.items(), key=lambda kv: -len(kv[0]))
+
+
+def write(conn, root: Path, given: list[Path]) -> dict:
+    """Writes exports/troubleshooting-<stamp>/ with FILES. root: the resolved workspace; given: as the user named it."""
+    d = clean(collect(conn, root), placeholders(root, given))
     stem = f"troubleshooting-{export.stamp()}"
     with export.folder(root, stem, FILES) as tmp:
         with open(tmp / FILES[0], "x", encoding="utf-8") as out:

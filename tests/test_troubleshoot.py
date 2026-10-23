@@ -169,6 +169,19 @@ def test_the_export_holds_no_seed_no_home_and_no_absolute_path(leaky_env, gct):
     assert gct("run", "list", "--workspace", leaky, "--json").out == before
 
 
+def test_the_workspace_as_named_and_resolved_and_a_symlinked_home_become_placeholders(tmp_path, monkeypatch):
+    for real, link in (("ws-real", "ws-link"), ("home-real", "home-link")):
+        (tmp_path / real).mkdir()
+        (tmp_path / link).symlink_to(tmp_path / real)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home-link")
+    real, link = (tmp_path / "ws-real").resolve(), tmp_path / "ws-link"
+    text = f"{link}/a {real}/b {tmp_path}/home-link/c {(tmp_path / 'home-real').resolve()}/d"
+    marks = troubleshoot.placeholders(real, [link])
+    assert troubleshoot.clean(text, marks) == "<workspace>/a <workspace>/b <home>/c <home>/d"
+    assert troubleshoot.clean({"x": [f"see {tmp_path}/other"]}, marks) == {"x": ["[path removed]"]}
+    assert troubleshoot.clean("in C:\\Users\\ana\\x", marks) == "[path removed]"
+
+
 # AC 10: failure messages
 
 SOURCE = '''
