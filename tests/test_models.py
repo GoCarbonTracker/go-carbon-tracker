@@ -468,6 +468,11 @@ def test_docs_say_configured_is_not_enabled():
     assert "## Configured is not enabled" in text
     section = text.split("## Configured is not enabled")[1].split("\n## ")[0]
     assert "rung 1" in section and "pdfplumber" in section and "2.5 to 2.8" in section
+    for sentence in ("In this version no reading step uses a configured model.",
+                     "Reading is rung 1 (pdfplumber) only.",
+                     "It changes nothing about what `gct read` or `gct extract` produce until a reading story "
+                     "(2.5 to 2.8) is built and accepted."):
+        assert sentence in section, sentence
     readme = next(line for line in (ROOT / "README.md").read_text(encoding="utf-8").splitlines()
                   if line.startswith("- Model adapters are described"))
     assert "docs/models.md" in readme and "no reading step uses a configured model in this version" in readme.lower()
