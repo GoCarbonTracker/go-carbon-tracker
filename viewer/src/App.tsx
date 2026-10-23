@@ -3,6 +3,7 @@ import { ADJUDICATION_STATES, bandText, boundaryText, type Box, byPosition, corr
 import { availableText, countText, type EvidenceTarget, type Filter, isCell, isStale, newerVersion, periodUnknownText, recordsBody, type SeriesValue } from "./records.ts";
 import { FilterBar } from "./FilterBar.tsx";
 import { CellView } from "./CellView.tsx";
+import { Tables } from "./Tables.tsx";
 
 type Company = { id: number; name: string; documents: Doc[] };
 type Doc = { id: number; logical_name: string; version: number; file_type: string };
@@ -764,7 +765,7 @@ export function App() {
             {/* Story 6.2 renders its table here and 6.3 its graphs, each from its own file with filter, dataVersion and
                 openEvidence (F11 f); a hidden body stays mounted, so returning shows it as it was left. */}
             <div role="tabpanel" id="body-tables" aria-labelledby="tab-tables" hidden={tab !== "tables"}>
-              <p className="hint">The table of these claims is not in this version of the viewer yet.</p>
+              <Tables filter={filter} dataVersion={pinned} openEvidence={openEvidence} onStale={() => { checkVersion().catch(() => undefined); }} />
             </div>
             <div role="tabpanel" id="body-graphs" aria-labelledby="tab-graphs" hidden={tab !== "graphs"}>
               <p className="hint">The graphs of these claims are not in this version of the viewer yet.</p>

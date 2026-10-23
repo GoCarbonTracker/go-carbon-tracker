@@ -71,6 +71,26 @@ reference names, as the Evidence view does; its evidence text says "unresolved: 
 `resolved` is false and `reason` says why ("unresolved: ..." when no page is named, "no page: ..." for a
 spreadsheet's declared mapping). A location is never made up.
 
+## Tables
+
+The Tables tab of the viewer shows the claims the filter selects on the pinned version, 200 rows a page, with First,
+Previous, Next, Last and "Rows A to B of N". Each page is one `POST /api/records` request with the `table` shape; a
+new page replaces the rows on screen, so every row shown is from the version the caption names. A filter change, a
+sort change or a new version goes back to the first page.
+
+The columns are Company, Document, Location ("page P" or "sheet S, cell C"), Metric wording ("no metric wording"
+when none), Value with its unit as printed, Period, Boundary, Evidence, Review and Claim state. Evidence and Review
+print the row's evidence and review texts. Stored words are printed with spaces ("fiscal year", "subsidiary set").
+Pressing a column header sorts by it, ascending first, then descending; Review cannot be sorted. With no column
+chosen the order is company, document and page.
+
+Checked rows stay checked across the pages of one filter and one version; a filter change or a new version clears
+them and says so. The table is one Tab stop: the arrow keys move between rows, Space checks a row and Enter opens its
+evidence. A PDF row opens its page in the Evidence section with the claim selected (its box drawn when it has one);
+a spreadsheet row opens the cell view; a row with no page or cell, or a page outside its document, opens nothing and
+says "This claim has no source location to open." When another writer has published meanwhile, the next page is
+refused and the viewer offers the new version with Reload; the rows on screen keep their own version until then.
+
 ## Keys
 
 Graph node ids are `claim:N`, `page:D:P`, `cell:D:SHEET!CELL`, `period:START..END`, `boundary:VALUE[:DETAIL]`,
