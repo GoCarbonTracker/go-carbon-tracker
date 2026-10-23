@@ -5597,6 +5597,16 @@
        "type": "string",
        "minLength": 1
       },
+      "image_limit": {
+       "description": "The words for image_limit: the sentence printed once when the image cap is reached, with no number.",
+       "type": "string",
+       "minLength": 1
+      },
+      "image_alt_entry": {
+       "description": "The words for image_alt_entry: an image's alt text naming its evidence reference, for an entry no row with a claim id cites.",
+       "type": "string",
+       "minLength": 1
+      },
       "booleans": {
        "description": "The words for booleans.",
        "type": "object",
@@ -5656,13 +5666,25 @@
          "description": "The words for font_note.",
          "type": "string",
          "minLength": 1
+        },
+        "row": {
+         "description": "The words for row: a row block's heading, {title} {id}.",
+         "type": "string",
+         "minLength": 1
+        },
+        "evidence": {
+         "description": "The words for evidence: the label of a row block's evidence-reference line.",
+         "type": "string",
+         "minLength": 1
         }
        },
        "required": [
         "appendix",
         "page",
         "of",
-        "font_note"
+        "font_note",
+        "row",
+        "evidence"
        ],
        "additionalProperties": false
       }
@@ -5679,6 +5701,8 @@
       "label",
       "image_alt",
       "image_cap",
+      "image_limit",
+      "image_alt_entry",
       "booleans",
       "sheets_limit",
       "not_opened",

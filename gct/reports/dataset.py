@@ -186,10 +186,16 @@ def words() -> dict:
             "data_version": "Data version", "label": HEADINGS["label"],
             "image_alt": "Evidence for claim {claim}, document {document}, page {page}",
             "image_cap": "The outlined area is where GCT found the figure on the page.",
+            # the image cap (7.4-P3, 7.5): no number in it; image_alt_entry for an entry no row with a claim id cites
+            "image_limit": "This export cites more evidence locations than GCT draws as images, so it holds no"
+                           " evidence images; every location is listed as text.",
+            "image_alt_entry": "Evidence E{evidence}, document {document}, page {page}",
             "booleans": {"true": "yes", "false": "no"}, "sheets_limit": SHEETS_LIMIT, "not_opened": NOT_OPENED,
             "expectations_scope": EXPECTATIONS_SCOPE,
-            "pdf": {"appendix": "Evidence appendix", "page": "Page", "of": "of", "font_note":
-                    "Some characters cannot be drawn in this font and are shown as boxes."},
+            "pdf": {"appendix": "Evidence appendix", "page": "Page", "of": "of",
+                    "font_note": "Some characters are not in this PDF's font: each is printed as its NFKC form or as"
+                                 " [U+XXXX], its Unicode code point, never as a box.",
+                    "row": "{title} {id}", "evidence": "Evidence references"},
         },
     }
 

@@ -291,7 +291,7 @@ def test_report_export_messages_have_cause_next_action_and_no_internals(tmp_path
     gct("workspace", "init", empty)
     monkeypatch.setitem(export.FORMATS, "strict", {"write": refuses, "crops": False})
     monkeypatch.setattr(export, "stamp", lambda: "20261023T000000000000Z")
-    cases = [((root, "--format", "xlsx"), 2), ((root, "--format", "json", "--filter", '{"colour": [1]}'), 2),
+    cases = [((root, "--format", "nope"), 2), ((root, "--format", "json", "--filter", '{"colour": [1]}'), 2),
              ((root, "--format", "json", "--include", "names"), 2),
              ((root, "--format", "json", "--filter", f"@{tmp_path / 'none.json'}"), 3),
              ((root, "--format", "json", "--data-version", 9), 4), ((empty, "--format", "json"), 4),
