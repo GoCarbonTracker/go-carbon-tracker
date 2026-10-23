@@ -19,6 +19,7 @@ FONTS = {"GCTVera": "Vera.ttf", "GCTVeraBold": "VeraBd.ttf"}  # never DarkGarden
 BODY, BOLD = FONTS
 SCALES = {True: 3.0, False: 1.5}  # crops.cut's scales: a band (boxes), a whole page (7.4-P2, 7.4-P12)
 MARGIN, INDENT = 36, 12
+HANG = 36  # every line after a paragraph's first, from a value's newline or a wrap, starts this far right of it (F1)
 SIZE, LEADING = 8.5, 10.5
 
 
@@ -179,9 +180,14 @@ def write(dataset, reports, folder, crops) -> dict:
     text_width, room = width - 2 * MARGIN, height - 2 * MARGIN - 4 * LEADING
 
     @functools.cache
-    def style(name, font=BODY, size=SIZE, depth=0, before=0):
-        return ParagraphStyle(name, fontName=font, fontSize=size, leading=size + 2, leftIndent=depth * INDENT,
-                              spaceBefore=before)
+    def style(name, font=BODY, size=SIZE, depth=0, before=0, hang=HANG):
+        """Only a paragraph's first line starts at the block's margin, so no value can open a line there."""
+        return ParagraphStyle(name, fontName=font, fontSize=size, leading=size + 2, leftIndent=depth * INDENT + hang,
+                              firstLineIndent=-hang, spaceBefore=before)
+
+    def each(texts, name, depth=0, before=0):
+        """One paragraph per structural line, the first spaced from what precedes it."""
+        return [Paragraph(t, style(name, depth=depth, before=before if k == 0 else 0)) for k, t in enumerate(texts)]
 
     class Picture(Flowable):
         """One PNG drawn as is (reportlab embeds its RGB pixels, never resampled), scaled at draw time only."""
@@ -211,7 +217,7 @@ def write(dataset, reports, folder, crops) -> dict:
                    for c in cols[table]]
             if row["evidence"]:
                 out.append(f"{ink(fixed['pdf']['evidence'])}: {ink(sep.join(f'E{i}' for i in row['evidence']))}")
-            return Paragraph("<br/>".join(out), style("l", depth=depth, before=4))
+            return each(out, "l", depth, 4)
 
         body = []
         for kind, depth, table, *rest in plan:
@@ -224,16 +230,16 @@ def write(dataset, reports, folder, crops) -> dict:
                 row = rest[0]
                 heading = fixed["pdf"]["row"].format(title=titles[table], id=row["id"])
                 body.append(Paragraph(ink(heading, BOLD), style("h", BOLD, depth=depth, before=8)))
-                body.append(lines(table, row, depth))
+                body += lines(table, row, depth)
             elif kind == "sub":
-                body.append(lines(table, rest[0], depth))
+                body += lines(table, rest[0], depth)
             else:
                 side, outside = rest
                 body.append(Paragraph(ink(headings[table], BOLD), style("s", BOLD, depth=depth, before=4)))
                 if outside:
                     body.append(Paragraph(ink(words["outside_selection"]), style("o", depth=depth)))
                 if side is not None:
-                    body.append(lines("evidence_index", side, depth))
+                    body += lines("evidence_index", side, depth)
 
         # The appendix: every evidence id this PDF's rows cite, in document and page order.
         citing = {}
@@ -252,8 +258,8 @@ def write(dataset, reports, folder, crops) -> dict:
             doc_name = _shown(doc["name"], None, None, words)
             where = [("document_name", doc["name"]), ("document_version", doc["version"])]
             where += [("page", e["page"])] if e["page"] is not None else [("sheet", e["sheet"]), ("cell", e["cell"])]
-            entry = [Paragraph(ink(f"E{i}", BOLD), style("e", BOLD, before=10)), Paragraph("<br/>".join(
-                f"{ink(headings[k])}: {ink(_shown(v, None, k, words))}" for k, v in where), style("w"))]
+            entry = [Paragraph(ink(f"E{i}", BOLD), style("e", BOLD, before=10)),
+                     *each([f"{ink(headings[k])}: {ink(_shown(v, None, k, words))}" for k, v in where], "w")]
             binding = any(r.get("binds") is not False for r in rows)  # a non-binding record shows its location only
             if e["page"] is not None and binding and not cap:
                 claims = sorted(r["claim_id"] for r in rows if r.get("claim_id") is not None)
@@ -292,7 +298,7 @@ def write(dataset, reports, folder, crops) -> dict:
             for kk, vv in (v.items() if isinstance(v, dict) else [(None, v)]):
                 shown = words["withheld"] if k in flt.get("withheld", []) else _shown(vv, None, None, words)
                 about.append(f"{ink(k if kk is None else f'{k}.{kk}')}: {ink(shown)}")
-        first.append(Paragraph("<br/>".join(about), style("d", before=6)))
+        first += each(about, "d", before=6)
         first += [Paragraph(ink(n), style("n", before=4)) for n in dataset["notices"]]
         if any(_attributed([r], cols[t]) for t, r in _rows(plan)):
             first.append(Paragraph(ink(words["self_declared"]), style("n", before=4)))
@@ -302,7 +308,7 @@ def write(dataset, reports, folder, crops) -> dict:
         pages = ink(fixed["pdf"]["page"]), ink(fixed["pdf"]["of"])
         if ink.replaced:
             first.append(Paragraph(ink(fixed["pdf"]["font_note"]), style("n", before=4)))
-        small = style("f", size=7)
+        small = style("f", size=7, hang=0)
 
         class Pages(Canvas):
             """Holds each page until the end, so every footer can say how many pages there are."""

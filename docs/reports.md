@@ -388,7 +388,9 @@ filter." CSV has neither limit.
   `sha256`, the page number and, in a sanitised PDF, the privacy notice.
 - **Rows.** One block per row, opened by its heading (`words.fixed.pdf.row`, for example "Evidence index 19"), then
   one "heading: value" line for every column of the table, an empty value included, and a line with the row's
-  evidence references ("E12; E14"). Sub-tables follow under their parent row, indented, with their title. Each
+  evidence references ("E12; E14"). Only these lines start at the block's margin: a value's own line breaks are
+  kept, and every further line of a value, from a line break or a wrap, is indented under it, so no value can
+  print a line that looks like a heading. Sub-tables follow under their parent row, indented, with their title. Each
   restatement log pair and gap report candidate prints both claims under "Pair sides", a claim outside the
   selection marked "outside this selection"; the restatement log then prints the unpaired restatements. The gap
   report prints its six parts in a fixed order. Every PDF ends its rows with the documents table.

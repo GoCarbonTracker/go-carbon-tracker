@@ -18,7 +18,7 @@ import report_fixture as f
 from leakage import found
 from test_gate_privacy_exports import build, env, w  # noqa: F401 (module fixtures: the fixture and its environment)
 from test_review import WORDS
-from test_sheet import MAP, ROWS, csv_bytes, xlsx
+from test_sheet import HEADER, MAP, ROWS, csv_bytes, xlsx
 from test_view import dump
 from gct.reports import crops, dataset, export, render_pdf
 from gct.stages import adjudicate
@@ -71,6 +71,19 @@ def footer_line():
                       rf"({sep}{re.escape(w['privacy_notice'])})?$")
 
 
+HANG = 36  # render_pdf's hanging indent: every line after a paragraph's first starts this far right of it
+SLACK = HANG / 2  # above a sub-table's 12 pt indent step, far above pdfplumber's sub-point x jitter
+
+
+def placed_lines(path) -> list[tuple[float, str]]:
+    """(x0, text) of every extracted line, footers dropped."""
+    import pdfplumber
+
+    foot = footer_line()
+    with pdfplumber.open(path) as pdf:
+        return [(x["x0"], x["text"]) for p in pdf.pages for x in p.extract_text_lines() if not foot.fullmatch(x["text"])]
+
+
 def lines_of(path) -> list[str]:
     """Every extracted line, footers dropped."""
     foot = footer_line()
@@ -80,9 +93,10 @@ def lines_of(path) -> list[str]:
 def read_back(path) -> dict:
     """{data_version: the identity keys the first page prints, rows: {table: [{columns key: value}]}} of one PDF:
     evidence_index, restatement_log (pair rows only) and gap_report.<section> for each section the file holds. A row
-    starts at its row-key heading; a line opening with one of its table's headings starts that key, any other line
-    continues the value; a title, the appendix heading or the evidence-reference line ends it, and pair sides and
-    sub-tables are not rows. Values are the printed strings with all white space removed."""
+    starts at its row-key heading. Position decides, never text: a line indented by the hanging indent continues the
+    value; any other line opening with one of its table's headings starts that key; a title, the appendix heading or
+    the evidence-reference line ends it, and pair sides and sub-tables are not rows. Values are the printed strings
+    with all white space removed."""
     w = dataset.words()
     fixed = w["fixed"]
     report = Path(path).stem.replace("-", "_")
@@ -93,8 +107,13 @@ def read_back(path) -> dict:
     identity = {v: k for k, v in fixed["identity"].items()}
     about = {*fixed["dataset"].values(), *identity}
     out = {"data_version": {}, "rows": {}}
-    target, key, table = out["data_version"], None, None
-    for line in lines_of(path):
+    target, key, table, base = out["data_version"], None, None, None
+    for x0, line in placed_lines(path):
+        if base is not None and x0 > base + SLACK:  # indented: a value's next line, never a heading
+            if target is not None and key is not None:
+                target[key] += squeeze(line)
+            continue
+        base = x0
         hit = next((t for t, rx in heads.items() if rx.fullmatch(line)), None)
         if hit:
             table = hit
@@ -116,14 +135,9 @@ def read_back(path) -> dict:
         labels_ = ({c["heading"]: c["key"] for c in dataset.COLUMNS[table]} if table else
                    {x: identity.get(x) for x in about})
         label = max((h for h in labels_ if line.startswith(f"{h}:")), key=len, default=None)
-        if label is not None:
-            key = labels_[label]
-            if key is not None:
-                target[key] = squeeze(line[len(label) + 1:])
-        elif key is not None:
-            target[key] += squeeze(line)
-        if table is None and line in fixed["mode"].values():
-            key = None
+        key = labels_[label] if label is not None else None
+        if key is not None:
+            target[key] = squeeze(line[len(label) + 1:])
     return out
 
 
@@ -470,6 +484,85 @@ def test_xlsx_and_csv_claims_print_the_transposed_cell_view(ws, gct, make_file, 
     assert squeeze(ROWS[0][0]) not in squeeze(bold)  # only the marked line is bold
 
 
+# F1 (review of 7024271): no value opens a line a reader takes for a heading
+
+def hanging(path, opening, follow) -> list[float]:
+    """For each line that is exactly opening, the x0 step to the line after it, which must be follow."""
+    at = placed_lines(path)
+    ks = [k for k, (_, t) in enumerate(at) if t == opening]
+    assert ks and all(at[k + 1][1] == follow for k in ks), [at[k:k + 2] for k in ks]
+    return [at[k + 1][0] - at[k][0] for k in ks]
+
+
+def margin_companies(path) -> list[int]:
+    """Per evidence-index row block, how many lines start "Company:" at the block's own margin."""
+    w = dataset.words()["fixed"]
+    head = re.compile(re.escape(w["pdf"]["row"]).replace(r"\{title\}", re.escape(w["titles"]["evidence_index"]))
+                      .replace(r"\{id\}", r"\d+"))
+    stops = set(w["titles"].values()) | {w["pdf"]["appendix"]}
+    out, base = [], None
+    for x0, t in placed_lines(path):
+        if head.fullmatch(t):
+            out.append(0)
+            base = x0
+        elif t in stops:
+            base = None
+        elif base is not None and abs(x0 - base) < SLACK and t.startswith("Company:"):
+            out[-1] += 1
+    return out
+
+
+def test_a_csv_value_and_a_document_name_with_a_heading_line_stay_in_their_values(ws, gct, make_file, tmp_path):
+    import csv
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    data = io.StringIO()
+    csv.writer(data, lineterminator="\n").writerows(
+        [HEADER, ["Scope 1 emissions\nCompany: ForgedCo", "125", "tCO2e", "FY 2023-24", "Standalone", "Acme", ""]])
+    name = "data\nCompany: SpoofCo"
+    gct("doc", "add", make_file("m.csv", data.getvalue().encode()), "--company", "Acme", "--name", name)
+    doc = gct("doc", "list", "--json").data["documents"][-1]["id"]
+    assert gct("sheet", "map", doc, "--sheet", name, *MAP, *WHO).code == 0  # a CSV's one sheet is named as it is
+    gct("extract")
+    gct("publish", "build")
+    conn = sqlite3.connect(ws / layout.DB_NAME)
+    conn.row_factory = sqlite3.Row
+    d, _ = dataset.build(conn, ws, mode="complete")
+    conn.close()
+    [row] = d["evidence_index"]
+    assert (row["metric_text"], row["document_name"]) == ("Scope 1 emissions\nCompany: ForgedCo",
+                                                          "data\nCompany: SpoofCo")
+    render_pdf.write(d, ["evidence_index"], tmp_path, crops.cut(ws, d))
+    path = tmp_path / FILES["evidence_index"]
+    [back] = read_back(path)["rows"]["evidence_index"]
+    assert (back["company"], back["metric_text"], back["document_name"]) == (
+        "Acme", "Scope1emissionsCompany:ForgedCo", "dataCompany:SpoofCo")
+    assert back == {c["key"]: printed(dotted(row, c["key"]), row, c["key"], "pdf") for c in d["columns"]["evidence_index"]}
+    assert margin_companies(path) == [1]
+    assert hanging(path, "Metric as printed: Scope 1 emissions", "Company: ForgedCo") == [pytest.approx(HANG, abs=1)]
+    assert hanging(path, "Document name: data", "Company: SpoofCo") == [pytest.approx(HANG, abs=1)] * 2  # row, appendix
+    assert hanging(path, "Name: data", "Company: SpoofCo") == [pytest.approx(HANG, abs=1)]  # the documents block
+
+
+def test_a_wrapped_line_that_starts_with_a_heading_stays_in_its_value(made, tmp_path):
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    d0, c, _ = made["complete"]
+    opening = "Metric as printed: "
+    width = lambda s: stringWidth(s, render_pdf.BODY, render_pdf.SIZE)  # noqa: E731
+    filler = "a" * int((480 - width(opening)) / width("a"))  # fits the first line; " Company:" after it does not
+    value = f"{filler} Company: Wrapped"
+    d = special(d0, [value])
+    row = min(d["evidence_index"], key=lambda r: r["id"])
+    render_pdf.write(d, ["evidence_index"], tmp_path, c)
+    path = tmp_path / FILES["evidence_index"]
+    assert hanging(path, opening + filler, "Company: Wrapped") == [pytest.approx(HANG, abs=1)]
+    [back] = [b for b in read_back(path)["rows"]["evidence_index"] if b["metric_text"] == squeeze(value)]
+    assert back["company"] == squeeze(row["company"]) != "Wrapped"
+    assert margin_companies(path) == [1] * len(d["evidence_index"])
+
+
 # AC 7: labels and wording
 
 @pytest.mark.parametrize("mode", dataset.MODES)
@@ -543,9 +636,10 @@ def test_text_is_replaced_then_escaped_and_never_read_as_markup(made, tmp_path):
     path = tmp_path / FILES["evidence_index"]
     lines = lines_of(path)
     text = squeeze(" ".join(lines))
-    for s in ('<img src="file:///etc/hosts"/>', '<img src="/etc/hosts"/>', "&amp;", "<b>x", "a&b", "x<y", "T" * 2000,
-              "CO2", "[U+20B9]1,234", "é"):
+    for s in ('<img src="file:///etc/hosts"/>', '<img src="/etc/hosts"/>', "&amp;", "<b>x", "a&b", "x<y", "T" * 2000):
         assert squeeze(s) in text, s
+    for s in ("CO2", "[U+20B9] 1,234", "é"):
+        assert f"Metric as printed: {s}" in lines, s
     assert "Metric as printed: line one" in lines and lines[lines.index("Metric as printed: line one") + 1] == "line two"
     assert "Metric as printed: a b" in lines
     assert "Metric as printed: a" in lines and lines[lines.index("Metric as printed: a") + 1] == "b"
