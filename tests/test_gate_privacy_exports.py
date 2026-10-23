@@ -1199,3 +1199,92 @@ def test_related_claims_are_evidence_index_rows_of_one_builder(lw):
                     k: v for k, v in row.items() if k != "evidence"}, (mode, x["claim_id"])
                 checked += 1
     assert checked >= 3
+
+
+# The scanner on xref entries proven free (Moka's AC 17 finding: a real PDF's xref stream lists free ids inside its
+# /Index ranges), on synthetic PDFs only.
+
+PAGE = {1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>"}
+
+
+def xref_pdf(*revisions) -> bytes:
+    """A PDF of one or more revisions, each (objects {id: body}, /Index ranges, entry types {id: 1, or "missing" for
+    an in-use entry pointing past the end of the file}), indexed by an xref stream (W [1 4 2]) with /Prev to the
+    one before; an id of a range not in the types is free (type 0). Offsets are those of the newest copy so far."""
+    out, at, prev = bytearray(b"%PDF-1.5\n"), {}, None
+    for n, (objects, ranges, kinds) in enumerate(revisions):
+        for i, body in objects.items():
+            at[i] = len(out)
+            out += b"%d 0 obj\n%s\nendobj\n" % (i, body)
+        rows = b""
+        for start, count in ranges:
+            for i in range(start, start + count):
+                kind = kinds.get(i, 0)
+                rows += bytes([kind != 0]) + (10 ** 6 if kind == "missing" else at.get(i, 0) * (kind == 1)).to_bytes(
+                    4, "big") + b"\0\0"
+        pos = len(out)
+        out += b"%d 0 obj\n<< /Type /XRef /Size %d /Index [%s] /W [1 4 2] /Root 1 0 R /Length %d%s >>\nstream\n" % (
+            90 + n, max(s + c for s, c in ranges), b" ".join(b"%d %d" % r for r in ranges), len(rows),
+            b"" if prev is None else b" /Prev %d" % prev)
+        out += rows + b"\nendstream\nendobj\nstartxref\n%d\n%%%%EOF\n" % pos
+        prev = pos
+    return bytes(out)
+
+
+def seed(n) -> dict:
+    return {"name": f"FREE-{n}", "kind": "document_text", "expect": "never", "value": f"GCT-LEAK-SCAN-FREE-{n:02d}"}
+
+
+IN_USE = {1: 1, 2: 1, 3: 1, 4: 1}
+
+
+def test_free_entries_inside_an_xref_streams_index_ranges_are_skipped(tmp_path):
+    """An xref stream lists ids 10 and 11 free inside its second /Index range (pdfminer's get_objids lists 11, reading
+    the first range's entry 1): no header and no object stream holds them, so found scans with {} and no Unreadable,
+    and a seed in object 12 beside them, in use, is found in that object."""
+    p = tmp_path / "free.pdf"
+    p.write_bytes(xref_pdf(({**PAGE, 4: b"(x)"}, [(0, 5), (10, 2)], IN_USE)))
+    assert leakage.found(p, [seed(1)]) == {}
+    p.write_bytes(xref_pdf(({**PAGE, 4: b"(x)", 12: b"(%s)" % seed(2)["value"].encode()}, [(0, 5), (10, 3)],
+                            {**IN_USE, 12: 1})))
+    assert "free.pdf: object 12" in leakage.found(p, [seed(2)])["FREE-2"]
+
+
+def test_a_free_entry_with_a_header_or_in_an_object_stream_is_unreadable(tmp_path):
+    """Object 11 marked free in the second /Index range, but with an "11 0 obj" header in the file, or a member of an
+    object stream: not proven free, so found raises Unreadable naming object 11 (its seed is still found)."""
+    p = tmp_path / "held.pdf"
+    member = b"11 0 (%s)" % seed(5)["value"].encode()
+    for extra in ({11: b"(%s)" % seed(5)["value"].encode()},
+                  {5: b"<< /Type /ObjStm /N 1 /First 5 /Length %d >>\nstream\n%s\nendstream" % (len(member), member)}):
+        p.write_bytes(xref_pdf(({**PAGE, 4: b"(x)", **extra}, [(0, 6), (10, 2)], {**IN_USE, 5: int(5 in extra)})))
+        with pytest.raises(leakage.Unreadable) as e:
+            leakage.found(p, [seed(5)])
+        assert [x for x in e.value.places if x.startswith("held.pdf: object 11 ")] == [
+            x for x in e.value.places], e.value.places
+        assert "FREE-5" in e.value.found
+
+
+def test_an_in_use_entry_pointing_at_nothing_is_unreadable(tmp_path):
+    """An xref stream entry in use (type 1) whose offset points past the end of the file: found raises Unreadable
+    naming that object."""
+    p = tmp_path / "missing.pdf"
+    p.write_bytes(xref_pdf((PAGE, [(0, 5)], {**IN_USE, 4: "missing"})))
+    with pytest.raises(leakage.Unreadable) as e:
+        leakage.found(p, [seed(3)])
+    assert [x for x in e.value.places if x.startswith("missing.pdf: object 4 ")], e.value.places
+
+
+def test_an_id_free_in_one_revision_and_in_use_in_another_is_read(tmp_path):
+    """Object 11 in use in the first revision and free in the update's second /Index range: not proven free, so it is
+    read: its seed is found in it, and with its in-use entry pointing at nothing found raises Unreadable naming it."""
+    p = tmp_path / "mixed.pdf"
+    update = ({4: b"(x)"}, [(0, 5), (10, 2)], IN_USE)
+    p.write_bytes(xref_pdf(({**PAGE, 11: b"(%s)" % seed(4)["value"].encode()}, [(0, 4), (11, 1)],
+                            {1: 1, 2: 1, 3: 1, 11: 1}), update))
+    assert "mixed.pdf: object 11" in leakage.found(p, [seed(4)])["FREE-4"]
+    p.write_bytes(xref_pdf((PAGE, [(0, 4), (11, 1)], {1: 1, 2: 1, 3: 1, 11: "missing"}), update))
+    with pytest.raises(leakage.Unreadable) as e:
+        leakage.found(p, [seed(4)])
+    assert [x for x in e.value.places if x.startswith("mixed.pdf: object 11 ")], e.value.places

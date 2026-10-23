@@ -253,7 +253,9 @@ def _pdf(data, place, tmp, wal):
     """The raw file's string tokens (stream data blanked, comments skipped), then through pdfplumber: page text (also
     reversed), inline images, the metadata, every object of every xref section, and every other object body in the
     file (a copy an incremental update superseded, or one no xref section lists), each parsed as an object at its
-    byte position. Each part is read on its own."""
+    byte position. A listed id is skipped only when proven free: every xref section listing it marks it free, no
+    header for it is in the file and no object stream holds it; any other id getobj cannot read is unreadable. Each
+    part is read on its own."""
     import pdfplumber
 
     streams = [m.span(1) for m in STREAM.finditer(data)]  # stream data, blanked below with its length kept
@@ -280,6 +282,7 @@ def _pdf(data, place, tmp, wal):
                     resources.setdefault(getattr(ref, "objid", None), page.page_obj.resources)
         except Exception as e:  # noqa: BLE001
             yield _bad(f"{place}: page resources", e)
+        members, free = set(), []  # object stream members read in either pass; listed ids every section marks free
         for x, xref in enumerate(doc.xrefs, 1):
             try:
                 objids = list(xref.get_objids())
@@ -287,16 +290,55 @@ def _pdf(data, place, tmp, wal):
                 yield _bad(f"{place}: xref section {x}", e)
                 continue
             for objid in objids:
+                if _marked_free(doc, objid):
+                    free.append(objid)
+                    continue
                 where = f"{place}: object {objid}"
-                yield from _guard(where, _pdf_object(doc, lambda objid=objid: doc.getobj(objid), where, tmp))
+                yield from _guard(where, _pdf_object(doc, lambda objid=objid: doc.getobj(objid), where, tmp,
+                                                     members=members))
                 live |= {(objid, _newest_pos(doc, objid))}
         spans = [a[:2] for a in strings]  # strings and comments
+        headers = set()
         for m in OBJECT.finditer(data):
             objid, pos = int(m[1]), m.start(1)
-            if (objid, pos) in live or _inside(streams, pos) or _inside(spans, pos):  # the live copy, or not a header
+            if _inside(streams, pos) or _inside(spans, pos):  # not a header
+                continue
+            headers.add(objid)
+            if (objid, pos) in live:  # the live copy
                 continue
             where = f"{place}: object {objid} at byte {pos}"
-            yield from _guard(where, _pdf_object(doc, lambda m=m: _parse_at(doc, m), where, tmp, resources.get(objid)))
+            yield from _guard(where, _pdf_object(doc, lambda m=m: _parse_at(doc, m), where, tmp, resources.get(objid),
+                                                 members=members))
+        for objid in dict.fromkeys(free):  # skipped only when proven free: no header and in no object stream
+            if objid in headers or objid in members:
+                where = f"{place}: object {objid}"
+                yield from _guard(where, _pdf_object(doc, lambda objid=objid: doc.getobj(objid), where, tmp))
+
+
+def _marked_free(doc, objid) -> bool:
+    """Every xref section that lists objid marks it free, and one does (an xref stream entry of type 0). pdfminer's
+    PDFXRefStream.get_objids reads each /Index range's entries from the start of the stream data, so it can list an
+    id whose own entry is free, and getobj then raises PDFObjectNotFound. An xref table holds only its in-use entries
+    to pdfminer, so a table listing objid marks it in use."""
+    from pdfminer.pdfdocument import PDFXRefStream
+
+    marked = False
+    for xref in doc.xrefs:
+        if not isinstance(xref, PDFXRefStream):
+            if objid in xref.get_objids():
+                return False
+            continue
+        index = 0
+        for start, n in xref.ranges:
+            if start <= objid < start + n:
+                entry = xref.data[xref.entlen * (index + objid - start):][:xref.entlen]
+                kind = int.from_bytes(entry[:xref.fl1], "big") if xref.fl1 else 1  # no type field: in use
+                if kind != 0:
+                    return False
+                marked = True
+                break
+            index += n
+    return marked
 
 
 def _newest_pos(doc, objid):
@@ -385,7 +427,7 @@ def _literal(data, i):
     return bytes(out), None
 
 
-def _pdf_object(doc, get, where, tmp, resources=None):
+def _pdf_object(doc, get, where, tmp, resources=None, members=None):
     """One object of doc (get() reads it): its strings and names; a stream decoded (an image to pixels; an embedded
     file as its own file; any other stream as text with its string tokens; a form or appearance stream, drawn or not,
     and a superseded page content stream with its page's resources, also interpreted for text and inline images; an
@@ -407,6 +449,8 @@ def _pdf_object(doc, get, where, tmp, resources=None):
             yield from _form(obj, where, resources)
         if kind == "ObjStm":  # its members, current or superseded, parsed as pdfminer parses them
             objs, n = doc._get_objects(obj)  # pdfminer's own member parse: it has no public call for it
+            if members is not None:
+                members.update(objs[:2 * n:2])
             for objid, member in zip(objs[:2 * n:2], objs[2 * n:]):
                 yield from _pdf_object(doc, lambda member=member: member, f"{where} member {objid}", tmp)
 
