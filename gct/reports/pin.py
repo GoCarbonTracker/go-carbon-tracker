@@ -5,7 +5,7 @@ import sqlite3
 from gct.workspace import labels, published
 from gct.workspace.layout import REFUSED, GctError
 
-SCHEMA = 15  # the projection a report reads (part B's page table); an older version file is refused
+SCHEMA = 16  # the projection a report reads (part C's match candidates); an older version file is refused
 
 
 def pin(conn, root, data_version=None) -> tuple[sqlite3.Connection, dict]:

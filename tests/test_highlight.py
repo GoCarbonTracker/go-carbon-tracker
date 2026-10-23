@@ -224,7 +224,7 @@ def test_projection_schema_14(ws, db, gct, one):
         tables = {t for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     finally:
         conn.close()
-    assert meta["projection_schema"] == "15"
+    assert meta["projection_schema"] == "16"
     assert {"review_company", "review_auditor", "adjudication", "reviewer_flag", "claim", "comparison"} <= tables
     assert h == {"id": 1, "claim_id": claim, "claim_version_id": version, "contributor_name": "Cara",
                  "contributor_organisation": "Audit LLP", "capacity": "analyst", "note": "a note", "latest": 1,

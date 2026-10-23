@@ -48,7 +48,7 @@ def test_the_current_version_is_pinned_and_a_stale_pin_is_refused(acme, gct, db)
     path = published.version_path(acme, 2)
     built_at, mark = db.execute("SELECT built_at, history_mark FROM published_version WHERE version = 2").fetchone()
     assert ident == {"version": 2, "built_at": built_at, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-                     "projection_schema": 15, "history_mark": mark, "labels_mark": 3}
+                     "projection_schema": 16, "history_mark": mark, "labels_mark": 3}
     assert mark == published.history_mark(db)
     assert [tuple(r) for r in pconn.execute("SELECT id, privacy FROM document ORDER BY id")] == [(1, "shareable"),
                                                                                               (2, "shareable")]
@@ -60,7 +60,7 @@ def test_the_current_version_is_pinned_and_a_stale_pin_is_refused(acme, gct, db)
                        "Reload to see version 2.")
 
 
-# Matrix "below 15": a file of an older projection is refused, with view.pinned's text (its own floor is 14)
+# Matrix "below 16": a file of an older projection is refused, with view.pinned's text (its own floor is 14)
 def test_an_older_projection_is_refused(acme, gct, db):
     assert gct("publish", "build").code == 0
     path = published.version_path(acme, 1)
@@ -71,11 +71,13 @@ def test_an_older_projection_is_refused(acme, gct, db):
     got = refusal(lambda: pinning.pin(db, acme))
     assert got == refusal(lambda: view.pinned(db, acme))
     assert got[1:] == ("Data version 1 was built by an older gct and cannot be filtered.", published.BUILD_AGAIN)
-    out = sqlite3.connect(path)
-    out.execute("UPDATE meta SET value = '14' WHERE key = 'projection_schema'")
-    out.commit()
-    out.close()
-    assert refusal(lambda: pinning.pin(db, acme)) == got  # view still reads 14; a report needs part B's page table
+    for schema in ("14", "15"):  # view still reads both; a report needs part C's match candidates (projection 16)
+        out = sqlite3.connect(path)
+        out.execute("UPDATE meta SET value = ? WHERE key = 'projection_schema'", (schema,))
+        out.commit()
+        out.close()
+        assert refusal(lambda: pinning.pin(db, acme)) == got
+        view.pinned(db, acme)[1].close()
 
 
 # Matrix "missing current file"
