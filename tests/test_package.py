@@ -1225,11 +1225,11 @@ TOKENS = {f"CRED-KEY-0{n}": f"GCTSYNTHTOKEN{n}{'q' * 20}" for n in (1, 2, 3)}
 SEEDS = [{"name": n, "kind": "credential", "expect": "never", "value": v} for n, v in TOKENS.items()]
 
 
-def credential_workspace(root, legacy=None):
+def credential_workspace(root, legacy=None, tokens=TOKENS):
     """The workspace above, with two link reviews (an unmapped and a unit as printed series); legacy: a monkeypatch
     with which the reviews are recorded by match.py without its scrub (then undone). Returns g."""
     from gct.stages import match
-    t1, t2, t3 = TOKENS.values()
+    t1, t2, t3 = tokens.values()
     root.parent.mkdir()
     shared = gate_fixture.page([["Mystery water recycled", "kL", "100", "110", "120"],
                                 [gate_fixture.SCOPE_1, "tCO2e", "200", "210", "220"]], ["FY 2024-25"] * 3,
@@ -1248,7 +1248,8 @@ def credential_workspace(root, legacy=None):
         g("infer", "accept", group["id"], *gate_fixture.WHO)
     g("match")
     if legacy:
-        legacy.setattr(match, "scrub", lambda s: s, raising=False)
+        for name in ("scrub", "scrub_key"):  # either name, whichever this match.py uses
+            legacy.setattr(match, name, lambda s: s, raising=False)
     for c, printed in ((water[2], False), (scope[2], True)):
         g("infer", "reject", "--claim", c, "--field", "boundary", *gate_fixture.WHO)
         sid = next(s["id"] for s in g("series", "list")["series"] if s["document_id"] == doc
@@ -1272,8 +1273,8 @@ def test_a_credential_in_a_claim_text_reaches_no_key_in_either_package(tmp_path,
     source = sqlite3.connect(root / layout.DB_NAME)
     review, flat = (k for (k,) in source.execute("SELECT series_key FROM match_review ORDER BY id"))
     source.close()
-    assert t2 in review  # verbatim in the boundary detail
-    assert (t1.lower() in review, f"printed:bearer{t3.lower()}" in flat) == (legacy, legacy), (review, flat)
+    # new keys hold none: legacy ones hold TOKEN1 lowercased, TOKEN2 verbatim in the detail and TOKEN3 joined
+    assert (t1.lower() in review, t2 in review, f"printed:bearer{t3.lower()}" in flat) == (legacy,) * 3, (review, flat)
     assert set(leakage.found(root / layout.DB_NAME, SEEDS)) == set(TOKENS)  # each token is in the source
     out = packages(g, root)
     for mode, (back, p) in out.items():
@@ -1289,6 +1290,50 @@ def test_a_credential_in_a_claim_text_reaches_no_key_in_either_package(tmp_path,
         if mode == "sanitised" or not legacy:
             assert {r["series_key"] for r in back["workspace"]["match_review"]} <= formed, mode
     assert out["sanitised"][1]["withheld"]["selection_recomputed"] == (1 if legacy else 0)
+
+
+# Round 3, F1 (the reviewer's fix2-limits short-legacy case): an 8-character token typed as a unit, its review
+# recorded by match.py without its scrub, so the stored key holds "printed:bearerq7canary". Key text is scrubbed with
+# the key rule in both modes: neither package holds it (the complete one writes "printed:[redacted]").
+def test_a_short_bearer_token_in_a_legacy_key_reaches_neither_package(tmp_path, monkeypatch):
+    short = {**TOKENS, "CRED-KEY-03": "q7Canary"}
+    seeds = [{"name": "CRED-SHORT-01", "kind": "credential", "expect": "never", "value": "q7Canary"}]
+    root = tmp_path / "w" / "ws"
+    g = credential_workspace(root, monkeypatch, short)
+    source = sqlite3.connect(root / layout.DB_NAME)
+    assert any("printed:bearerq7canary" in k for (k,) in source.execute("SELECT series_key FROM match_review"))
+    source.close()
+    out = packages(g, root)
+    for mode, (back, p) in out.items():
+        folder = root / "exports" / next(n for n in made(root) if n.endswith(mode))
+        for db in (folder / layout.DB_NAME, folder / "published" / "v1.db"):
+            assert leakage.found(db, seeds) == {} and "q7canary" not in dump_text(db).casefold(), (mode, db)
+    assert any("printed:[redacted]" in r["series_key"] for r in out["complete"][0]["workspace"]["match_review"])
+
+
+# Round 3, F2 (the reviewer's fix2-prose case): ordinary prose after "bearer" stays in every prose field of both
+# packages and of every report format in both modes; a credential-shaped token after a lowercase "bearer" does not.
+# A series label is key text, so it reads "the [redacted] risk".
+def test_ordinary_bearer_prose_stays_and_a_token_after_it_does_not(tmp_path):
+    from gct.reports import export
+    token = "gctsynthtoken6" + "q" * 20
+    seeds = [{"name": "CRED-PROSE-01", "kind": "credential", "expect": "never", "value": token}]
+    root = tmp_path / "w" / "ws"
+    root.parent.mkdir()
+    g, doc, claims = small(root, gate_fixture.page([["the bearer of risk", "kL", "100", "110", "120"],
+                                                    [f"water bearer {token}", "kL", "1", "2", "3"]], ["FY 2024-25"] * 3))
+    out = packages(g, root)
+    for mode, (back, p) in out.items():
+        assert {v["metric_text"] for v in back["workspace"]["claim_version"]} == {
+            "the bearer of risk", "water [redacted]"}, mode
+        folder = root / "exports" / next(n for n in made(root) if n.endswith(mode))
+        for db in (folder / layout.DB_NAME, folder / "published" / "v1.db"):
+            assert leakage.found(db, seeds) == {}, (mode, db)
+    for flags in ((), ("--complete",)):
+        folder = Path(g("report", "all", "--format", ",".join(sorted(export.FORMATS)), *flags)["folder"])
+        d = json.loads(next(folder.rglob("dataset.json")).read_text(encoding="utf-8"))
+        assert {r["metric_text"] for r in d["evidence_index"]} == {"the bearer of risk", "water [redacted]"}, flags
+        assert leakage.found(folder, seeds) == {}, flags
 
 
 # The replay in package.series_keys reaches every key match.compute forms, on the source and on both packages (the
@@ -1313,21 +1358,31 @@ def test_series_keys_cover_what_match_compute_forms(rw, tmp_path, monkeypatch, g
         assert formed and formed <= package.series_keys(rows(db)), db
 
 
-# The shared scrubber (gct/models/redact.py; its own tests are in tests/test_models.py, outside this round's grant):
-# a bearer scheme in any case, with squeezed spaces, or joined to its token as match.unit_text_of leaves it; a
-# configured key's value in any case. Synthetic values only.
+# The shared scrubber (gct/models/redact.py; its own tests are in tests/test_models.py, outside this round's grant).
+# Prose (scrub): whatever main redacts stays redacted ("Bearer" and any token), and in any case a credential-shaped
+# token (16 or more token characters) after "bearer", spaced or joined; "the bearer of risk" stays. Key text
+# (scrub_key): "bearer" and any token after it, spaced or joined, of any length. Synthetic values only.
 def test_scrub_catches_a_bearer_scheme_in_any_case_and_form(monkeypatch):
     from gct.models import redact
     token, env = (f"gctsynthtoken{n}{'q' * 20}" for n in (4, 5))
     for text in (f"Bearer {token}", f"bearer {token}", f"BeArEr {token}", f"bearer   {token}", f"bearer\t{token}",
                  f"bearer{token}", f"BEARER{token.upper()}", f"printed:bearer{token}"):
-        assert token not in redact.scrub(text).casefold() and redact.MARK in redact.scrub(text), text
+        for f in (redact.scrub, redact.scrub_key):
+            assert token not in f(text).casefold() and redact.MARK in f(text), (f, text)
+    for f in (redact.scrub, redact.scrub_key):  # main redacts these, so they stay redacted
+        assert (f("Bearer q7Canary"), f("Bearer of risk")) == ("[redacted]", "[redacted] risk"), f
     assert redact.scrub(f'["doc:3:p1:t0r1:bearer {token}", 2]') == '["doc:3:p1:t0r1:[redacted]", 2]'  # stops at "
-    for plain in ("the bearers of risk", "bearer", "Total Scope 1 emissions"):
+    for plain in ("the bearer of risk", "the bearers of risk", "bearer", "printed:bearerq7canary",
+                  "Total Scope 1 emissions"):
         assert redact.scrub(plain) == plain, plain
+    for key, written in (("printed:bearerq7canary", "printed:[redacted]"), ("printed:bearer", "printed:bearer"),
+                         ("doc:3:p1:t0r1:the bearer of risk", "doc:3:p1:t0r1:the [redacted] risk"),
+                         ('["doc:3:p1:t0r1:bearer  q7", "kl"]', '["doc:3:p1:t0r1:[redacted]", "kl"]')):
+        assert redact.scrub_key(key) == written, key
+    assert redact.scrub_key(None) is None and redact.scrub_key("") == ""
     monkeypatch.setattr(redact, "_names", lambda: ("GCT_SYNTH_KEY",))
     monkeypatch.setenv("GCT_SYNTH_KEY", env.upper())
-    assert redact.scrub(f"acme and {env}") == "acme and [redacted]"
+    assert redact.scrub(f"acme and {env}") == redact.scrub_key(f"acme and {env}") == "acme and [redacted]"
 
 
 # F2: an unmapped metric's series key holds its document id inside the metric ("doc:N:..."); ID_TEXT declares it, so

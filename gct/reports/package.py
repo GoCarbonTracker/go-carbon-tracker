@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from gct import __version__
-from gct.models.redact import scrub
+from gct.models.redact import scrub, scrub_key
 from gct.reports import pin as pinning
 from gct.reports.export import folder as _folder
 from gct.stages import deletion, match, sheet
@@ -139,6 +139,9 @@ COMPLETE_ONLY = ("saved_view",)
 REFERENCED = ("company", "contributor_version", "run")  # sanitised: only rows a shipped row points at
 # Sanitised: tables whose series_key names a series; a row ships only while shipped claims form that series.
 SERIES_NAMED = ("match_review", "restatement")
+# Machine text built from claim text, written with redact.scrub_key in both modes (published/v1.db's series labels,
+# keys and unit families come from match.compute, which builds them that way)
+KEY_TEXT = {("match_review", "series_key"), ("restatement", "series_key"), ("inference", "group_key")}
 INCLUDE = ("identity", "contributor_text", "flags")
 CAUSES = ("private_document", "absent_from_version", "same_bytes_private", "names_private_document", "flag",
           "archived", "deleted", "selection_recomputed", "contributor_text", "identity")
@@ -207,7 +210,7 @@ def _decide(conn, root, mode: str, include: tuple):
         # inferences give; it ships only when the shipped rows formed that series, now or earlier, compared as written
         formed = series_keys(ship)
         for t in SERIES_NAMED:
-            kept = [r for r in ship[t] if scrub(r["series_key"]) in formed]
+            kept = [r for r in ship[t] if scrub_key(r["series_key"]) in formed]
             withheld["selection_recomputed"] += len(ship[t]) - len(kept)
             ship[t] = kept
         pointed = {t: set() for t in REFERENCED}
@@ -222,7 +225,7 @@ def _decide(conn, root, mode: str, include: tuple):
 
 
 def series_keys(ship: dict) -> set:
-    """The keys, as the package writes them (scrubbed text), of every series the given rows formed at some point.
+    """The keys, as the package writes them (redact.scrub_key), of every series the given rows formed at some point.
     A claim's period and boundary become known only by an inference review (infer._field): resolved gives the
     review's values, accepted the values of the inference it names, if that inference is given; rejected makes the
     field unknown. Replaying the reviews in id order (one sequence over both fields and every claim) gives each
@@ -262,19 +265,19 @@ def series_keys(ship: dict) -> set:
 
 def _key(c, v, a, boundary, kind) -> tuple:
     """(ordinary key, unit as printed key) of one claim version in one state, as JSON (match.compute, match._series),
-    from the text the package writes."""
+    from claim text through redact.scrub_key, as match.compute builds it."""
     if a is None or kind is None or boundary is None or boundary[0] in (None, "unknown"):
         return None, None
     row, doc = match._row(c["locator"]), c["document_id"]
-    label = match.label_of(scrub(v["metric_text"]))
+    label = match.label_of(scrub_key(v["metric_text"]))
     if a["metric_key"] is None and not (label and row):
         return None, None
     head = [c["company_id"], a["metric_key"] or f"doc:{doc}:p{c['page_number']}:{row}:{label}", boundary[0],
-            scrub(boundary[1]) if boundary[0] == "subsidiary_set" else None]
+            scrub_key(boundary[1]) if boundary[0] == "subsidiary_set" else None]
     family = a["unit_key"]
     if family is not None and (a["metric_key"] is None or family in match.ACCEPTS[a["metric_key"]]):
         return json.dumps(head + [family, doc if a["metric_key"] is None else None, kind], ensure_ascii=False), None
-    unit = match.unit_text_of(scrub(v["unit_text"]) or "") or "-"
+    unit = match.unit_text_of(scrub_key(v["unit_text"]) or "") or "-"
     return None, row and json.dumps(head + [f"printed:{unit}", doc, kind, f"p{c['page_number']}:{row}"],
                                     ensure_ascii=False)
 
@@ -416,7 +419,7 @@ def _row(table: str, row, mode: str, include: tuple, ctx: dict) -> tuple:
     out = []
     for col in row.keys():
         v = row[col]
-        v = scrub(v) if isinstance(v, str) else v
+        v = (scrub_key if (table, col) in KEY_TEXT else scrub)(v) if isinstance(v, str) else v
         cls = COLUMNS[table][col]
         if mode == "sanitised":
             if cls == TEXT and "contributor_text" not in include:

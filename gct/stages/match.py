@@ -5,7 +5,7 @@ import re
 
 from collections import Counter
 
-from gct.models.redact import scrub
+from gct.models.redact import scrub_key
 from gct.stages import Stage, correct, infer, run_stage, version_of
 from gct.stages.extract import WESTERN
 from gct.stages.link import EXTRACT_FIRST
@@ -349,7 +349,7 @@ def compute(conn, company=None) -> dict:
         if p["state"] not in KNOWN:
             _state(c, NOT_MATCHABLE, PERIOD_UNKNOWN)
             continue
-        label = label_of(scrub(c["metric_text"]))  # scrubbed first: a key holds the text lowercased
+        label = label_of(scrub_key(c["metric_text"]))  # scrubbed first: a key holds the text lowercased
         if c["metric_key"] is None and not label:
             _state(c, NOT_MATCHABLE, NO_LABEL)
             continue
@@ -359,7 +359,7 @@ def compute(conn, company=None) -> dict:
             continue
         c["metric"] = c["metric_key"] or f"doc:{c['document_id']}:p{c['page_number']}:{row}:{label}"
         c["boundary_known"] = b["state"] in KNOWN and b["boundary"] != "unknown"
-        c["detail"] = b["detail"] if b["boundary"] == "subsidiary_set" else None
+        c["detail"] = scrub_key(b["detail"]) if b["boundary"] == "subsidiary_set" else None
         family = c["unit_key"]
         c["unit_ok"] = family is not None and (c["metric_key"] is None or family in ACCEPTS[c["metric_key"]])
         head = [c["company_id"], c["metric"], b["boundary"], c["detail"]]
@@ -369,7 +369,7 @@ def compute(conn, company=None) -> dict:
             _state(c, SERIES, sid=series_id(key))
             continue
         if c["boundary_known"] and row:  # a unit not usable across documents may still join the columns of its row
-            c["printed"] = head + [f"printed:{unit_text_of(scrub(c['unit_text']) or '') or '-'}", c["document_id"], p["kind"],
+            c["printed"] = head + [f"printed:{unit_text_of(scrub_key(c['unit_text']) or '') or '-'}", c["document_id"], p["kind"],
                                    f"p{c['page_number']}:{row}"]
         waiting.append(c)
     printed = {}
