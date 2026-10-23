@@ -99,47 +99,57 @@ def _failed_read(conn, doc_id: int, page: int):
     return row if row and row["outcome"] == "failed" else None
 
 
-def page_ready(conn, doc_id: int, page: int, type_: str) -> tuple[bool, str | None]:
-    """(ready, note) for one content type of one page. note is None when the newest reading checked it, the
-    acceptance ("accepted by <name> (<capacity>)") when a reviewer accepted that reading, else why it is not ready."""
+def page_ready(conn, doc_id: int, page: int, type_: str) -> tuple[bool, str | None, int | None]:
+    """(ready, note, acceptance id) for one content type of one page. note is None when the newest reading checked
+    it, the acceptance ("accepted by <name> (<capacity>)") when a reviewer accepted that reading, else why it is not
+    ready; the acceptance id is set only in the accepted case."""
     if _failed_read(conn, doc_id, page):
-        return False, "read failed"
+        return False, "read failed", None
     row = _newest_page(conn, doc_id, page)
     if row is None:
-        return False, "not read"
+        return False, "not read", None
     flags = [f for f in json.loads(row["flags"]) if f in (FLAGS[type_] or ())]
     if FLAGS[type_] is not None and not flags:
-        return True, None
+        return True, None, None
     accepted = conn.execute(
-        "SELECT a.artifact_id, a.capacity, c.name FROM page_acceptance a JOIN contributor_version c"
+        "SELECT a.id, a.artifact_id, a.capacity, c.name FROM page_acceptance a JOIN contributor_version c"
         " ON c.id = a.contributor_version_id WHERE a.document_id = ? AND a.page_number = ? AND a.content_type = ?"
         " ORDER BY a.artifact_id = ? DESC, a.id DESC LIMIT 1", (doc_id, page, type_, row["artifact_id"])).fetchone()
     if accepted and accepted["artifact_id"] == row["artifact_id"]:
-        return True, f"accepted by {accepted['name']} ({accepted['capacity']})"
+        return True, f"accepted by {accepted['name']} ({accepted['capacity']})", accepted["id"]
     if accepted:  # decision T: an acceptance holds only for the reading it accepted
-        return False, EARLIER
-    return False, ", ".join(flags) or CHARTS
+        return False, EARLIER, None
+    return False, ", ".join(flags) or CHARTS, None
 
 
-def page_count(root, doc: dict) -> tuple[int | None, str | None]:
-    """(pages, None) from the stored PDF, or (None, why) when there is no page set."""
+def page_count(root, doc: dict, counts: dict | None = None) -> tuple[int | None, str | None]:
+    """(pages, None) from the stored PDF, or (None, why) when there is no page set. counts, keyed by sha256, lets one
+    published build open each stored file once."""
     if doc["file_type"] != "pdf":
         return None, "not a PDF"
+    if counts is not None and doc["sha256"] in counts:
+        return counts[doc["sha256"]]
     import pdfplumber  # 0.8 s; only commands that count pages pay for it
 
+    # ponytail: the read stage's own walk (read.py), so the count is the pages it numbers; pdfminer parses every page
+    # object for it, about 1 ms a page. A page count stored per file by the read stage would avoid that (a migration).
     try:
         with pdfplumber.open(registry.stored_path(Path(root), doc["sha256"])) as pdf:
-            return len(pdf.pages), None
+            out = len(pdf.pages), None
     except Exception:
-        return None, "not opened"
+        out = None, "not opened"
+    if counts is not None:
+        counts[doc["sha256"]] = out
+    return out
 
 
-def _readiness(conn, root, docs) -> tuple[list, list, list]:
-    """(reasons, accepted, snapshot) over every page of the documents. reasons and accepted are counted per type;
-    snapshot holds each document's id, sha256 and the newest reading artifact of every page (decision T)."""
-    reasons, accepted, snapshot = Counter(), Counter(), []
+def _readiness(conn, root, docs, counts=None) -> tuple[list, list, list, list]:
+    """(reasons, accepted, snapshot, acceptances) over every page of the documents. reasons and accepted are counted
+    per type; snapshot holds each document's id, sha256 and the newest reading artifact of every page (decision T);
+    acceptances holds one entry per accepted page and type, by acceptance id, for the published version."""
+    reasons, accepted, snapshot, acceptances = Counter(), Counter(), [], []
     for d in docs:
-        n, why = page_count(root, d)
+        n, why = page_count(root, d, counts)
         if n is None:
             reasons["document", why] += 1
             continue
@@ -148,14 +158,15 @@ def _readiness(conn, root, docs) -> tuple[list, list, list]:
             row = _newest_page(conn, d["id"], page)
             artifacts.append(row and row["artifact_id"])
             for t in TYPES:
-                ready, note = page_ready(conn, d["id"], page, t)
+                ready, note, acceptance = page_ready(conn, d["id"], page, t)
                 if not ready:
                     reasons[t, note] += 1
                 elif note:
                     accepted[t, note] += 1
+                    acceptances.append({"type": t, "acceptance_id": acceptance, "count": 1})
         snapshot.append({"id": d["id"], "sha256": d["sha256"], "artifacts": artifacts})
     return ([{"type": t, "reason": r, "count": n} for (t, r), n in reasons.items()],
-            [{"type": t, "accepted": a, "count": n} for (t, a), n in accepted.items()], snapshot)
+            [{"type": t, "accepted": a, "count": n} for (t, a), n in accepted.items()], snapshot, acceptances)
 
 
 # Expectations (D1): declared by the user with literal wording and a fixed document set.
@@ -198,16 +209,18 @@ def _item(conn, item_id: int):
     return row
 
 
-def state(conn, root, item_id: int, confirmed=True) -> dict:
+def state(conn, root, item_id: int, confirmed=True, counts=None) -> dict:
     """An expectation with its claims, or, when it has none, its missing state with the reasons counted per type.
-    'confirmed disclosure gap' only from a confirmation on the current readings; confirmed=False leaves it out."""
+    'confirmed disclosure gap' only from a confirmation on the current readings; confirmed=False leaves it out.
+    The internal keys snapshot and acceptances (the published version's accepted entries) are dropped by describe;
+    counts is page_count's per-build cache."""
     item = _item(conn, item_id)
     docs = _documents(conn, item_id)
     worded = _claims(conn, item, [d["id"] for d in docs])
     claims = [c for c in worded if item["period_label"] is None or c["period_label"] == item["period_label"]]
     out = {"id": item["id"], "company": item["company"], "metric_text": item["metric_text"],
            "period_label": item["period_label"], "documents": [d["id"] for d in docs], "found": bool(claims),
-           "claims": claims, "state": None, "reasons": [], "accepted": [], "confirmation": None}
+           "claims": claims, "state": None, "reasons": [], "accepted": [], "confirmation": None, "acceptances": []}
     gap = confirmed and conn.execute(
         "SELECT g.*, c.name, c.organisation FROM gap_confirmation g JOIN contributor_version c"
         " ON c.id = g.contributor_version_id WHERE g.expected_item_id = ? ORDER BY g.id DESC LIMIT 1", (item_id,)).fetchone()
@@ -220,7 +233,7 @@ def state(conn, root, item_id: int, confirmed=True) -> dict:
                                "evidence_deleted": next(filter(None, marks), None)}
     if claims:
         return out
-    reasons, accepted, snapshot = _readiness(conn, root, docs)
+    reasons, accepted, snapshot, acceptances = _readiness(conn, root, docs, counts)
     if not docs:  # every declared document is archived: nothing was looked in, so it is never "not found"
         reasons.append({"type": "document", "reason": NO_ACTIVE, "count": conn.execute(
             "SELECT COUNT(*) FROM expected_item_document WHERE expected_item_id = ?", (item_id,)).fetchone()[0]})
@@ -234,7 +247,8 @@ def state(conn, root, item_id: int, confirmed=True) -> dict:
                           (OTHER_PERIOD, [p for p in printed if p in other])):
         if pages:
             reasons.append({"type": "text", "reason": reason, "count": len(pages), "pages": pages})
-    out.update(state=INCOMPLETE if reasons else NOT_FOUND_IN, reasons=reasons, accepted=accepted, snapshot=snapshot)
+    out.update(state=INCOMPLETE if reasons else NOT_FOUND_IN, reasons=reasons, accepted=accepted, snapshot=snapshot,
+               acceptances=acceptances)
     if gap:
         older = json.loads(gap["documents_checked"]) != snapshot
         if out["state"] == NOT_FOUND_IN and not older:
@@ -248,6 +262,7 @@ def state(conn, root, item_id: int, confirmed=True) -> dict:
 def describe(conn, root, item_id: int) -> dict:
     out = state(conn, root, item_id)
     out.pop("snapshot", None)
+    out.pop("acceptances")
     return out
 
 
@@ -316,7 +331,7 @@ def accept_pages(conn, root, doc_id: int, spec: str, type_: str, key: str, capac
         if failed:
             raise GctError(REFUSED, f"Page {page} could not be read, so it cannot be accepted.",
                            f"Read it again with: gct run retry {failed['run_id']}")
-        ready, note = page_ready(conn, doc_id, page, type_)
+        ready, note, _ = page_ready(conn, doc_id, page, type_)
         if note == "not read":
             raise GctError(REFUSED, f"Page {page} has not been read, so it cannot be accepted.", f"Read it first: gct read {doc_id}")
         if ready and note is None:

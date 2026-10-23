@@ -37,7 +37,8 @@ one record in the same way.
 - Its figures leave every comparison pair (`gct restate list`), since pairs come from the series.
 - `gct publish build` leaves out the document, its claims, their locations, their series points and its page
   acceptances (see Hidden counts), the pairs and restatement records that name a version of its claims, and the
-  column mappings of a spreadsheet (`sheet_mapping`).
+  column mappings of a spreadsheet (`sheet_mapping`), and its pages leave the `page` table. An expectation that
+  declared it keeps it linked in `expected_item_document` with `state` `archived`, by id only (projection schema 15).
   The viewer reads only the published version, so after the next build it no longer offers the document.
 
 ## Refused while archived

@@ -429,7 +429,7 @@ def test_projection_schema_11(ws, db, gct, make_file, one):
         (a,) = [dict(r) for r in conn.execute("SELECT * FROM review_auditor")]
     finally:
         conn.close()
-    assert meta["projection_schema"] == "14"
+    assert meta["projection_schema"] == "15"
     assert list(c) == list(a) == ["id", "claim_id", "claim_version_id", "contributor_name", "contributor_organisation",
                                   "contributor_version", "capacity", "scope", "reviewed_on", "conclusion", "outcome",
                                   "evidence_document_id", "evidence_page", "evidence_note", "evidence_state", "latest",
