@@ -19,8 +19,8 @@ The pure viewer logic (`src/logic.ts`) has its own tests, run with Node's test r
 node --test test/logic.test.ts
 ```
 
-Known limits of this setup: for the story that added the viewer, `node_modules/` was filled from a local copy of the same locked packages, because no download was allowed. The registry install with `npm ci` was not run, and no check of the installed packages against the registry tarballs was made.
+Known limits of this setup: for the story that added the viewer, `node_modules/` was filled from a local copy of the same locked packages, because no download was allowed. The registry install with `npm ci` was not run, and no check of the installed packages against the registry tarballs was made. Cytoscape 3.34.3 (story 6.3) was added the same way: its `package-lock.json` entry was written by hand, with the registry integrity value copied from another project's lockfile, and its files were copied from a local install; `npm install --offline` with the registry blocked then completed, and its rewritten lockfile was not kept. The copied files were not checked against the registry tarball. A clean `npm ci --offline` fails on `react-refresh`, which is not in the local cache.
 
 ## What ships
 
-The built bundle contains react, react-dom and scheduler (MIT), listed with their versions in `../ORIGINS.md`. Everything else in `package-lock.json` is used only to build and is not shipped: vite, @vitejs/plugin-react (with Babel), typescript, @types/react, @types/react-dom and their dependencies.
+The built bundle contains react, react-dom and scheduler (MIT), and cytoscape (MIT) in its own chunk, loaded only when the Graphs tab is first shown; all are listed with their versions in `../ORIGINS.md`. `public/NOTICES.txt` is copied unchanged to `../gct/viewer_dist/NOTICES.txt` by each build and ships beside the bundle: it carries Cytoscape's licence, which its minified code does not keep, and the four notices embedded in its code. Everything else in `package-lock.json` is used only to build and is not shipped: vite, @vitejs/plugin-react (with Babel), typescript, @types/react, @types/react-dom and their dependencies.
