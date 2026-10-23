@@ -128,6 +128,43 @@ def test_every_row_equals_its_projected_row(w, env, conns, mode):
                 s(x["logical_name"]), x["version"], x["kind"], x["file_type"])
 
 
+@pytest.mark.parametrize("flt", [{}, {"document": [1]}], ids=["all", "document 1"])
+@pytest.mark.parametrize("mode", dataset.MODES)
+def test_every_pair_row_equals_its_projected_comparison_and_series(w, env, mode, flt):
+    """C3b source fields of every restatement_log and gap_report.candidates row against the comparison and series rows
+    (the pin in complete mode, the reduced copy in sanitised mode), both period dates included; every comparison of
+    the source with a selected side is a pair row, and the candidates are the unresolved pairs. Document 1's pairs
+    have sides outside the selection."""
+    conn = store.connect(w / layout.DB_NAME)
+    pconn, ident = pin.pin(conn, w)
+    src = pconn if mode == "complete" else dataset._Build(conn, w, pconn, ident, view.normalise(flt), []).reduce()
+    d, _ = build(w, mode=mode, filter=flt)
+    selected = {r["claim_id"] for r in d["evidence_index"]}
+    comparisons = {}
+    for x in src.execute("SELECT * FROM comparison"):
+        if {x["claim_a"], x["claim_b"]} & selected:
+            comparisons.setdefault((x["series_id"], x["claim_a"], x["claim_b"]), []).append(dict(x))
+    series = {s["id"]: dict(s) for s in src.execute("SELECT * FROM series")}
+    for c in {src, pconn, conn}:
+        c.close()
+    assert all(len(v) == 1 for v in comparisons.values())
+    sides = selected | {r["claim_id"] for r in d["related_claims"]}
+    log = d["restatement_log"]
+    assert len(log) == len(comparisons) and log
+    assert any(any(p["outside_selection"]) for p in log) == bool(flt)
+    for p in log + d["gap_report"]["candidates"]:
+        (x,) = comparisons[p["series_id"], p["claim_a"], p["claim_b"]]
+        s = series[x["series_id"]]
+        assert (p["period_start"], p["period_end"], p["state"], p["reason"]) == (
+            x["period_start"], x["period_end"], x["state"], x["reason"]), p["id"]
+        assert (p["metric_key"], p["reporting_boundary"], p["unit_family"]) == (
+            s["metric_key"], s["reporting_boundary"], s["unit_family"]), p["id"]
+        assert {p["claim_a"], p["claim_b"]} <= sides
+        assert p["outside_selection"] == [p["claim_a"] not in selected, p["claim_b"] not in selected]
+    key = lambda p: {k: v for k, v in p.items() if k != "id"}  # noqa: E731 (candidates are rows of their own)
+    assert [key(p) for p in d["gap_report"]["candidates"]] == [key(p) for p in log if p["state"] == restate.UNRESOLVED]
+
+
 def test_sanitised_derived_values_follow_their_rules(w, env, conns):
     """review_text, the disagreement and latest from the shipped records; pair state, reason and shown_state from the
     copy's comparison rows and shipped adjudications (C5a, P10)."""
