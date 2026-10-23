@@ -220,12 +220,13 @@ def location(document, page=None, sheet_=None, cell=None, claim_id=None, unresol
 
 
 def _claim_location(r) -> dict:
-    if r["source_match"] == "unresolved":
-        return location(r["document_id"], claim_id=r["id"], unresolved=f"unresolved: {r['source_match_reason']}")
+    # An unresolved source match still opens the page or cell its reference names, as the Evidence view does; its
+    # evidence text says "unresolved: reason".
     if r["sheet"] is not None:
         return location(r["document_id"], sheet_=r["sheet"], cell=r["cell"], claim_id=r["id"])
     if r["ref_page"] is None:
-        return location(r["document_id"], claim_id=r["id"], unresolved="not on a page")
+        why = f"unresolved: {r['source_match_reason']}" if r["source_match"] == "unresolved" else "not on a page"
+        return location(r["document_id"], claim_id=r["id"], unresolved=why)
     return location(r["document_id"], page=r["ref_page"], claim_id=r["id"])
 
 

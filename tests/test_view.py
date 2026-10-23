@@ -303,6 +303,27 @@ def test_a_spreadsheet_claim_carries_its_sheet_and_cell(built, srv):
     assert c["cells"][c["column"]] == "700" and c["columns"][c["column"]] == "B" and c["data_version"] == 1
 
 
+# Review F2 (Moka, 2026-10-23): an unresolved source match keeps the page its reference names; Tables and Graphs open
+# what the Evidence view opens
+def test_an_unresolved_match_still_opens_its_page(gws, srv, gct):
+    from test_gate_tables_graphs import opens
+    with sqlite3.connect(gws / "workspace.db") as db:
+        # A newer link row for claim 1's reference (append-only; the newest row is the match)
+        db.execute("INSERT INTO source_match (evidence_ref_id, run_id, status, reason, config_version, created_at)"
+                   " SELECT evidence_ref_id, run_id, 'unresolved', 'page not read: gct read', config_version, 't'"
+                   " FROM source_match WHERE evidence_ref_id IN (SELECT e.id FROM evidence_ref e JOIN claim_version v"
+                   " ON v.id = e.claim_version_id WHERE v.claim_id = 1)")
+    assert gct("publish", "build", "--workspace", gws).code == 0
+    (row,) = ask(gws, {"evidence": ["unresolved"]})["rows"]
+    page = row["evidence"]["page"]
+    assert (row["claim"]["id"], row["evidence"]["text"]) == (1, "unresolved: page not read: gct read")
+    assert row["evidence"]["location"] == {"document": row["claim"]["document"], "page": page, "sheet": None,
+                                           "cell": None, "claim_id": 1, "resolved": True, "reason": None}
+    assert opens(srv, row["evidence"]["location"], 2)
+    g = ask(gws, {"evidence": ["unresolved"]}, shape="graph")
+    assert f"page:{row['claim']['document']}:{page}" in {n["id"] for n in g["nodes"]}
+
+
 CELLS = [
     ("/api/documents/1/cells?sheet=s&cell=A1", 409, "Document 1 is a PDF, so it has pages, not cells."),
     ("/api/documents/4/cells?sheet=s&cell=A1", 409, "Document 4 is archived."),

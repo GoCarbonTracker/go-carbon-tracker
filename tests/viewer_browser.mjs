@@ -1,5 +1,5 @@
 // Drives the viewer in a headless Chrome over the DevTools protocol (Node's global WebSocket, no packages).
-// usage: node viewer_browser.mjs <chrome debugging port> <viewer url> [stale|shell]; prints one JSON object.
+// usage: node viewer_browser.mjs <chrome debugging port> <viewer url> [stale|shell|filterbar]; prints one JSON object.
 const [port, url, mode] = process.argv.slice(2);
 
 const target = await (await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
@@ -118,12 +118,19 @@ const shellFilter = async () => {
       .querySelectorAll("label")].find((l) => l.textContent.trim() === words).querySelector("input").click();
   (await wait(() => [...document.querySelectorAll(".sections button")].find((b) => b.textContent === "Tables and Graphs"),
     "the section switch")).click();
-  await wait(() => document.querySelector(".choices label"), "the companies in the filter bar");
+  const choices = (field) =>
+    [...document.querySelectorAll(".choices")].find((d) => d.querySelector("summary").innerText.startsWith(field));
+  await wait(() => choices("Company")?.querySelector("label"), "the companies in the filter bar");
   const all = await wait(() => line(), "the count of every claim");
   tick("Company", "Acme");
   const acme = await wait(() => line() !== all && line(), "the count of Acme's claims");
+  // Review F4: opening a second choice panel closes the first, so at most one lies over the count line
+  choices("Company").querySelector("summary").click();
+  choices("Evidence").querySelector("summary").click();
+  const openPanels = document.querySelectorAll(".choices[open]").length;
+  choices("Evidence").querySelector("summary").click();
   return {
-    all, acme, evidenceHidden: document.querySelector("main").hidden,
+    all, acme, openPanels, evidenceHidden: document.querySelector("main").hidden,
     lines: document.querySelector(".count").innerText,
     series: [...document.querySelectorAll(".choices")].find((d) => d.querySelector("summary").textContent
       .startsWith("Series")).querySelectorAll("label").length,
@@ -189,6 +196,11 @@ if (mode === "stale") {
     body: JSON.stringify({ value: "1,235", contributor: "ana", capacity: "analyst", rationale: "other tab" }),
   });
   out = { ...first, second_writer: w.status, ...(await run(shellStale)) };
+} else if (mode === "filterbar") {
+  out = await run(async () => {
+    for (let i = 0; i < 50 && !window.out; i++) await new Promise((r) => setTimeout(r, 100));
+    return window.out;
+  });
 } else {
   out = await run(page);
 }

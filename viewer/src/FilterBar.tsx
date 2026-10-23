@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CHOICES, type Filter, isEmpty, type ListField, type SeriesValue, seriesText, toggle, withPeriod, withText } from "./records.ts";
 
 type Company = { id: number; name: string; documents: { id: number; logical_name: string; version: number }[] };
@@ -14,7 +14,7 @@ function Choices({ field, label, options, filter, onChange }: {
 }) {
   const chosen = (filter[field] ?? []) as (string | number)[];
   return (
-    <details className="choices">
+    <details className="choices" name="filter-choices">
       <summary>
         {label}
         {chosen.length > 0 && <span className="chosen"> {chosen.length}</span>}
@@ -39,11 +39,17 @@ export function FilterBar({ filter, onChange, companies, series }: {
   filter: Filter; onChange: (f: Filter) => void; companies: Company[]; series: SeriesValue[];
 }) {
   const [text, setText] = useState(filter.text ?? "");
+  const sent = useRef(filter.text ?? ""); // the wording this bar last put in the filter
   const company = (id: number) => companies.find((c) => c.id === id)?.name ?? `company ${id}`;
+  useEffect(() => {
+    // A wording set from outside the bar (a saved view, a guided question) shows in the input, as the period
+    // inputs do; the bar's own wording coming back leaves what was typed since.
+    if ((filter.text ?? "") !== sent.current) setText((sent.current = filter.text ?? ""));
+  }, [filter.text]);
   useEffect(() => {
     // Typing waits a moment before the count is asked again; each answer replaces the last (no blocking wait).
     const t = setTimeout(() => {
-      if ((filter.text ?? "") !== text) onChange(withText(filter, text));
+      if ((filter.text ?? "") !== text) onChange(withText(filter, (sent.current = text)));
     }, 300);
     return () => clearTimeout(t);
   }, [text, filter, onChange]);
@@ -54,7 +60,7 @@ export function FilterBar({ filter, onChange, companies, series }: {
   return (
     <form className="filter-bar" aria-label="Filter" onSubmit={(e) => {
       e.preventDefault();
-      onChange(withText(filter, text));
+      onChange(withText(filter, (sent.current = text)));
     }}>
       <Choices field="company" label="Company" options={companies.map((c) => [c.id, c.name])} filter={filter}
         onChange={onChange} />

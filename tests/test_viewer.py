@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -364,8 +365,16 @@ def test_a_stale_review_keeps_its_refusal_after_another_writer_publishes(vws, sr
 
 # Story 6.1 AC 7: the Tables and Graphs shell filters and counts on its pinned version; a second writer's publish makes
 # the next request stale (409) and the notice offers the new version, which Reload then counts on.
-def test_the_shell_counts_on_its_pinned_version_and_offers_a_newer_one(tmp_path):
+def test_the_shell_counts_on_its_pinned_version_and_offers_a_newer_one(tmp_path, monkeypatch):
     import gate_fixture
+    query = app_module._query
+
+    def late_companies(root, sql, *params):  # review F3: the count can arrive before the companies
+        if sql.startswith("SELECT id, name FROM company"):
+            time.sleep(1.5)
+        return query(root, sql, *params)
+
+    monkeypatch.setattr(app_module, "_query", late_companies)
     s = server.serve(gate_fixture.build(tmp_path / "gws"), port=0)
     try:
         out = browse(s, tmp_path, "shell")
@@ -374,8 +383,25 @@ def test_the_shell_counts_on_its_pinned_version_and_offers_a_newer_one(tmp_path)
     assert out["all"] == "14 claims match in data version 1."
     assert out["acme"] == "9 claims match in data version 1."
     assert out["evidenceHidden"] is True
+    assert out["openPanels"] == 1  # review F4
     assert "2 claims of 1 archived document are not in this or any view." in out["lines"]
     assert out["series"] == 5
     assert out["second_writer"] == 200
     assert out["notice"] == "Data version 2 is available. Reload"
     assert out["reloaded"] == "14 claims match in data version 2."
+
+
+# Story 6.1 review F1: a wording set from outside the filter bar (a saved view, story 6.4) stays in the filter after the
+# bar's debounce and shows in its input
+def test_the_filter_bar_keeps_a_wording_set_from_outside(tmp_path):
+    if not (VIEWER / "node_modules").is_dir() or not shutil.which("node"):
+        pytest.skip("viewer/node_modules or node is not here (see viewer/README.md)")
+    bundle = ("require('node:module').createRequire(require.resolve('vite/package.json'))('esbuild').buildSync({"
+              "entryPoints: ['test/filter-bar-harness.tsx'], bundle: true, outfile: process.argv[1], jsx: 'automatic',"
+              "define: {'process.env.NODE_ENV': '\"production\"'}, logLevel: 'error'})")
+    r = subprocess.run(["node", "-e", bundle, str(tmp_path / "h.js")], cwd=VIEWER, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    (tmp_path / "index.html").write_text('<div id="root"></div><script src="h.js"></script>')
+    out = browse(SimpleNamespace(url=(tmp_path / "index.html").as_uri()), tmp_path, "filterbar")
+    assert out["log"] == ["{}", '{"text":"scope 1","company":[1]}']
+    assert out["input"] == "scope 1"

@@ -43,6 +43,8 @@ projection 14, the answer is 409 with `gct publish build` as the next step. The 
 The claims of an archived document are in no answer. `hidden_by_archive` counts them, and its `text` reads "N claims
 of M archived documents are not in this or any view. Restore a document to include its claims." A document named in
 the filter that was permanently deleted is listed in `deleted_in_filter`, "Document N was permanently deleted."
+A document deleted after the last build stops contributing rows at once, but it is named in `deleted_in_filter` only
+after the next build (`gct publish build`), since the deletion is recorded in the version file at build.
 
 ## Requests
 
@@ -64,8 +66,10 @@ sheet and a cell outside the sheet are refused with the next step.
 ## Evidence locations
 
 Every row, node and edge carries where its source opens, as a `location`: a `page` of a PDF (with the `claim_id` to
-select) or a `sheet` and `cell`. When it cannot open, `resolved` is false and `reason` says why ("unresolved: ...",
-"no page: ..." for a spreadsheet's declared mapping). A location is never made up.
+select) or a `sheet` and `cell`. A claim whose source match is unresolved still opens the page or cell its evidence
+reference names, as the Evidence view does; its evidence text says "unresolved: reason". When it cannot open,
+`resolved` is false and `reason` says why ("unresolved: ..." when no page is named, "no page: ..." for a
+spreadsheet's declared mapping). A location is never made up.
 
 ## Keys
 
