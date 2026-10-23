@@ -9,6 +9,7 @@ import sqlite3
 import subprocess
 import sys
 import tomllib
+from datetime import datetime
 from pathlib import Path, PureWindowsPath
 
 import pytest
@@ -323,6 +324,14 @@ def test_a_writer_failure_leaves_no_folder_and_two_exports_give_two_folders(ws, 
     assert r.code == 4 and "already exists" in r.data["cause"]
     monkeypatch.undo()
     monkeypatch.setenv("GCT_WORKSPACE", str(ws))
+    ticks = iter(range(1, 100))
+
+    class SameSecond(datetime):  # every export in the same second, a microsecond apart
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 23, 12, 0, 0, next(ticks), tzinfo=tz)
+
+    monkeypatch.setattr(export, "datetime", SameSecond)
     export_folder(gct)
     export_folder(gct)
     assert len([p for p in (ws / "exports").iterdir() if p.name.startswith("troubleshooting-")]) == 3
