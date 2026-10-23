@@ -497,9 +497,10 @@ if (mode === "stale") {
   });
   await send("Network.enable", {});
   const call = (fn, arg) => run(`() => (${fn})(${JSON.stringify(arg ?? null)})`);
-  const mouse = async ({ x, y }, clicks) => {
+  const mouse = async ({ x, y }, clicks, between) => {
     await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
     for (let c = 1; c <= clicks; c++) {
+      if (c > 1 && between) await between();
       await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: c });
       await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: c });
     }
@@ -566,7 +567,7 @@ if (mode === "stale") {
       await g.wait(() => g.shell(), "the count");
       await new Promise((r) => setTimeout(r, 500));
       const before = g.loaded(/cytoscape/);
-      g.byText(".tabs button", "Graphs").click();
+      (await g.wait(() => g.byText(".tabs button", "Graphs"), "the tabs")).click();
       await g.wait(() => g.drawn(), "the neighbourhood graph");
       const c = g.cy(), canvas = document.querySelector(".graphs .canvas");
       const [nodes, edges] = [g.ids("table:nth-of-type(1)"), g.ids("table:nth-of-type(2)")];
@@ -576,7 +577,7 @@ if (mode === "stale") {
         const line = () => document.querySelector(".tables-paging span")?.textContent ?? "";
         await g.wait(() => line() && line() !== was && !document.querySelector(".claims-table[aria-busy=true]"), "the Tables tab");
         const out = { rows: line(), caption: document.querySelector(".claims-table caption").textContent };
-        g.byText(".tabs button", "Graphs").click();
+        (await g.wait(() => g.byText(".tabs button", "Graphs"), "the tabs")).click();
         await g.wait(() => g.drawn(), "the Graphs tab");
         return out;
       };
@@ -602,12 +603,17 @@ if (mode === "stale") {
         return { selected: g.cy().$(":selected").map((e) => e.id()), picked: g.row(i)?.classList.contains("picked") };
       }, id);
     };
+    // The second click goes only once Cytoscape has handled the first as a tap.
+    const dbl = async (id) => {
+      await call(() => { window.tapped = false; g.cy().one("tap", () => { window.tapped = true; }); });
+      await mouse(await call((i) => g.where(i), id), 2, () => call(() => g.wait(() => window.tapped, "the first tap")));
+    };
     const nodeTap = await tap("claim:1");
-    await mouse(await call((i) => g.where(i), "claim:1"), 2);
+    await dbl("claim:1");
     const node = await open();
     const nodeBack = await back();
     const edgeTap = await tap("claim:1>company:1");
-    await mouse(await call((i) => g.where(i), "claim:1>company:1"), 2);
+    await dbl("claim:1>company:1");
     const edge = await open();
     await back();
     // Keyboard only: Tab onto the edge's row in the Edges table, Enter opens it; back again, focus is on that row.
@@ -680,7 +686,7 @@ if (mode === "stale") {
   } else if (mode === "graphs-stale") {
     await run(async () => {
       g.section("Tables and Graphs");
-      g.byText(".tabs button", "Graphs").click();
+      (await g.wait(() => g.byText(".tabs button", "Graphs"), "the tabs")).click();
       await g.wait(() => g.drawn(), "the graph");
     });
     const origin = new URL(url).origin;
@@ -698,13 +704,14 @@ if (mode === "stale") {
       const kept = { drawn: g.drawn(14), graph: g.graph(), hint: document.querySelector(".graphs .hint")?.innerText ?? null };
       g.view("Neighbourhood");
       document.querySelector(".notice button").click();
-      await g.wait(() => !document.querySelector(".notice") && g.drawn() && g.graph().includes("version 2"), "the graph of version 2");
+      await g.wait(() => !document.querySelector(".notice") && g.drawn() && g.graph().includes("version 2")
+        && g.shell().includes("version 2"), "the graph of version 2");
       return { notice, kept, graph: g.graph(), shell: g.shell() };
     })) };
   } else {
     out = await run(async () => {
       g.section("Tables and Graphs");
-      g.byText(".tabs button", "Graphs").click();
+      (await g.wait(() => g.byText(".tabs button", "Graphs"), "the tabs")).click();
       const limit = await g.wait(() => document.querySelector(".graph-reason")?.innerText, "the limit text");
       const limitCanvas = !!document.querySelector(".graphs .canvas, .graphs table");
       const started = performance.now();
