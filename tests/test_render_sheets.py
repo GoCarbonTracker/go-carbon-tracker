@@ -685,7 +685,7 @@ def test_sanitised_contributors_are_pseudonyms(outs):
 
 # AC 13, 14: behaviour
 
-def test_archive_missing_states_records_and_renewed_review(outs):
+def test_archive_missing_states_and_non_binding_records(outs):
     d, folder, _ = outs["complete", "all"]
     book = dict(sheet._xlsx(folder / "gap-report.xlsx"))
     archived = _split(book[TITLES["archived"]])[2]
