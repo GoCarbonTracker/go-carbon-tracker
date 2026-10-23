@@ -527,6 +527,23 @@ code {
   padding: 0.15rem 0;
 }
 
+/* An open choice panel takes its own row under the bar's controls and pushes the count line down, so nothing lies over
+   the count (6.1 review F4); its summary stays where it was. */
+.choices[open] {
+  display: contents;
+}
+
+.choices[open]::details-content {
+  order: 1;
+  flex-basis: 100%;
+}
+
+.choices[open] fieldset {
+  position: static;
+  width: max-content;
+  margin: 0;
+}
+
 .count {
   padding: 0.75rem 0;
 }

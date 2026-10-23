@@ -53,7 +53,8 @@ export const WORDS: Record<string, string> = {
 export const LEGEND = "Shapes: a claim is a circle; a page or cell a square; a period a rounded rectangle; a boundary "
   + "a hexagon; a series a diamond; a review record a triangle; an adjudication a pentagon; a hub a small dot (a hub "
   + "joins one claim to the items it is linked to). A comparison edge prints its state: an unresolved conflict is "
-  + "dashed, not compared is dotted. Double-click a node or an edge, or press Enter on its row, to open its source.";
+  + "dashed, not compared is dotted. Double-click a node or an edge, or press Enter on its row, to open its source. "
+  + "Point at or select a node to read its whole label; zoom in to see the others.";
 
 export const SERIES_SOURCE = "A series groups claims; open one of its claims to see its source.";
 
@@ -210,6 +211,16 @@ export function hyperedgeRows(a: GraphAnswer, items: Item[]) {
       compared: h.members.filter((m) => m.startsWith("claim:")).map((m) => ({ claim: byId.get(m)!,
         edges: comparisons.filter((e) => [e.source, e.target].includes(h.claim) && [e.source, e.target].includes(m)) })) };
   });
+}
+
+/** An edge's relation in the Edges table: a comparison's, or the relation word of what a member edge links to. */
+export function relationText(i: Item): string {
+  return i.kind === "comparison" ? "compared with" : i.label;
+}
+
+/** The name of an edge's row button: both ends, the relation and the kind, so no two edges of a claim sound alike. */
+export function edgeName(i: Item, byId: Map<string, Item>): string {
+  return `${byId.get(i.source!)?.label} ${relationText(i)} ${byId.get(i.target!)?.label} (${i.word} edge)`;
 }
 
 /** Number of edges at each node of a view, for the Nodes table. */

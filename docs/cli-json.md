@@ -443,7 +443,8 @@ The table shape (the default). `--shape graph`, `series` and `values` answer wit
 `view` is the saved view as `view list` shows it: the name as typed (trimmed), the normalised filter, `section`
 (`tables` or `graphs`), the contributor's name, when it was saved and `earlier`, the number of older saves under the
 same name, which are kept. `data_version` is the current version, or null before the first build; a save builds no
-version. An empty name, one over 80 characters or with a line break, a section other than tables or graphs and a filter
+version. An empty name (or one with no visible character), one over 80 characters or with a line break (U+2028 and
+U+2029 included), a section other than tables or graphs and a filter
 the filter rules refuse (the field named) are refused with exit 2; an unknown contributor with exit 3; a locked
 workspace with exit 4. Nothing is written on a refusal. `POST /api/views` (`name`, `filter`, optional `section`,
 `contributor`) answers the same.

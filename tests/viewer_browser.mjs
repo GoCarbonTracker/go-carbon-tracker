@@ -1,5 +1,6 @@
 // Drives the viewer in a headless Chrome over the DevTools protocol (Node's global WebSocket, no packages).
-// usage: node viewer_browser.mjs <chrome debugging port> <viewer url> [stale|shell|filterbar]; prints one JSON object.
+// usage: node viewer_browser.mjs <chrome debugging port> <viewer url> [stale|shell|filterbar|tables|graphs*|transfer|views]
+// [sub-mode]; prints one JSON object.
 const [port, url, mode] = process.argv.slice(2);
 
 const target = await (await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
@@ -135,6 +136,20 @@ const shellFilter = async () => {
     series: [...document.querySelectorAll(".choices")].find((d) => d.querySelector("summary").textContent
       .startsWith("Series")).querySelectorAll("label").length,
   };
+};
+
+// Review 6.1 F4: each choice panel, open alone, leaves the count line uncovered; the names of those that cover it.
+const panelsOverCount = async () => {
+  const out = [];
+  for (const d of document.querySelectorAll(".choices")) {
+    d.querySelector("summary").click();
+    await new Promise((r) => setTimeout(r, 100));
+    const f = d.querySelector("fieldset").getBoundingClientRect();
+    const c = document.querySelector(".count-line").getBoundingClientRect();
+    if (f.bottom > c.top && f.top < c.bottom && f.right > c.left && f.left < c.right) out.push(d.querySelector("summary").innerText);
+    d.querySelector("summary").click();
+  }
+  return out;
 };
 
 const shellStale = async () => {
@@ -404,6 +419,13 @@ const tablesPaging = async () => {
 const tablesStale = async () => {
   const step = tablesStep;
   const out = {};
+  // Review 6.2 F1: a sort refused on the stale pin leaves the header saying the order the rows on screen have.
+  await step(() => T.header("Value").querySelector("button").focus());
+  await press("Enter");
+  out.refusedSort = await step(async () => {
+    await T.wait(() => document.querySelector(".notice") && T.settled(), "the notice after the sort");
+    return { sorts: T.sorts(), arrows: [...T.table().querySelectorAll(".arrow")].map((a) => a.textContent).join("") };
+  });
   out.notice = await step(async () => {
     T.button("Next").click();
     return (await T.wait(() => document.querySelector(".notice"), "the newer-version notice")).innerText;
@@ -444,6 +466,425 @@ const tablesNoLocation = async () => {
     alert: (await T.wait(() => document.querySelector(".tables [role=alert]"), "the alert line")).innerText,
     evidenceHidden: document.querySelector("main").hidden, rows: T.rows().length, active: T.active().startsWith("row"),
   }));
+  // Review 6.2 F2: a row whose location is not resolved (docs/views.md "location"; the answer is rewritten here, as no
+  // fixture has one) says so on every Enter, each time as a new line in the polite region.
+  await tablesStep(async () => {
+    const id = T.idOf(T.rows().find((tr) => tr.cells[3].innerText === "page 999"));
+    const real = window.fetch;
+    window.fetch = async (...a) => {
+      const r = await real(...a);
+      if (!String(a[0]).includes("/api/records")) return r;
+      const data = await r.json();
+      for (const row of data.rows ?? []) {
+        if (row.claim.id === id) row.evidence.location = { ...row.evidence.location, page: null, resolved: false, reason: "document archived" };
+      }
+      return new Response(JSON.stringify(data), { status: r.status, headers: r.headers });
+    };
+    T.tick("Company", "Acme");
+    await T.wait(() => T.settled() && T.row(id) && T.row(id).cells[3].innerText !== "page 999", "the row with no location");
+    window.said = [];
+    new MutationObserver((records) => records.forEach((m) => m.addedNodes.forEach((n) => window.said.push(n.textContent))))
+      .observe(document.querySelector(".tables-said"), { childList: true, subtree: true, characterData: true });
+    T.row(id).focus();
+  });
+  await press("Enter");
+  await press("Enter");
+  out.again = await tablesStep(async () => {
+    await new Promise((r) => setTimeout(r, 300));
+    return { said: window.said.filter((t) => t), line: document.querySelector(".tables-said").innerText };
+  });
+  return out;
+};
+
+// Story 6.4 part B: the transfer bar, the chip and the panels; page helpers on window.P beside window.T.
+const partBHelpers = () => {
+  const by = (sel, text) => [...document.querySelectorAll(sel)].find((b) => b.textContent.trim() === text);
+  const P = {
+    by,
+    tab: () => document.querySelector(".tabs [aria-selected=true]")?.textContent ?? null,
+    bar: () => ({ buttons: [...document.querySelectorAll(".transfer button")].map((b) => `${b.textContent}${b.disabled ? " (disabled)" : ""}`),
+      reason: document.querySelector(".transfer-reason")?.textContent ?? "" }),
+    press: (i) => document.querySelectorAll(".transfer button")[i].click(),
+    chip: () => {
+      const c = document.querySelector(".count .chip");
+      return c ? { text: c.querySelector("span").textContent, label: c.querySelector("button").getAttribute("aria-label") } : null;
+    },
+    line: () => document.querySelector(".count-line")?.innerText ?? "",
+    cy: () => document.querySelector(".graphs .canvas")?._cyreg?.cy,
+    claimNodes: () => P.cy()?.nodes(".claim, .point").map((n) => n.id()).sort() ?? [],
+    graph: () => document.querySelector(".graph-count")?.innerText ?? "",
+    pick: (ids) => {
+      const c = P.cy();
+      c.$(":selected").unselect();
+      ids.forEach((id) => c.getElementById(id).select());
+    },
+    set: (el, value) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    },
+    active: () => {
+      const a = document.activeElement;
+      return `${a?.tagName} ${(a?.getAttribute("aria-label") ?? a?.textContent ?? "").trim().slice(0, 60)}`;
+    },
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  };
+  window.P = P;
+  return true;
+};
+const partBStep = (fn) => run(`() => { if (!window.T) (${tablesHelpers})(); if (!window.P) (${partBHelpers})(); return (${fn})(); }`);
+
+// B1 and G3 on tests/gate_fixture.py: rows to Graphs and back with the same ids, filter and version; the chip; every D10
+// reason with no tab change; a series both ways. The other-version reason comes last (the dispatch adds a writer).
+const transferGate = async () => {
+  const out = {};
+  const step = partBStep;
+  await tablesReady();
+  out.empty = await step(async () => {
+    T.section("Tables and Graphs");
+    await T.wait(() => T.settled() && P.bar().buttons.length, "the table and its bar");
+    const bar = P.bar();
+    P.press(0); // disabled: no tab change
+    await P.sleep(200);
+    return { ...bar, tab: P.tab() };
+  });
+  // Both ways by keyboard: Enter on the bar's first button; focus then is on the receiving tab (review L1, H4).
+  out.toGraphs = await step(async () => {
+    const rows = [T.rows().find((tr) => tr.cells[5].innerText.startsWith("2,000")), T.rows().find((tr) => tr.cells[3].innerText.startsWith("sheet"))];
+    rows.forEach((tr) => tr.querySelector("input.select-row").click());
+    await T.wait(() => P.bar().buttons[0] === "Show 2 rows in Graphs", "the enabled bar");
+    document.querySelector(".transfer button").focus();
+    return { picked: rows.map(T.idOf).sort((a, b) => a - b), companies: rows.map((tr) => tr.cells[1].innerText), bar: P.bar() };
+  });
+  await press("Enter");
+  Object.assign(out.toGraphs, await step(async () => {
+    await T.wait(() => P.tab() === "Graphs" && P.claimNodes().length === 2 && P.graph(), "the two claims drawn");
+    return { active: P.active(), chip: P.chip(), line: P.line(), graph: P.graph(), nodes: P.claimNodes(),
+      cells: P.cy().nodes(".cell").length };
+  }));
+  out.back = await step(async () => {
+    P.pick(P.claimNodes());
+    await T.wait(() => P.bar().buttons[0] === "Show 2 claims in Tables", "the Graphs bar");
+    document.querySelector(".transfer button").focus();
+    return { bar: P.bar() };
+  });
+  await press("Enter");
+  Object.assign(out.back, await step(async () => {
+    await T.wait(() => P.tab() === "Tables" && T.settled() && T.ids().length === 2, "the two rows");
+    return { active: P.active(), chip: P.chip(), line: P.line(), ids: T.ids().sort((a, b) => a - b), caption: T.caption(),
+      cleared: T.cleared() }; // review L2, H3: Tables' own checks went with the incoming selection, not with a filter change
+  }));
+  // The chip's button by keyboard: the whole filter again, focus on the tab.
+  await step(() => document.querySelector(".count .chip button").focus());
+  await press("Enter");
+  out.removed = await step(async () => {
+    await T.wait(() => !P.chip() && T.settled() && T.ids().length === 14, "every row again");
+    const active = P.active();
+    P.by(".tabs button", "Graphs").click();
+    await T.wait(() => P.chip(), "the Graphs chip");
+    const graphsChip = P.chip();
+    document.querySelector(".count .chip button").click();
+    await T.wait(() => !P.chip() && P.claimNodes().length === 14, "the whole graph");
+    P.by(".tabs button", "Tables").click();
+    return { active, graphsChip, line: P.line() };
+  });
+  const seriesAsk = async (pick) => {
+    await T.wait(() => T.settled() && T.ids().length === 14 && T.checked().length === 0, "the rows, none checked");
+    pick().forEach((tr) => tr.querySelector("input.select-row").click());
+    await T.wait(() => P.bar().buttons[1] === "Show as a time series", "the time-series button");
+    P.press(1);
+    await T.wait(() => P.bar().reason || P.tab() === "Graphs", "the answer");
+    const r = { reason: P.bar().reason, tab: P.tab() };
+    document.querySelector(".selection-count button")?.click(); // Clear selection
+    return r;
+  };
+  const acme = (words) => () => T.rows().filter((tr) => tr.cells[1].innerText === "Acme" && tr.cells[4].innerText.includes(words));
+  out.twoSeries = await step(`async () => (${seriesAsk})(() => [(${acme})("Scope 1")()[0], (${acme})("energy")()[0]])`);
+  out.noSeries = await step(`async () => (${seriesAsk})(() => T.rows().filter((tr) => tr.cells[4].innerText.includes("Employees")))`);
+  out.series = await step(async () => {
+    await T.wait(() => T.settled() && T.checked().length === 0, "no rows checked");
+    const rows = T.rows().filter((tr) => tr.cells[1].innerText === "Acme" && tr.cells[4].innerText.includes("Scope 1"));
+    rows.forEach((tr) => tr.querySelector("input.select-row").click());
+    await T.wait(() => P.bar().buttons[1] === "Show as a time series" && !P.bar().buttons[1].includes("disabled"), "the button");
+    P.press(1);
+    await T.wait(() => P.tab() === "Graphs" && P.claimNodes().length === rows.length && P.claimNodes()[0].startsWith("point:"), "the series drawn");
+    return { ids: rows.map(T.idOf).sort((a, b) => a - b), chip: P.chip(), nodes: P.claimNodes(),
+      view: document.querySelector(".graph-views [aria-pressed=true]").textContent };
+  });
+  out.seriesBack = await step(async () => {
+    document.querySelector(".count .chip button").click();
+    await T.wait(() => P.claimNodes().length === 14, "the whole graph");
+    const node = P.cy().nodes(".series")[0];
+    P.pick([node.id()]);
+    await T.wait(() => P.bar().buttons[1] === "Show this series in Tables", "the series button");
+    const bar = P.bar();
+    P.press(1);
+    await T.wait(() => P.tab() === "Tables" && P.chip() && T.settled() && T.ids().length < 14, "the series rows");
+    return { node: node.id(), bar, chip: P.chip(), ids: T.ids().sort((a, b) => a - b) };
+  });
+  out.kinds = await step(async () => {
+    document.querySelector(".count .chip button").click();
+    P.by(".tabs button", "Graphs").click();
+    await T.wait(() => P.claimNodes().length === 14, "the whole graph");
+    const c = P.cy();
+    const firsts = new Map();
+    c.nodes().forEach((n) => {
+      const k = n.classes()[0];
+      if (!["claim", "series"].includes(k) && !firsts.has(k)) firsts.set(k, n.id());
+    });
+    firsts.set("edge", c.edges()[0].id());
+    const seen = [];
+    for (const [kind, id] of firsts) {
+      P.pick([id]);
+      await T.wait(() => P.bar().reason.includes("has no rows"), `the reason for ${kind}`);
+      P.press(0);
+      P.press(1);
+      await P.sleep(100);
+      seen.push({ kind, id, reason: P.bar().reason, buttons: P.bar().buttons, tab: P.tab() });
+    }
+    c.$(":selected").unselect();
+    P.by(".tabs button", "Tables").click();
+    return seen;
+  });
+  // A series node with a claim node, and two series nodes: one series or claims only.
+  out.mixed = await step(async () => {
+    P.by(".tabs button", "Graphs").click();
+    await T.wait(() => P.claimNodes().length === 14, "the whole graph");
+    const c = P.cy();
+    const [one, two] = c.nodes(".series").map((n) => n.id());
+    const seen = [];
+    for (const ids of [[one, c.nodes(".claim")[0].id()], [one, two]]) {
+      P.pick(ids);
+      await T.wait(() => P.bar().reason.startsWith("Select one series"), `the reason for ${ids}`);
+      P.press(0);
+      P.press(1);
+      await P.sleep(100);
+      seen.push({ ids, reason: P.bar().reason, buttons: P.bar().buttons, tab: P.tab() });
+    }
+    c.$(":selected").unselect();
+    P.by(".tabs button", "Tables").click();
+    return seen;
+  });
+  return out;
+};
+
+// After a second writer publishes: the selection is of a version no longer current; Reload clears it (6.2 T6).
+const transferStale = async () => {
+  const step = partBStep;
+  return step(async () => {
+    await T.wait(() => T.settled() && T.checked().length === 0, "no rows checked");
+    T.rows()[0].querySelector("input.select-row").click();
+    await T.wait(() => !P.bar().buttons[0].includes("disabled"), "an enabled button");
+    P.press(0);
+    await T.wait(() => P.bar().reason.startsWith("Data version"), "the version reason");
+    const stale = { ...P.bar(), tab: P.tab(), notice: document.querySelector(".notice")?.innerText ?? null };
+    document.querySelector(".notice button").click();
+    await T.wait(() => P.line().includes("version 2") && T.settled() && T.checked().length === 0, "version 2");
+    return { stale, reloaded: { ...P.bar(), tab: P.tab(), line: P.line() } };
+  });
+};
+
+// The 501-claim fixture of tests/test_viewer_graphs.py: a selection across three Tables pages is drawn whole, and one of
+// more than 500 rows shows the limit, no tab change.
+const transferLimit = async () => {
+  const step = partBStep;
+  await tablesReady();
+  const across = await step(async () => {
+    T.section("Tables and Graphs");
+    await T.wait(() => T.settled() && T.paging() === "Rows 1 to 200 of 501", "page 1");
+    for (const paging of ["Rows 201 to 400 of 501", "Rows 401 to 501 of 501"]) {
+      T.table().querySelector("input.select-page").click();
+      T.button("Next").click();
+      await T.wait(() => T.settled() && T.paging() === paging, paging);
+    }
+    T.rows().slice(0, 5).forEach((tr) => tr.querySelector("input.select-row").click());
+    await T.wait(() => T.count() === "405 selected" && P.bar().buttons[0] === "Show 405 rows in Graphs", "405 selected");
+    const bar = P.bar();
+    P.press(0);
+    await T.wait(() => P.tab() === "Graphs" && P.claimNodes().length === 405, "405 claims drawn");
+    return { bar, chip: P.chip(), nodes: P.claimNodes().length, graph: P.graph() };
+  });
+  const over = await step(async () => {
+    P.by(".tabs button", "Tables").click();
+    await T.wait(() => T.settled() && T.paging() === "Rows 401 to 501 of 501", "page 3 again");
+    T.table().querySelector("input.select-page").click();
+    await T.wait(() => T.count() === "501 selected" && P.bar().reason, "501 selected");
+    P.press(0);
+    await P.sleep(200);
+    return { ...P.bar(), tab: P.tab() };
+  });
+  return { across, over };
+};
+
+// Story 6.4 part B, the `views` mode on tests/gate_fixture.py: the Saved views and Questions panels. Page helpers on
+// window.V (with window.T); one sub-mode per page visit, the gct writes between visits done by the test.
+const viewsHelpers = () => {
+  const V = {
+    by: (sel, text) => [...document.querySelectorAll(sel)].find((b) => b.textContent.trim() === text),
+    tab: () => document.querySelector(".tabs [aria-selected=true]")?.textContent ?? null,
+    line: () => document.querySelector(".count-line")?.innerText ?? "",
+    count: () => document.querySelector(".count")?.innerText ?? "",
+    chip: () => document.querySelector(".count .chip span")?.textContent ?? null,
+    views: () => document.querySelector(".views-panel"),
+    questions: () => document.querySelector(".questions-panel"),
+    items: () => [...document.querySelectorAll(".saved-view")].map((li) => ({
+      name: li.querySelector(".saved-view-name").textContent, meta: li.querySelector(".meta").textContent })),
+    item: (name) => [...document.querySelectorAll(".saved-view")].find((li) => li.querySelector(".saved-view-name").textContent === name),
+    set: (el, value) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    },
+    chosen: (field) => [...document.querySelectorAll(".choices")].find((d) => d.querySelector("summary").innerText.startsWith(field))
+      .querySelector(".chosen")?.textContent.trim() ?? "",
+    cy: () => document.querySelector(".graphs .canvas")?._cyreg?.cy,
+    active: () => {
+      const a = document.activeElement;
+      return `${a?.tagName} ${(a?.getAttribute("aria-label") ?? (a?.tagName === "SECTION" ? a.querySelector("h2")?.textContent : a?.textContent) ?? "").trim().slice(0, 60)}`;
+    },
+  };
+  window.V = V;
+};
+const viewsStep = (fn) => run(`() => { if (!window.T) (${tablesHelpers})(); if (!window.V) (${viewsHelpers})(); return (${fn})(); }`);
+
+// Opens the section, then the Saved views panel by a click, and waits for its list.
+const viewsOpenPanel = () => viewsStep(async () => {
+  T.section("Tables and Graphs");
+  await T.wait(() => T.settled(), "the table");
+  V.by(".panel-buttons button", "Saved views").focus(); // as a mouse press does: the panel gives focus back to it
+  V.by(".panel-buttons button", "Saved views").click();
+  await T.wait(() => V.views() && !V.views().innerText.includes("Reading the saved views"), "the saved views");
+  return true;
+});
+
+// Open a saved view from the panel; the line, the rows and the filter bar it leaves.
+const viewsOpen = (name) => viewsStep(`async () => {
+  const was = T.ids().join();
+  V.item(${JSON.stringify(name)}).querySelector("button").click();
+  await T.wait(() => !V.views() && T.settled() && V.line().includes("claims match") && T.ids().join() !== was
+    && !document.querySelector(".count .hint"), "the view's rows");
+  await new Promise((r) => setTimeout(r, 300));
+  await T.wait(() => T.settled(), "the settled rows");
+  return { line: V.line(), count: V.count(), ids: T.ids(), caption: T.caption(), tab: V.tab(), active: V.active(),
+    company: V.chosen("Company"), metric: V.chosen("Metric"), notice: document.querySelector(".notice")?.innerText ?? null };
+}`);
+
+// save: keyboard on the panel, a save, the existing-name line, a save while a chip shows, a removal.
+const viewsSave = async () => {
+  const out = {};
+  const step = viewsStep;
+  await tablesReady();
+  out.filtered = await step(async () => {
+    T.section("Tables and Graphs");
+    await T.wait(() => T.settled(), "the table");
+    await T.wait(() => [...document.querySelectorAll(".choices label")].some((l) => l.textContent.trim() === "Acme"), "the companies");
+    T.tick("Company", "Acme");
+    T.tick("Metric", "Scope 1 emissions");
+    await T.wait(() => V.chosen("Metric") === "1" && parseInt(V.line()) < 14 && T.settled() && T.ids().length === parseInt(V.line()),
+      "Acme's Scope 1 rows");
+    return { line: V.line(), ids: T.ids() };
+  });
+  // Keyboard: Enter opens the panel with focus on it, Escape closes it and focus is back on the button.
+  await step(() => V.by(".panel-buttons button", "Saved views").focus());
+  await press("Enter");
+  out.opened = await step(async () => {
+    await T.wait(() => V.views() && !V.views().innerText.includes("Reading the saved views"), "the panel");
+    return { active: V.active(), expanded: V.by(".panel-buttons button", "Saved views").getAttribute("aria-expanded"),
+      empty: V.views().querySelector(".hint")?.innerText ?? null };
+  });
+  await press("Escape");
+  out.escaped = await step(() => ({ open: !!V.views(), active: V.active() }));
+  await press("Tab");
+  out.tabNext = await step(() => V.active());
+  await step(() => V.by(".panel-buttons button", "Saved views").click());
+  out.saved = await step(async () => {
+    await T.wait(() => V.views()?.querySelector(".hint"), "the empty list");
+    const f = V.views().querySelector("form.save");
+    V.set(f.querySelector("input[name=name]"), "scope 1");
+    V.set(f.querySelector("input[name=contributor]"), "ana");
+    await T.wait(() => !f.querySelector("button[type=submit]").disabled, "an enabled Save");
+    f.querySelector("button[type=submit]").click();
+    await T.wait(() => V.items().length === 1, "the saved view in the list");
+    return { items: V.items(), done: V.views().querySelector(".saved-done").innerText,
+      name: f.querySelector("input[name=name]").value };
+  });
+  out.exists = await step(async () => {
+    V.set(V.views().querySelector("form.save input[name=name]"), " scope 1 ");
+    return (await T.wait(() => V.views().querySelector(".saved-note"), "the existing-name line")).innerText;
+  });
+  // A save while a chip shows: one row checked, shown in Graphs, then saved from there.
+  out.chip = await step(async () => {
+    V.set(V.views().querySelector("form.save input[name=name]"), "");
+    T.rows()[0].querySelector("input.select-row").click();
+    await T.wait(() => !document.querySelector(".transfer button").disabled, "an enabled transfer");
+    document.querySelector(".transfer button").click();
+    await T.wait(() => V.tab() === "Graphs" && V.chip(), "the chip in Graphs");
+    const f = V.views().querySelector("form.save");
+    V.set(f.querySelector("input[name=name]"), "with chip");
+    const notes = [...V.views().querySelectorAll(".saved-note")].map((p) => p.innerText);
+    f.querySelector("button[type=submit]").click();
+    await T.wait(() => V.items().length === 2, "the second view");
+    return { chip: V.chip(), notes, items: V.items() };
+  });
+  // Remove: Enter opens its form with focus in the key box; Escape closes it and focus is back on Remove.
+  await step(() => [...V.item("with chip").querySelectorAll("button")].find((b) => b.textContent.trim() === "Remove").focus());
+  await press("Enter");
+  out.removeForm = await step(async () => {
+    const box = await T.wait(() => V.item("with chip").querySelector("form input[name=contributor]"), "the remove form");
+    return { active: document.activeElement === box, key: box.value };
+  });
+  await press("Escape");
+  out.removeEscaped = await step(() => ({ form: !!V.item("with chip").querySelector("form"), active: V.active(), panel: !!V.views() }));
+  await press("Enter");
+  out.removed = await step(async () => {
+    const b = await T.wait(() => V.by(".saved-view form button[type=submit]", "Remove with chip"), "the confirm button");
+    b.click();
+    await T.wait(() => V.items().length === 1, "the view gone");
+    return { items: V.items(), done: V.views().querySelector(".saved-done").innerText, active: V.active() };
+  });
+  return out;
+};
+
+// questions: keyboard on the panel; the six questions and counts; different-values; a metric-over-time choice.
+const viewsQuestions = async () => {
+  const out = {};
+  const step = viewsStep;
+  await tablesReady();
+  await step(async () => {
+    T.section("Tables and Graphs");
+    await T.wait(() => T.settled(), "the table");
+    V.by(".panel-buttons button", "Questions").focus();
+  });
+  await press("Enter");
+  out.opened = await step(async () => {
+    await T.wait(() => V.questions()?.querySelector(".question-list"), "the questions");
+    return { active: V.active(), questions: [...V.questions().querySelectorAll(".question-list > li")].map((li) => ({
+      text: li.querySelector(".question").textContent, count: li.querySelector(".question-count").textContent,
+      live: li.querySelector(".question-count").closest("[aria-live]")?.getAttribute("aria-live") ?? null })) };
+  });
+  await press("Escape");
+  out.escaped = await step(() => ({ open: !!V.questions(), active: V.active() }));
+  out.different = await step(async () => {
+    V.by(".panel-buttons button", "Questions").click();
+    (await T.wait(() => [...document.querySelectorAll(".question")].find((b) => b.textContent.startsWith("Where do two reports")),
+      "the questions")).click();
+    await T.wait(() => !V.questions() && V.tab() === "Graphs" && V.chosen("Comparison") === "1"
+      && V.cy()?.nodes(".claim").length === parseInt(V.line()), "the different values in Graphs");
+    return { line: V.line(), tab: V.tab(), comparison: V.chosen("Comparison"), nodes: V.cy().nodes(".claim").map((n) => n.id()).sort(),
+      chip: V.chip() };
+  });
+  out.series = await step(async () => {
+    V.by(".panel-buttons button", "Questions").click();
+    const q = await T.wait(() => [...document.querySelectorAll(".question")].find((b) => b.textContent.startsWith("How did one figure")),
+      "the questions");
+    q.click();
+    const first = await T.wait(() => document.querySelector(".question-choices button"), "the series choices");
+    const choices = [...document.querySelectorAll(".question-choices button")].map((b) => b.textContent);
+    const expanded = q.getAttribute("aria-expanded");
+    const choicesLive = first.closest("[aria-live]")?.getAttribute("aria-live") ?? null;
+    first.click();
+    await T.wait(() => !V.questions() && V.tab() === "Graphs" && V.chip() && V.cy()?.nodes(".point").length > 0, "the series in Graphs");
+    return { choices, expanded, choicesLive, chip: V.chip(), line: V.line(), series: V.chosen("Series"), points: V.cy().nodes(".point").length,
+      view: document.querySelector(".graph-views [aria-pressed=true]")?.textContent ?? null };
+  });
   return out;
 };
 
@@ -477,6 +918,11 @@ if (mode === "stale") {
   out = { second_writer: w.status, ...(await run(submit)) };
 } else if (mode === "shell") {
   const first = await run(shellFilter);
+  first.covering = {};
+  for (const width of [1280, 900]) {
+    await send("Emulation.setDeviceMetricsOverride", { width, height: 860, deviceScaleFactor: 1, mobile: false });
+    first.covering[width] = await run(panelsOverCount);
+  }
   const origin = new URL(url).origin;
   const auth = { Authorization: `Bearer ${new URL(url).searchParams.get("token")}` };
   const { claims } = await (await fetch(`${origin}/api/documents/1/claims`, { headers: auth })).json();
@@ -549,16 +995,27 @@ if (mode === "stale") {
     const row = (id) => document.querySelector(`.graphs [data-el="${CSS.escape(id)}"]`);
     const ids = (sel) => [...document.querySelectorAll(`.graphs ${sel} [data-el]`)].map((b) => b.dataset.el);
     const drawn = (n) => cy() && cy().nodes().length > 0 && (n === undefined || cy().nodes(".claim, .point").length === n);
-    window.g = { wait, byText, tick, cy, shell, graph, loaded, where, evidence, section, view, row, ids, drawn };
+    // The tab body learns that it is hidden or shown from a ResizeObserver report; wait for that report, then give it
+    // time to render. Without it a hide and a show can fall in one render, and the focus return waits for the next one.
+    const seen = (shown) => new Promise((resolve) => {
+      const o = new ResizeObserver(([e]) => {
+        if (e.contentRect.width > 0 !== shown) return;
+        o.disconnect();
+        setTimeout(resolve, 300);
+      });
+      o.observe(document.querySelector(".graphs"));
+    });
+    window.g = { wait, byText, tick, cy, shell, graph, loaded, where, evidence, section, view, row, ids, drawn, seen };
   });
   const open = () => call(async () => {
     await g.wait(() => g.evidence().shown && g.evidence().page && g.evidence().box, "the page with the box");
+    await g.seen(false);
     return g.evidence();
   });
   const back = () => call(async () => {
     g.section("Tables and Graphs");
     await g.wait(() => !document.querySelector(".records").hidden && g.cy(), "the Graphs tab again");
-    await new Promise((r) => setTimeout(r, 300)); // the tab body sees itself shown and puts focus back
+    await g.seen(true); // the tab body sees itself shown and puts focus back
     return { el: document.activeElement?.dataset?.el ?? null, nodes: g.cy().nodes().length };
   });
   if (mode === "graphs") {
@@ -593,7 +1050,12 @@ if (mode === "stale") {
         tablesMatch: JSON.stringify(nodes.sort()) === JSON.stringify(c.nodes().map((n) => n.id()).sort())
           && JSON.stringify(edges.sort()) === JSON.stringify(c.edges().map((e) => e.id()).sort()),
         claimNodes: c.nodes(".claim").map((n) => n.id()).sort(), legend: document.querySelector(".legend").innerText,
-        archived: document.querySelector(".count").innerText, text, grabbable: c.nodes()[0].grabbable() };
+        archived: document.querySelector(".count").innerText, text, grabbable: c.nodes()[0].grabbable(), zoom: c.zoom(),
+        // review 6.3 P3: each Edges-table button's name and its row's cells
+        edgeRows: [...document.querySelectorAll(".graphs table:nth-of-type(2) tbody tr")].map((tr) => {
+          const b = tr.querySelector("button");
+          return { name: b.getAttribute("aria-label") ?? b.textContent, cells: [...tr.cells].map((td) => td.innerText) };
+        }) };
     });
     // A node and an edge by mouse: one tap selects and marks the row, a double-click opens the page with the box.
     const tap = async (id) => {
@@ -657,6 +1119,18 @@ if (mode === "stale") {
     const both = await selected();
     await key("Space");
     const spaced = { picks: await call(() => window.picks), both, after: await selected(), focus: await focus() };
+    // 6.4 part B F1 mechanism: Enter on an edge row opens its page; back before the tab body's next report, focus moves
+    // to another row. The row that opened the page must not take focus back when the report comes.
+    await call(() => g.row("claim:1>company:1").focus());
+    await key("Enter");
+    await open();
+    const disarmed = await call(async () => {
+      g.section("Tables and Graphs");
+      await null; // React renders the click's update in a microtask queued before this one, before any observer report
+      g.row("claim:2").focus();
+      await g.seen(true);
+      return document.activeElement.dataset.el ?? null;
+    });
     const rest = await call(async () => {
       g.section("Tables and Graphs");
       await g.wait(() => g.cy(), "the graph");
@@ -690,6 +1164,9 @@ if (mode === "stale") {
         const c = g.cy();
         const rows = (n) => [...document.querySelectorAll(".graphs table")[n].querySelectorAll("tbody tr")].map((r) => r.innerText);
         const out = { points: rows(0), comparisons: rows(1), nodes: c.nodes().length,
+          caption: document.querySelector(".graphs table caption").innerText, // H2: the series as its Series choice names it
+          choice: [...document.querySelectorAll(".choices")].find((d) => d.querySelector("summary").innerText.startsWith("Series"))
+            .querySelector("input:checked").parentElement.textContent.trim(),
           edges: c.edges().map((e) => [e.source().id(), e.target().id(), e.data("label"), e.hasClass("unresolved")]),
           x: Object.fromEntries(c.nodes().map((n) => [n.id(), [n.position("x"), n.position("y")]])) };
         g.tick("Series", label);
@@ -706,7 +1183,8 @@ if (mode === "stale") {
       return { cell, auditor, seriesNode, stillHere, sides, hyper, noSeries, noCanvas, scope1, energy,
         newest: { shell: g.shell(), graph: g.graph() }, graphText };
     });
-    out = { ...first, nodeTap, node, nodeBack, edgeTap, edge, focused, keyboard, returned, arrows, spaced, ...rest, requests };
+    out = { ...first, nodeTap, node, nodeBack, edgeTap, edge, focused, keyboard, returned, arrows, spaced, disarmed, ...rest,
+      requests };
   } else if (mode === "graphs-stale") {
     await run(async () => {
       g.section("Tables and Graphs");
@@ -720,12 +1198,16 @@ if (mode === "stale") {
       headers: { ...auth, "Content-Type": "application/json" },
       body: JSON.stringify({ value: "1,236", contributor: "ana", capacity: "analyst", rationale: "other tab" }),
     });
+    // Enter on Time series: a request of the Graphs tab alone, refused; the shell offers the new version
+    await run(() => g.byText(".graph-views button", "Time series").focus());
+    await key("Enter");
     out = { second_writer: w.status, ...(await run(async () => {
-      g.view("Time series"); // a request of the Graphs tab alone: refused, the shell offers the new version
       const notice = (await g.wait(() => document.querySelector(".notice"), "the notice")).innerText;
       await new Promise((r) => setTimeout(r, 300));
-      // F11 i1: the drawing on screen stays, labelled with its own version; nothing of the new version is drawn
-      const kept = { drawn: g.drawn(14), graph: g.graph(), hint: document.querySelector(".graphs .hint")?.innerText ?? null };
+      // F11 i1: the drawing on screen stays, labelled with its own version; nothing of the new version is drawn. Review
+      // 6.3 P2: the pressed view is the one drawn.
+      const kept = { drawn: g.drawn(14), graph: g.graph(), hint: document.querySelector(".graphs .hint")?.innerText ?? null,
+        pressed: document.querySelector(".graph-views [aria-pressed=true]")?.textContent ?? null };
       g.view("Neighbourhood");
       document.querySelector(".notice button").click();
       await g.wait(() => !document.querySelector(".notice") && g.drawn() && g.graph().includes("version 2")
@@ -770,6 +1252,40 @@ if (mode === "stale") {
     out = { ...out, second_writer: w.status, ...(await tablesStale()) };
   } else if (process.argv[5] === "nolocation") out = await tablesNoLocation();
   else out = await tablesGate();
+} else if (mode === "transfer") {
+  if (process.argv[5] === "limit") out = await transferLimit();
+  else {
+    out = await transferGate();
+    const origin = new URL(url).origin;
+    const auth = { Authorization: `Bearer ${new URL(url).searchParams.get("token")}` };
+    const w = await fetch(`${origin}/api/claims/1/corrections`, {
+      method: "POST",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ value: "1,237", contributor: "ana", capacity: "analyst", rationale: "other tab" }),
+    });
+    out = { ...out, second_writer: w.status, ...(await transferStale()) };
+  }
+} else if (mode === "views") {
+  if (process.argv[5] === "save") out = await viewsSave();
+  else if (process.argv[5] === "questions") out = await viewsQuestions();
+  else {
+    // open, archived: the page pins the version current when it loads; for open, another writer then publishes, and
+    // opening the view takes that version (B2: a view opens on the current version).
+    await tablesReady();
+    await viewsOpenPanel();
+    let second_writer = null;
+    if (process.argv[5] === "open") {
+      const origin = new URL(url).origin;
+      const auth = { Authorization: `Bearer ${new URL(url).searchParams.get("token")}` };
+      const { claims } = await (await fetch(`${origin}/api/documents/1/claims`, { headers: auth })).json();
+      second_writer = (await fetch(`${origin}/api/claims/${claims[0].id}/corrections`, {
+        method: "POST",
+        headers: { ...auth, "Content-Type": "application/json" },
+        body: JSON.stringify({ value: "1,235", contributor: "ana", capacity: "analyst", rationale: "other tab" }),
+      })).status;
+    }
+    out = { second_writer, ...(await viewsOpen("scope 1")) };
+  }
 } else if (mode === "filterbar") {
   out = await run(async () => {
     for (let i = 0; i < 50 && !window.out; i++) await new Promise((r) => setTimeout(r, 100));

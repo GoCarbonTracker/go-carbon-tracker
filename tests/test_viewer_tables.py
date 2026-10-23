@@ -129,6 +129,9 @@ def test_a_page_outside_its_document_or_a_gone_document_opens_nothing(srv, tmp_p
     assert out["gone"] == {"alert": "There is no document 1 in the published data. " + BACK, "evidenceHidden": True,
                            "rows": out["gone"]["rows"], "active": True}
     assert out["gone"]["rows"] > 0
+    # review 6.2 F2: a second Enter on a row with no location is announced again (a new line in the polite region)
+    assert out["again"] == {"said": ["This claim has no source location to open."] * 2,
+                            "line": "This claim has no source location to open."}
 
 
 def paging_workspace(root: Path) -> Path:
@@ -180,6 +183,7 @@ def test_paging_checks_late_pages_and_a_newer_version(tmp_path, monkeypatch):
 
     # Another writer publishes: Next is refused, the shell offers the new version, the rows on screen keep theirs
     assert out["second_writer"] == 200
+    assert out["refusedSort"] == {"sorts": [], "arrows": ""}  # review 6.2 F1: the header states the rows' own order
     assert out["notice"] == "Data version 2 is available. Reload"
     assert out["stale"] == {"paging": "Rows 1 to 200 of 420", "caption": out["beforeWriter"]["caption"],
                             "checked": out["beforeWriter"]["checked"], "alert": None}
