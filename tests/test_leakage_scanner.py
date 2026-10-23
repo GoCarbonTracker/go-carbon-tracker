@@ -561,8 +561,9 @@ def test_text_split_by_markup_escapes_or_invisible_characters(tmp_path):
 
 
 def test_pdf_image_colour_spaces(tmp_path):
-    """I4: ICCBased (N 3) and DeviceCMYK images in the marker colour, DeviceGray and 1-bit images by pixel hash; an
-    Indexed and a 16-bit image are not decoded and are reported as unreadable (known ceiling, loud)."""
+    """I4: ICCBased (N 3) and DeviceCMYK images in the marker colour, DeviceGray and 1-bit images by pixel hash; a
+    16-bit image is not decoded and is reported as unreadable (known ceiling, loud); an Indexed image is read through
+    its palette."""
     marker_cmyk = Image.new("CMYK", (20, 20), (255, 55, 135, 0))
     assert marker_cmyk.convert("RGB").getpixel((0, 0)) == MARKER
     grey, mask = Image.linear_gradient("L").resize((16, 12)), Image.new("1", (13, 9))
@@ -591,7 +592,8 @@ def test_pdf_image_colour_spaces(tmp_path):
                 zlib.compress(bytes((0, 0, 0, 200, 0, 120)) * 400))])
     with pytest.raises(Unreadable) as e:
         found(put(tmp_path / "bad", {"b.pdf": bad}), seeds)
-    assert [p.split(" (")[0] for p in e.value.places] == ["b.pdf: object 6", "b.pdf: object 7"]
+    assert [p.split(" (")[0] for p in e.value.places] == ["b.pdf: object 7"]
+    assert where(e.value.found, "GCT-LEAK-FIX-MARKER-05", "b.pdf: object 6 image: marker colour")
 
 
 def test_any_image_pillow_opens(tmp_path):

@@ -13,12 +13,13 @@ stream's decoded data never is; object stream members are read as objects. found
 seeds it finds: a hex image seed by exact pixel hash only, and a marker-colour hit only under the image seeds whose
 value is None (7.1 G). parts(path) gives the same parts for checks that are not seeds.
 
-Known ceilings (not decoded; recorded in the TASK-0224 worker notes): Indexed and 16-bit PDF images (reported as
-unreadable, so a scan meeting one raises); UTF-16LE text without a BOM; free-page overflow chains and UTF-16
+Known ceilings (not decoded; recorded in the TASK-0224 worker notes): 16-bit PDF images and colour spaces other
+than device, ICCBased and Indexed over those (reported as unreadable, so a scan meeting one raises); UTF-16LE text without a BOM; free-page overflow chains and UTF-16
 databases (only the dump and raw bytes are searched); a marker under MIN_PIXELS pixels, so a private crop's marker
 rectangle must stay above about 7 by 7 pixels at the smallest scale a renderer draws it. Test code only."""
 import base64
 import bisect
+import contextlib
 import hashlib
 import html
 import io
@@ -254,14 +255,14 @@ def _pdf(data, place, tmp, wal):
     reversed), inline images, the metadata, every object of every xref section, and every other object body in the
     file (a copy an incremental update superseded, or one no xref section lists), each parsed as an object at its
     byte position. A listed id is skipped only when proven free: every xref section listing it marks it free, no
-    header for it is in the file and no object stream holds it; any other id getobj cannot read is unreadable. Each
-    part is read on its own."""
+    header for it is in the file and no object stream holds it; any other id getobj cannot read is unreadable. An
+    inline image's empty filter array is read as no filter (_empty_inline_filters). Each part is read on its own."""
     import pdfplumber
 
     streams = [m.span(1) for m in STREAM.finditer(data)]  # stream data, blanked below with its length kept
     strings = list(_strings(STREAM.sub(lambda m: m[0][:m.start(1) - m.start()] + b" " * len(m[1]) + b"endstream", data)))
     yield "text", f"{place}: string tokens", _tokens(strings)
-    with pdfplumber.open(io.BytesIO(data)) as pdf:
+    with _empty_inline_filters(), pdfplumber.open(io.BytesIO(data)) as pdf:
         for n, page in enumerate(pdf.pages, 1):
             where = f"{place}: page {n}"
             yield from _guard(f"{where} text", _page_text(page, where))
@@ -455,6 +456,29 @@ def _pdf_object(doc, get, where, tmp, resources=None, members=None):
                 yield from _pdf_object(doc, lambda member=member: member, f"{where} member {objid}", tmp)
 
 
+@contextlib.contextmanager
+def _empty_inline_filters():
+    """While interpreting: an inline image's empty filter array (/F [] or /Filter [], no filter) is dropped before
+    pdfminer reads its dictionary, as its PDFContentParser.do_keyword indexes filter[0] and raises IndexError on it."""
+    from pdfminer import pdfinterp
+    from pdfminer.psparser import literal_name
+
+    class Parser(pdfinterp.PDFContentParser):
+        def do_keyword(self, pos, token):
+            if token is self.KEYWORD_ID and self.curtype == "inline":
+                if len(self.curstack) % 2 == 0:  # else pdfminer's own "Invalid dictionary construct" error
+                    pairs = zip(self.curstack[::2], self.curstack[1::2])
+                    self.curstack = [x for k, v in pairs if not (v[1] == [] and literal_name(k[1]) in ("F", "Filter"))
+                                     for x in (k, v)]
+            super().do_keyword(pos, token)
+
+    pdfinterp.PDFContentParser, original = Parser, pdfinterp.PDFContentParser
+    try:
+        yield
+    finally:
+        pdfinterp.PDFContentParser = original
+
+
 def _form(stream, where, resources=None):
     """The text and inline images a stream would draw, interpreted with resources (by default its own: a form
     XObject or appearance stream)."""
@@ -509,7 +533,8 @@ def _pdf_strings(obj):
 
 def _pdf_image(stream, where):
     """DCT and JPX data opened by Pillow; other data rebuilt from width, height and colour space (8-bit grey, RGB,
-    CMYK and ICCBased, 1-bit masks). Any other image raises, so it is reported as unreadable."""
+    CMYK and ICCBased, 1-bit masks, and Indexed over one of those at 1, 2, 4 or 8 bits). Any other image raises, so
+    it is reported as unreadable."""
     from pdfminer.pdftypes import LITERALS_DCT_DECODE, LITERALS_JPX_DECODE, resolve1
 
     data = stream.get_data()
@@ -518,15 +543,48 @@ def _pdf_image(stream, where):
         return
     a = {k: resolve1(v) for k, v in stream.attrs.items()}
     cs, bits = a.get("ColorSpace", a.get("CS")), a.get("BitsPerComponent", a.get("BPC"))
-    if isinstance(cs, list) and getattr(cs[0], "name", None) == "ICCBased":
-        mode = {1: "L", 3: "RGB", 4: "CMYK"}.get(resolve1(cs[1]).get("N"))
-    else:
-        mode = MODES.get(getattr(cs, "name", None))
+    size = (a.get("Width", a.get("W")), a.get("Height", a.get("H")))
+    if isinstance(cs, list) and getattr(cs[0], "name", None) in ("Indexed", "I"):
+        yield "image", where, _indexed(cs, bits, size, data)
+        return
+    mode = _mode(cs)
     if a.get("ImageMask", a.get("IM")) is True or (mode == "L" and bits == 1):
         mode = "1"
     elif mode is None or bits != 8:
         raise ValueError(f"image colour space {cs!r} at {bits} bits is not decoded")
-    yield "image", where, Image.frombytes(mode, (a.get("Width", a.get("W")), a.get("Height", a.get("H"))), data)
+    yield "image", where, Image.frombytes(mode, size, data)
+
+
+def _mode(cs):
+    """The Pillow mode of a device or ICCBased colour space, None for any other."""
+    from pdfminer.pdftypes import resolve1
+
+    cs = resolve1(cs)
+    if isinstance(cs, list) and getattr(cs[0], "name", None) == "ICCBased":
+        return {1: "L", 3: "RGB", 4: "CMYK"}.get(resolve1(cs[1]).get("N"))
+    return MODES.get(getattr(cs, "name", None))
+
+
+def _indexed(cs, bits, size, data):
+    """An Indexed image ([/Indexed base hival lookup], 1, 2, 4 or 8 bits) as the image of its base colour space whose
+    pixels are the palette entries its indices pick, so it hashes as that direct image would. An index above hival
+    or a lookup shorter than its entries raises."""
+    from pdfminer.pdftypes import PDFStream, resolve1
+
+    base, hival, lookup = _mode(cs[1]), resolve1(cs[2]), resolve1(cs[3])
+    lookup = lookup.get_data() if isinstance(lookup, PDFStream) else lookup
+    lookup = lookup.encode("latin-1") if isinstance(lookup, str) else lookup
+    if base is None or bits not in (1, 2, 4, 8) or not isinstance(lookup, bytes):
+        raise ValueError(f"image colour space {cs!r} at {bits} bits is not decoded")
+    n = len(base)  # components per palette entry: L 1, RGB 3, CMYK 4
+    if len(lookup) < (hival + 1) * n:
+        raise ValueError(f"Indexed lookup holds {len(lookup)} bytes, fewer than {(hival + 1) * n}")
+    indices = Image.frombytes("P", size, data, "raw", "P" if bits == 8 else f"P;{bits}").tobytes()
+    if max(indices, default=0) > hival:
+        raise ValueError(f"Indexed image index {max(indices)} above hival {hival}")
+    planes = [Image.frombytes("L", size, indices.translate(bytes(lookup[i * n + k] if i <= hival else 0
+                                                                for i in range(256)))) for k in range(n)]
+    return Image.merge(base, planes)
 
 
 def _sqlite(data, place, tmp, wal):

@@ -36,6 +36,7 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 import leakage
 import leakage_fixture as lf
@@ -1209,8 +1210,9 @@ PAGE = {1: b"<< /Type /Catalog /Pages 2 0 R >>", 2: b"<< /Type /Pages /Kids [3 0
 
 
 def xref_pdf(*revisions) -> bytes:
-    """A PDF of one or more revisions, each (objects {id: body}, /Index ranges, entry types {id: 1, or "missing" for
-    an in-use entry pointing past the end of the file}), indexed by an xref stream (W [1 4 2]) with /Prev to the
+    """A PDF of one or more revisions, each (objects {id: body}, /Index ranges, entry types {id: 1, "missing" for an
+    in-use entry pointing past the end of the file, or (2, stream id, index) for an object stream member}), indexed
+    by an xref stream (W [1 4 2]) with /Prev to the
     one before; an id of a range not in the types is free (type 0). Offsets are those of the newest copy so far."""
     out, at, prev = bytearray(b"%PDF-1.5\n"), {}, None
     for n, (objects, ranges, kinds) in enumerate(revisions):
@@ -1221,6 +1223,9 @@ def xref_pdf(*revisions) -> bytes:
         for start, count in ranges:
             for i in range(start, start + count):
                 kind = kinds.get(i, 0)
+                if isinstance(kind, tuple):  # (2, object stream id, index): a member of an object stream
+                    rows += bytes([2]) + kind[1].to_bytes(4, "big") + kind[2].to_bytes(2, "big")
+                    continue
                 rows += bytes([kind != 0]) + (10 ** 6 if kind == "missing" else at.get(i, 0) * (kind == 1)).to_bytes(
                     4, "big") + b"\0\0"
         pos = len(out)
@@ -1249,6 +1254,24 @@ def test_free_entries_inside_an_xref_streams_index_ranges_are_skipped(tmp_path):
     p.write_bytes(xref_pdf(({**PAGE, 4: b"(x)", 12: b"(%s)" % seed(2)["value"].encode()}, [(0, 5), (10, 3)],
                             {**IN_USE, 12: 1})))
     assert "free.pdf: object 12" in leakage.found(p, [seed(2)])["FREE-2"]
+
+
+def test_in_use_ids_pdfminer_leaves_unlisted_are_still_read(tmp_path):
+    """Moka's check on the same pdfminer reading: /Index [0 6 10 6] with ids 0, 4 and 5 free, so get_objids reads
+    ids 10, 14 and 15 against the stream's entries 0, 4 and 5 (free) and leaves them out, and lists 11 to 13, free,
+    against ids 1 to 3's entries. Object 14 (in use, a seed) and object 10 (an object stream, in use) whose member 15
+    holds a seed are still read, by their headers and the member parse; 11 to 13 are proven free. No Unreadable."""
+    member = b"15 0 (%s)" % seed(7)["value"].encode()
+    objects = {**PAGE, 10: b"<< /Type /ObjStm /N 1 /First 5 /Length %d >>\nstream\n%s\nendstream" % (
+        len(member), member), 14: b"(%s)" % seed(6)["value"].encode()}
+    p = tmp_path / "unlisted.pdf"
+    p.write_bytes(xref_pdf((objects, [(0, 6), (10, 6)], {1: 1, 2: 1, 3: 1, 10: 1, 14: 1, 15: (2, 10, 0)})))
+    import pdfplumber
+
+    with pdfplumber.open(p) as pdf:  # the reading the test is about: pdfminer lists none of the three
+        assert not {10, 14, 15} & {i for x in pdf.doc.xrefs for i in x.get_objids()}
+    hit = leakage.found(p, [seed(6), seed(7)])
+    assert [x for x in hit["FREE-6"] if "object 14" in x] and [x for x in hit["FREE-7"] if "member 15" in x], hit
 
 
 def test_a_free_entry_with_a_header_or_in_an_object_stream_is_unreadable(tmp_path):
@@ -1288,3 +1311,70 @@ def test_an_id_free_in_one_revision_and_in_use_in_another_is_read(tmp_path):
     with pytest.raises(leakage.Unreadable) as e:
         leakage.found(p, [seed(4)])
     assert [x for x in e.value.places if x.startswith("mixed.pdf: object 11 ")], e.value.places
+
+
+# The scanner on Indexed images (Moka's AC 17 finding: real reports' Indexed images were unread), synthetic only.
+
+def indexed_pdf(base: bytes, palette: list, bits: int, lookup: str, size=(10, 10)) -> tuple[bytes, list]:
+    """A PDF holding one image XObject in [/Indexed base hival lookup] (lookup "string" a hex string in the array,
+    "stream" an indirect stream; base "/DeviceRGB" or an indirect reference to "/DeviceCMYK" when it is b"ref"),
+    pixel (x, y) the palette entry (x + y) % len(palette), rows padded to a byte; and the indices it draws."""
+    w, h = size
+    indices = [(x + y) % len(palette) for y in range(h) for x in range(w)]
+    rows = b""
+    for y in range(h):
+        row = "".join(format(i, f"0{bits}b") for i in indices[y * w:(y + 1) * w])
+        rows += int(row.ljust(-(-len(row) // 8) * 8, "0"), 2).to_bytes(-(-len(row) // 8), "big")
+    table = bytes(v for entry in palette for v in entry)
+    objects = {**PAGE}
+    if base == b"ref":
+        objects[6], base = b"/DeviceCMYK", b"6 0 R"
+    if lookup == "stream":
+        objects[5], ref = b"<< /Length %d >>\nstream\n%s\nendstream" % (len(table), table), b"5 0 R"
+    else:
+        ref = b"<%s>" % table.hex().encode()
+    objects[4] = b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /BitsPerComponent %d /ColorSpace " \
+                 b"[/Indexed %s %d %s] /Length %d >>\nstream\n%s\nendstream" % (
+                     w, h, bits, base, len(palette) - 1, ref, len(rows), rows)
+    return xref_pdf((objects, [(0, max(objects) + 1)], dict.fromkeys(objects, 1))), indices
+
+
+@pytest.mark.parametrize("base, bits, lookup", [(b"/DeviceRGB", 8, "string"), (b"ref", 4, "stream"),
+                                                (b"/DeviceRGB", 2, "stream"), (b"ref", 1, "string")])
+def test_an_indexed_image_is_found_by_the_pixel_hash_of_its_palette_colours(tmp_path, base, bits, lookup):
+    """An Indexed image over DeviceRGB or a referenced DeviceCMYK, its lookup a string or a stream, at 8, 4, 2 and 1
+    bits: found reads it as the direct image of its palette colours, so a seed of that image's pixel hash is found."""
+    n = 3 if base == b"/DeviceRGB" else 4
+    palette = [bytes((37 * i + 11 * k) % 256 for k in range(n)) for i in range(min(2 ** bits, 6))]
+    data, indices = indexed_pdf(base, palette, bits, lookup)
+    image = Image.frombytes("RGB" if n == 3 else "CMYK", (10, 10), b"".join(palette[i] for i in indices))
+    p = tmp_path / "indexed.pdf"
+    p.write_bytes(data)
+    value = hashlib.sha256(image.convert("RGB").tobytes()).hexdigest()
+    hit = leakage.found(p, [{"name": "IDX", "kind": "image", "expect": "never", "value": value}])
+    assert hit == {"IDX": ["indexed.pdf: object 4 image: pixel hash"]}
+
+
+def test_a_marker_coloured_indexed_image_is_found_under_the_marker_seed(tmp_path):
+    """An 8-bit Indexed RGB image whose palette holds the marker colour: found under the value-None image seed."""
+    p = tmp_path / "marker.pdf"
+    p.write_bytes(indexed_pdf(b"/DeviceRGB", [bytes(leakage.MARKER)], 8, "string")[0])
+    hit = leakage.found(p, [{"name": "MARK", "kind": "image", "expect": "never", "value": None}])
+    assert hit == {"MARK": ["marker.pdf: object 4 image: marker colour"]}
+
+
+def test_an_inline_image_with_an_empty_filter_array_is_read(tmp_path):
+    """Moka's AC 17 IndexError: an inline image whose dictionary holds /F [] (no filter), in a page's content and in
+    a form XObject. pdfminer's content parser indexes the empty array; found reads both images, by pixel hash."""
+    pixels = Image.new("RGB", (4, 4), (10, 20, 30)).tobytes()
+    inline = b"q 4 0 0 4 0 0 cm BI /W 4 /H 4 /BPC 8 /CS /RGB /F [] ID %s EI Q" % pixels
+    objects = {**PAGE, 3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 5 0 R >>",
+               4: b"<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Length %d >>\nstream\n%s\nendstream" % (
+                   len(inline), inline),
+               5: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(inline), inline)}
+    p = tmp_path / "inline.pdf"
+    p.write_bytes(xref_pdf((objects, [(0, 6)], dict.fromkeys(objects, 1))))
+    value = hashlib.sha256(pixels).hexdigest()
+    hit = leakage.found(p, [{"name": "INLINE", "kind": "image", "expect": "never", "value": value}])
+    assert hit == {"INLINE": ["inline.pdf: object 4 form inline image 1: pixel hash",
+                              "inline.pdf: page 1 inline image 1: pixel hash"]}
