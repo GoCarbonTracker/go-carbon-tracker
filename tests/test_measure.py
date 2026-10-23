@@ -328,7 +328,12 @@ def test_tie_break_and_exact_half_iou():
     assert pick(claim(3, start=None), claim(2, start=None)) == (2, "Partial", 0.0, False)
 
 
-def test_gct_commit_is_marked_dirty_by_a_changed_tracked_file_only(tmp_path):
+def test_gct_commit_is_marked_dirty_by_a_changed_tracked_file_only(tmp_path, monkeypatch):
+    # a GIT_DIR or GIT_INDEX_FILE exported by the caller would redirect these commands into the caller's repository
+    for var in subprocess.run(["git", "rev-parse", "--local-env-vars"], capture_output=True, text=True,
+                              check=True).stdout.split():
+        monkeypatch.delenv(var, raising=False)
+
     def git(*argv):
         subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *argv],
                        cwd=tmp_path, check=True, capture_output=True)
@@ -343,3 +348,24 @@ def test_gct_commit_is_marked_dirty_by_a_changed_tracked_file_only(tmp_path):
     assert g2._git_head(tmp_path) == head
     (tmp_path / "f").write_text("b")
     assert g2._git_head(tmp_path) == head + "-dirty"
+
+
+def test_dirty_marking_test_leaves_a_repository_named_by_the_callers_git_env_alone(tmp_path, monkeypatch):
+    decoy = tmp_path / "decoy"
+    decoy.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=decoy, check=True, capture_output=True)
+
+    def state():
+        return subprocess.run(["git", "-C", str(decoy), "for-each-ref", "--format=%(refname) %(objectname)"],
+                              capture_output=True, text=True).stdout, sorted(
+            p.relative_to(decoy).as_posix() for p in (decoy / ".git").rglob("*") if p.is_file())
+
+    before = state()
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.setenv("GIT_DIR", str(decoy / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(decoy))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(decoy / ".git" / "index"))
+    test_gct_commit_is_marked_dirty_by_a_changed_tracked_file_only(work, monkeypatch)
+    assert state() == before
+    assert not (decoy / "f").exists()
