@@ -505,7 +505,7 @@ def test_report_exports_match_the_documented_keys(tmp_path, gct):
             r = gct("report", name, "--format", "json", *extra, *w)
             assert r.code == 0, r.out
             check(f"report {name}", r.data)
-        check("error", gct("report", name, "--format", "xlsx", *w).data)
+        check("error", gct("report", name, "--format", "nope", *w).data)  # a name no story registers
         check("error", gct("report", name, "--format", "json", "--data-version", 9, *w).data)
 
 

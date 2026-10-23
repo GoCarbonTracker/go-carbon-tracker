@@ -5,8 +5,10 @@ import ast
 import copy
 import hashlib
 import json
+import re
 import shutil
 import sqlite3
+import string
 import sys
 import tomllib
 import types
@@ -243,6 +245,21 @@ def test_reports_md_names_every_key_of_the_schema():  # AC 7; words.fixed holds 
     walk(schema)
     doc = (ROOT / "docs" / "reports.md").read_text(encoding="utf-8")
     assert sorted(k for k in keys if f"`{k}`" not in doc) == []
+
+
+def test_words_fixed_holds_the_image_and_pdf_words(exports_):  # launch rulings B2, R4.1 to R4.4
+    assert exports_["sanitised"]["words"] == exports_["complete"]["words"] == dataset.words()
+    fixed = dataset.words()["fixed"]
+    new = [fixed["pdf"]["row"], fixed["pdf"]["evidence"], fixed["image_limit"], fixed["image_alt_entry"],
+           fixed["pdf"]["font_note"]]
+    assert fixed["pdf"]["row"] == "{title} {id}"
+    assert fixed["pdf"]["evidence"] not in dataset.HEADINGS.values()
+    assert not re.search(r"\d", fixed["image_limit"])
+    fields = lambda s: {f for _, f, _, _ in string.Formatter().parse(s) if f}  # noqa: E731
+    assert fields(fixed["image_alt_entry"]) == {"evidence", "document", "page"} and "claim" in fields(fixed["image_alt"])
+    assert "NFKC" in fixed["pdf"]["font_note"] and "[U+XXXX]" in fixed["pdf"]["font_note"]
+    assert "never as a box" in fixed["pdf"]["font_note"]
+    assert not [s for s in new if re.search(r"verified|assured|certified|compliant", s, re.I)]
 
 
 def test_gct_never_imports_jsonschema():
@@ -524,8 +541,8 @@ def test_every_refusal_writes_nothing(ws, gct, tmp_path, monkeypatch):
 
     empty = tmp_path / "empty"
     gct("workspace", "init", empty)
-    cases = [(ws, ("--format", "xlsx"), 2, "Unknown format xlsx. Available: json."),
-             (ws, ("--format", "json,pdf"), 2, "Unknown format pdf. Available: json."),
+    unknown = f"Unknown format nope. Available: {', '.join(sorted(export.FORMATS))}."  # nope: no story registers it
+    cases = [(ws, ("--format", "nope"), 2, unknown), (ws, ("--format", "json,nope"), 2, unknown),
              (ws, ("--format", "json", "--filter", '{"colour": [1]}'), 2, "The filter has no field colour."),
              (ws, ("--format", "json", "--filter", "{"), 2, None),
              (ws, ("--format", "json", "--filter", f"@{tmp_path / 'none.json'}"), 3, None),
@@ -658,7 +675,7 @@ def test_formats_come_from_the_table_and_may_write_subfolders_and_notes(ws, gct,
 
     monkeypatch.setitem(export.FORMATS, "deep", {"write": deep, "crops": False})
     r = gct("report", "all", "--format", "nope", "--workspace", ws, "--json")
-    assert r.data["cause"] == "Unknown format nope. Available: deep, json."
+    assert r.data["cause"] == f"Unknown format nope. Available: {', '.join(sorted(export.FORMATS))}."  # deep among them
     r = gct("report", "restatement-log", "--format", "deep,json", "--workspace", ws, "--json")
     assert r.code == 0
     folder = Path(r.data["folder"])

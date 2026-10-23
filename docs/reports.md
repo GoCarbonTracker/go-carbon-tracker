@@ -13,8 +13,9 @@ and its schema.
 - `NAME` is `evidence-index`, `restatement-log`, `gap-report` or `all` (the three). It names the reports a format
   writes. A JSON export holds the whole dataset whichever you name, because the three reports share the
   `documents`, `evidence` and `related_claims` lists.
-- `--format` is a comma list of format names. Today there is one, `json`. A repeated name counts once. An unknown
-  name is refused before anything is read: "Unknown format X. Available: json."
+- `--format` is a comma list of format names; each format has its own section in this file. A repeated name counts
+  once. An unknown name is refused before anything is read: "Unknown format X. Available: " and the format names in
+  alphabetical order.
 - `--filter`, `--complete`, `--include` and `--data-version` are those of `gct report preview`. The export is
   sanitised unless you add `--complete`. `--include` keeps the named classes in a sanitised export.
 - `--json` prints the result as JSON (`docs/cli-json.md`, section `report evidence-index`).
@@ -239,7 +240,19 @@ A sanitised file keeps only the `company`, `document` and `series` ids that have
 
 `words` holds GCT's fixed wording, the only text a format adds to the rows: `self_declared`, `privacy_notice`,
 `archive_notice`, `earlier_version`, `earlier_position`, `outside_selection`, `withheld`, `needs_renewed_review`, and
-`fixed`, which holds titles, column headings and the other fixed labels the formats print.
+`fixed`, which holds titles, column headings and the other fixed labels the formats print. Among them, for images
+and PDFs:
+
+- `image_alt`, an image's alt text naming the claim, document and page; `image_alt_entry`, the alt text naming the
+  evidence reference instead (for example E12), for an entry no row with a claim id cites; `image_cap`, the caption
+  of an outlined area.
+- `image_limit`, the sentence printed once when an export cites more locations than GCT draws as images. It holds no
+  number.
+- `pdf.row`, a row block's heading, `{title} {id}`; `pdf.evidence`, the label of the line that lists a row's
+  evidence references; `pdf.font_note`, the note that a character the font lacks is printed as its NFKC form or as
+  `[U+XXXX]`, never as a box.
+
+Every word is the same in both modes.
 
 ## Checking a file against the schema
 
