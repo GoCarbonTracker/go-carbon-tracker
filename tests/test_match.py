@@ -457,7 +457,7 @@ def test_projection_schema_6(ws, db, gct, make_file, acme):
             conn.close()
 
     meta, claims, ss, points = build()
-    assert meta["projection_schema"] == "14"
+    assert meta["projection_schema"] == "15"
     assert {c["match_state"] for c in claims} == {"series", "uncertain", "not matchable"} and all(c["match_state"] for c in claims)
     scope = next(c for c in claims if c["document_id"] == a and c["period_label"] == "FY 2024-25" and c["unit_text"] == "tCO2e")
     assert (scope["metric_text"], scope["metric_key"], scope["metric_rule"], scope["unit_key"], scope["unit_factor"]) == (

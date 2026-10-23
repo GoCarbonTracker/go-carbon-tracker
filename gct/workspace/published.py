@@ -57,11 +57,18 @@ CREATE TABLE expected_item (
     id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL, metric_text TEXT NOT NULL, period_label TEXT,
     found INTEGER NOT NULL, claims INTEGER NOT NULL, state TEXT, reasons TEXT NOT NULL, accepted TEXT NOT NULL
 );
-CREATE TABLE expected_item_document (expected_item_id INTEGER NOT NULL, document_id INTEGER NOT NULL);
+CREATE TABLE expected_item_document (
+    expected_item_id INTEGER NOT NULL, document_id INTEGER NOT NULL, state TEXT NOT NULL
+);
 CREATE TABLE gap_confirmation (
     id INTEGER PRIMARY KEY, expected_item_id INTEGER NOT NULL, contributor_name TEXT NOT NULL,
     contributor_organisation TEXT, capacity TEXT NOT NULL, rationale TEXT NOT NULL, current INTEGER NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL, documents_checked TEXT NOT NULL
+);
+CREATE TABLE page (
+    document_id INTEGER NOT NULL, page_number INTEGER NOT NULL, read_state TEXT NOT NULL, rung INTEGER, method TEXT,
+    words INTEGER, tables INTEGER, flags TEXT, width REAL, height REAL, limit_text TEXT, limit_tables TEXT,
+    limit_figures TEXT, PRIMARY KEY (document_id, page_number)
 );
 CREATE TABLE page_acceptance (
     id INTEGER PRIMARY KEY, document_id INTEGER NOT NULL, page_number INTEGER NOT NULL, content_type TEXT NOT NULL,
@@ -115,6 +122,12 @@ SELECT a.id, a.document_id, a.page_number, a.content_type, c.name, c.organisatio
                          AND p.page_number = a.page_number ORDER BY p.id DESC LIMIT 1), a.created_at
 FROM page_acceptance a JOIN contributor_version c ON c.id = a.contributor_version_id
 JOIN document d ON d.id = a.document_id WHERE {ACTIVE} IN ('registered', 'restored') ORDER BY a.id
+"""
+# Every declared document of an expectation that is not deleted, with its state, by id only (story 7.1 part B).
+LINKS_SQL = f"""
+SELECT * FROM (SELECT x.expected_item_id, x.document_id, {ACTIVE} AS state FROM expected_item_document x
+               JOIN document d ON d.id = x.document_id)
+WHERE state <> 'deleted' ORDER BY expected_item_id, document_id
 """
 # Every mapping row of an active spreadsheet, current or superseded (story 4.3).
 SHEET_MAPPING_SQL = f"""
@@ -206,23 +219,47 @@ def _info(conn: sqlite3.Connection, root: Path, version: int) -> dict:
     return info
 
 
-def _missing(conn: sqlite3.Connection, root: Path) -> dict:
-    """The projected rows of expectations (state computed now), their documents, the newest gap confirmation of
-    each missing item and every page acceptance."""
+def _pages(conn: sqlite3.Connection, root: Path, docs, counts: dict) -> list[tuple]:
+    """One row per page of each active PDF that opens: its reading state, the newest reading's measurements (none
+    when the newest read attempt failed) and the readiness limit per content type (story 7.1 part B)."""
     from gct.stages import missing  # the stages import this package
 
-    items, links, gaps = [], [], []
+    rows = []
+    for d in docs:
+        n, _ = missing.page_count(root, d, counts)
+        for page in range(1, (n or 0) + 1):
+            failed = missing._failed_read(conn, d["id"], page)
+            row = None if failed else missing._newest_page(conn, d["id"], page)
+            limits = []
+            for t in missing.TYPES:
+                ready, note, acceptance = missing.page_ready(conn, d["id"], page, t)
+                limits.append(f"accepted #{acceptance}" if acceptance is not None else None if ready else note)
+            measured = (row["rung"], row["method"], row["words"], row["tables"], row["flags"], row["width"],
+                        row["height"]) if row else (None,) * 7
+            rows.append((d["id"], page, "read failed" if failed else "read" if row else "not read", *measured, *limits))
+    return rows
+
+
+def _missing(conn: sqlite3.Connection, root: Path, docs) -> dict:
+    """The projected rows of expectations (state computed now) with their accepted pages by acceptance id, every
+    declared document not deleted, the newest gap confirmation of each missing item with the documents and readings it
+    looked in, every page acceptance and the page rows. Each stored file is counted once (counts)."""
+    from gct.stages import missing  # the stages import this package
+
+    counts, items, gaps = {}, [], []
+    pages = _pages(conn, root, docs, counts)
     for (i,) in conn.execute("SELECT id FROM expected_item ORDER BY id").fetchall():
-        e = missing.describe(conn, root, i)
+        e = missing.state(conn, root, i, counts=counts)
         items.append((i, conn.execute("SELECT company_id FROM expected_item WHERE id = ?", (i,)).fetchone()[0],
                       e["metric_text"], e["period_label"], int(e["found"]), len(e["claims"]), e["state"],
-                      json.dumps(e["reasons"]), json.dumps(e["accepted"])))
-        links += [(i, d) for d in e["documents"]]
+                      json.dumps(e["reasons"]), json.dumps(e["acceptances"])))
         if c := e["confirmation"]:
+            checked = conn.execute("SELECT documents_checked FROM gap_confirmation WHERE id = ?", (c["id"],)).fetchone()[0]
             gaps.append((c["id"], i, c["contributor"], c["organisation"], c["capacity"], c["rationale"],
-                         int(c["current"]), c["created_at"]))
-    return {"expected_item": items, "expected_item_document": links, "gap_confirmation": gaps,
-            "page_acceptance": conn.execute(ACCEPTANCE_SQL).fetchall()}
+                         int(c["current"]), c["created_at"],
+                         json.dumps([{k: v for k, v in x.items() if k != "sha256"} for x in json.loads(checked)])))
+    return {"expected_item": items, "expected_item_document": conn.execute(LINKS_SQL).fetchall(),
+            "gap_confirmation": gaps, "page_acceptance": conn.execute(ACCEPTANCE_SQL).fetchall(), "page": pages}
 
 
 def _series(matched: dict) -> dict:
@@ -333,7 +370,7 @@ def _read_history(conn: sqlite3.Connection, root: Path):
         ).fetchall()
         from gct.stages import archive, highlight, review  # the stages import this package
 
-        extra = {**_missing(conn, root), **_series(matched), **_comparison(conn, matched), **_adjudication(conn),
+        extra = {**_missing(conn, root, docs),**_series(matched), **_comparison(conn, matched), **_adjudication(conn),
                  "hidden_by_archive": [tuple(h.values()) for h in archive.hidden(conn)],
                  "sheet_mapping": conn.execute(SHEET_MAPPING_SQL).fetchall(),
                  "deleted_document": conn.execute(DELETED_SQL).fetchall(),
@@ -394,7 +431,7 @@ def build(conn: sqlite3.Connection, root: Path) -> dict:
     hid = extra["hidden_by_archive"]
     meta = {
         "version": version, "built_at": built_at, "history_mark": mark,
-        "gct_version": __version__, "projection_schema": 14,
+        "gct_version": __version__, "projection_schema": 15,
         "hidden_by_archive": json.dumps({"documents": len(hid), **{k: sum(h[i] for h in hid) for i, k in (
             (3, "claims"), (4, "evidence_refs"), (5, "review_records"))}}),
         "deleted_documents": len(extra["deleted_document"]),
@@ -438,9 +475,11 @@ def _retain(conn: sqlite3.Connection, root: Path) -> None:
 def purge(path: Path, doc_id: int, claims: list, versions: list, gaps: list, marker: str) -> None:
     """Remove a deleted document from one retained version file (story 4.5, AD-9): every row naming the document, one
     of its claims or claim versions (comparison pairs included), the series it alone made, and the contributor text
-    the deletion cleared (gap confirmations by id, the acceptance lines of expectations that declared it, which also
-    clears another document's lines of those expectations). Then VACUUM, so freed pages do not keep the text. A file
-    of an older projection schema is purged in the tables and columns it has."""
+    the deletion cleared (gap confirmations by id). Accepted entries: a file of projection schema 15 or later (it has
+    the page table) holds acceptance ids only, so the entries of the document's acceptances are dropped and every other
+    entry stays as it was; an older file's acceptance lines of expectations that declared it are rewritten with the
+    marker, which also clears another document's lines of those expectations. Then VACUUM, so freed pages do not keep
+    the text. A file of an older projection schema is purged in the tables and columns it has."""
     from gct.stages.deletion import PROJECTION  # the stages import this package
 
     ids = {"document": [doc_id], "claim": claims, "version": versions}
@@ -450,7 +489,14 @@ def purge(path: Path, doc_id: int, claims: list, versions: list, gaps: list, mar
                 for (t,) in out.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
         out.execute("BEGIN IMMEDIATE")
         try:
-            if "accepted" in cols.get("expected_item", ()) and "expected_item_document" in cols:
+            if "page" in cols:  # projection 15: entries by acceptance id, read before the role deletes below
+                gone = {i for (i,) in out.execute("SELECT id FROM page_acceptance WHERE document_id = ?", (doc_id,))}
+                for i, accepted in out.execute("SELECT id, accepted FROM expected_item").fetchall():
+                    entries = json.loads(accepted)
+                    kept = [a for a in entries if a["acceptance_id"] not in gone]
+                    if len(kept) < len(entries):  # untouched otherwise, byte for byte
+                        out.execute("UPDATE expected_item SET accepted = ? WHERE id = ?", (json.dumps(kept), i))
+            elif "accepted" in cols.get("expected_item", ()) and "expected_item_document" in cols:
                 for i, accepted in out.execute(
                         "SELECT id, accepted FROM expected_item WHERE id IN (SELECT expected_item_id FROM"
                         " expected_item_document WHERE document_id = ?)", (doc_id,)).fetchall():
