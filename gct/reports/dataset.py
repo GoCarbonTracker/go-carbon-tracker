@@ -219,7 +219,6 @@ class _Build:
     def __init__(self, conn, root, pconn, ident, flt, include):
         self.conn, self.root, self.pconn, self.ident, self.flt, self.include = conn, root, pconn, ident, flt, include
         self.version = ident["version"]
-        self.p16 = ident["projection_schema"] >= 16  # ponytail: goes with sides()' fallback at the C-projection merge
         self.eff = labels.effective(conn, pconn)  # P3, read once
         self._ships, self._keys, self._books = {}, {}, {}
 
@@ -269,7 +268,7 @@ class _Build:
         claim_doc = dict(rconn.execute("SELECT id, document_id FROM claim").fetchall())
         docs = {d for (d,) in rconn.execute("SELECT id FROM document")}
         # P-match: the claims that wait with candidates, taken before any removal (the triggers drop their rows).
-        waiting = {c for (c,) in rconn.execute("SELECT DISTINCT claim_id FROM match_candidate")} if self.p16 else set()
+        waiting = {c for (c,) in rconn.execute("SELECT DISTINCT claim_id FROM match_candidate")}
 
         def drop(table, kind, named, key="rowid"):
             gone = [r[key] for r in rconn.execute(f"SELECT {key} AS {key}, * FROM {table}").fetchall()
@@ -288,8 +287,7 @@ class _Build:
         drop("series_point", "series point", of_claims("claim_id"))
         # P4 and P4a: a restatement row names both claims' documents and its evidence document; a side the version
         # cannot trace is withheld.
-        sides = self.sides(rconn)
-        drop("restatement", "restatement record", lambda r: {claim_doc.get(c) for c in sides(r)} | {
+        drop("restatement", "restatement record", lambda r: of_claims("original_claim_id", "restated_claim_id")(r) | {
             r["evidence_document_id"]})
         for t in ("review_company", "review_auditor"):
             drop(t, LEDGER_KINDS[t], lambda r: of_claims("claim_id")(r) | (
@@ -337,14 +335,6 @@ class _Build:
             sql, p = _in(newest.values())
             rconn.execute(f"UPDATE {t} SET latest = id IN {sql}", (p,))
 
-    def sides(self, work):
-        """The two claim ids of a restatement row (projection 16's columns). ponytail: below 16 only current version
-        ids resolve (None otherwise); this fallback goes when the C-projection branch merges and pin requires 16."""
-        if self.p16:
-            return lambda r: (r["original_claim_id"], r["restated_claim_id"])
-        version_claim = dict(work.execute("SELECT claim_version_id, id FROM claim").fetchall())
-        return lambda r: (version_claim.get(r["original_version_id"]), version_claim.get(r["restated_version_id"]))
-
     def _match(self, rconn, waiting):
         """C5a 3.4 and 3.5 (P-match steps 2 to 7): series by their remaining rule points; each waiting claim's match
         state by match.compute's rule over its remaining candidates in the reduced creation order; its reviewed point
@@ -354,45 +344,43 @@ class _Build:
 
         rconn.execute("DELETE FROM series WHERE id NOT IN (SELECT series_id FROM series_point WHERE link = 'rule')")
         rconn.execute("DELETE FROM series_point WHERE series_id NOT IN (SELECT id FROM series)")
-        if self.p16:
-            rconn.execute("DELETE FROM match_candidate WHERE series_id NOT IN (SELECT id FROM series)"
-                          " OR claim_id NOT IN (SELECT id FROM claim)")
-            # match.compute makes ordinary series in its first pass and as-printed ones in its second, each at its
-            # first rule point in document then claim order.
-            order = {}
-            for r in rconn.execute("SELECT p.series_id, p.comparable, c.document_id, c.id FROM series_point p"
-                                   " JOIN claim c ON c.id = p.claim_id WHERE p.link = 'rule'"):
-                k = (0 if r["comparable"] else 1, r["document_id"], r["id"])
-                order[r["series_id"]] = min(order.get(r["series_id"], k), k)
-            candidates = {}
-            for r in rconn.execute("SELECT claim_id, series_id, decision FROM match_candidate"):
-                candidates.setdefault(r["claim_id"], []).append(r)
-            claims = {r["id"]: r for r in rconn.execute("SELECT * FROM claim")}
-            for cid in sorted(waiting & set(claims)):
-                c = claims[cid]
-                known = c["boundary_state"] in match.KNOWN and c["reporting_boundary"] != "unknown"
-                reason = match.BOUNDARY_UNKNOWN if not known else match.UNIT_UNKNOWN if c["unit_key"] is None \
-                    else match.NOT_CONVERTIBLE
-                rows = sorted(candidates.get(cid, []), key=lambda r: order[r["series_id"]])
-                linked = next((r["series_id"] for r in rows if r["decision"] == "linked"), None)
-                state = (match.NOT_MATCHABLE, reason + match.NO_SERIES, None) if not rows else (
-                    match.REVIEWED, reason, linked) if linked else (match.UNCERTAIN, reason, None) if any(
-                    r["decision"] is None for r in rows) else (match.NOT_MATCHABLE, match.NOT_LINKED, None)
-                rconn.execute("UPDATE claim SET match_state = ?, match_reason = ?, series_id = ? WHERE id = ?",
-                              (*state, cid))
-                rconn.execute("DELETE FROM series_point WHERE claim_id = ? AND link = 'reviewed' AND series_id IS NOT ?",
-                              (cid, linked))
-                if linked and not rconn.execute("SELECT 1 FROM series_point WHERE claim_id = ? AND series_id = ?",
-                                                (cid, linked)).fetchone():
-                    p = match._point({**dict(c), "claim_id": cid, "period": {"start": c["period_start"],
-                                                                             "end": c["period_end"]}},
-                                     "reviewed", False, reason)
-                    rconn.execute("INSERT INTO series_point (series_id, claim_id, claim_version_id, period_start,"
-                                  " period_end, value_text, unit_text, unit_key, number, value_base, link, comparable,"
-                                  " reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                  (linked, cid, p["claim_version_id"], p["period_start"], p["period_end"],
-                                   p["value_text"], p["unit_text"], p["unit_key"], p["number"], p["value_base"],
-                                   p["link"], 0, p["reason"]))
+        # The projection's triggers (published.py, match_candidate_*) have dropped the candidate rows of every removed
+        # claim, series and last rule point. match.compute makes ordinary series in its first pass and as-printed
+        # ones in its second, each at its first rule point in document then claim order.
+        order = {}
+        for r in rconn.execute("SELECT p.series_id, p.comparable, c.document_id, c.id FROM series_point p"
+                               " JOIN claim c ON c.id = p.claim_id WHERE p.link = 'rule'"):
+            k = (0 if r["comparable"] else 1, r["document_id"], r["id"])
+            order[r["series_id"]] = min(order.get(r["series_id"], k), k)
+        candidates = {}
+        for r in rconn.execute("SELECT claim_id, series_id, decision FROM match_candidate"):
+            candidates.setdefault(r["claim_id"], []).append(r)
+        claims = {r["id"]: r for r in rconn.execute("SELECT * FROM claim")}
+        for cid in sorted(waiting & set(claims)):
+            c = claims[cid]
+            known = c["boundary_state"] in match.KNOWN and c["reporting_boundary"] != "unknown"
+            reason = match.BOUNDARY_UNKNOWN if not known else match.UNIT_UNKNOWN if c["unit_key"] is None \
+                else match.NOT_CONVERTIBLE
+            rows = sorted(candidates.get(cid, []), key=lambda r: order[r["series_id"]])
+            linked = next((r["series_id"] for r in rows if r["decision"] == "linked"), None)
+            state = (match.NOT_MATCHABLE, reason + match.NO_SERIES, None) if not rows else (
+                match.REVIEWED, reason, linked) if linked else (match.UNCERTAIN, reason, None) if any(
+                r["decision"] is None for r in rows) else (match.NOT_MATCHABLE, match.NOT_LINKED, None)
+            rconn.execute("UPDATE claim SET match_state = ?, match_reason = ?, series_id = ? WHERE id = ?",
+                          (*state, cid))
+            rconn.execute("DELETE FROM series_point WHERE claim_id = ? AND link = 'reviewed' AND series_id IS NOT ?",
+                          (cid, linked))
+            if linked and not rconn.execute("SELECT 1 FROM series_point WHERE claim_id = ? AND series_id = ?",
+                                            (cid, linked)).fetchone():
+                p = match._point({**dict(c), "claim_id": cid, "period": {"start": c["period_start"],
+                                                                         "end": c["period_end"]}},
+                                 "reviewed", False, reason)
+                rconn.execute("INSERT INTO series_point (series_id, claim_id, claim_version_id, period_start,"
+                              " period_end, value_text, unit_text, unit_key, number, value_base, link, comparable,"
+                              " reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                              (linked, cid, p["claim_version_id"], p["period_start"], p["period_end"],
+                               p["value_text"], p["unit_text"], p["unit_key"], p["number"], p["value_base"],
+                               p["link"], 0, p["reason"]))
         rconn.execute("UPDATE series SET periods = (SELECT COUNT(*) FROM (SELECT DISTINCT period_start, period_end"
                       " FROM series_point p WHERE p.series_id = series.id)),"
                       " latest_period_end = (SELECT MAX(period_end) FROM series_point p WHERE p.series_id = series.id)")
@@ -639,11 +627,12 @@ class _Rows:
         from gct.stages import adjudicate, restate
 
         rest = {r["id"]: r for r in self.work.execute("SELECT * FROM restatement ORDER BY id")}
-        sides = self.b.sides(self.work)
+        def sides(r):
+            return r["original_claim_id"], r["restated_claim_id"]
+
         by_claims = {}  # P-match: a restatement row attaches to the pair of its two claims, on any version
         for r in rest.values():
-            if None not in (s := sides(r)):
-                by_claims.setdefault(frozenset(s), []).append(r)
+            by_claims.setdefault(frozenset(sides(r)), []).append(r)
         adjs = self.work.execute("SELECT * FROM adjudication ORDER BY id").fetchall()
         comparisons = self.work.execute("SELECT * FROM comparison ORDER BY rowid").fetchall()
         out = []

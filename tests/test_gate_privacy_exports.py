@@ -5,6 +5,7 @@ first-appearance order (K12). The fixture's environment (GCT_MODELS and the api_
 is set for every build and every output, and store.now is fixed so W and W' write the same times."""
 import json
 import re
+import sqlite3
 
 import pytest
 
@@ -234,6 +235,38 @@ def test_the_p_match_cells_are_recomputed_on_the_copy(w, w2, env):
     assert s["acme-review.pdf", f.EARLIER[0]][0] == "reviewed" and s["acme-printed.pdf", f.EARLIER[0]][0] == "reviewed"
     c = p_match_rows(build(w, mode="complete")[0])
     assert c["acme-review.pdf", f.BOTH[1]][0] == "uncertain"  # W itself differs: the copy recomputed it
+
+
+def test_the_reduced_copy_keeps_the_candidate_triggers_and_they_fire(w, env):
+    """Moka: projection 16's three triggers survive deserialize on the copy, and dropping a withheld claim's rows
+    there removes its candidate rows (and a removed series' rows)."""
+    from gct.reports import pin
+    from gct.stages import view
+
+    conn = store.connect(w / layout.DB_NAME)
+    pconn, ident = pin.pin(conn, w)
+    rconn = dataset._Build(conn, w, pconn, ident, view.normalise({}), []).reduce()
+    try:
+        names = {n for (n,) in rconn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'")}
+        assert {"match_candidate_claim", "match_candidate_series", "match_candidate_rule"} <= names
+        claims = {c for (c,) in rconn.execute("SELECT id FROM claim")}
+        series = {s for (s,) in rconn.execute("SELECT id FROM series")}
+        before = pconn.execute("SELECT claim_id, series_id FROM match_candidate").fetchall()
+        gone = [r for r in before if r["claim_id"] not in claims or r["series_id"] not in series]
+        assert gone  # the fixture's candidates of removed series (cells A to C); no waiting claim is withheld itself
+        after = {tuple(r) for r in rconn.execute("SELECT claim_id, series_id FROM match_candidate")}
+        assert after == {tuple(r) for r in before} - {tuple(r) for r in gone}
+        # The claim trigger on a copy made the same way (C5a step 1), since the fixture withholds no waiting claim.
+        copy = sqlite3.connect(":memory:")
+        copy.deserialize(pconn.serialize())
+        (cid,) = copy.execute("SELECT claim_id FROM match_candidate LIMIT 1").fetchone()
+        copy.execute("DELETE FROM claim WHERE id = ?", (cid,))
+        assert copy.execute("SELECT COUNT(*) FROM match_candidate WHERE claim_id = ?", (cid,)).fetchone()[0] == 0
+        assert copy.execute("SELECT COUNT(*) FROM match_candidate").fetchone()[0] > 0
+        copy.close()
+    finally:
+        for c in (rconn, pconn, conn):
+            c.close()
 
 
 def test_restatement_rows_attach_through_their_claims_in_both_modes(w, w2, env):
