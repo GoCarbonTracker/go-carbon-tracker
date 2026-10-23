@@ -8,13 +8,14 @@ from datetime import datetime, timezone
 from importlib import resources
 from pathlib import Path
 
-from gct.reports import render_json
+from gct.reports import render_json, render_pdf
 from gct.workspace.layout import REFUSED, GctError
 
 # The only list of formats. Each write(dataset, reports, folder, crops) -> {"files": [...], "notes": [...]}; crops is
 # {} unless the format is flagged, then the one dict crops.cut returned, shared by every flagged format.
 FORMATS = {
     "json": {"write": render_json.write, "crops": False},
+    "pdf": {"write": render_pdf.write, "crops": True},
 }
 # NAME: the dataset reports its renderers receive.
 REPORTS = {"evidence-index": ["evidence_index"], "restatement-log": ["restatement_log"], "gap-report": ["gap_report"],

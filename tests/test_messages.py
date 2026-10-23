@@ -323,6 +323,14 @@ def test_report_export_messages_have_cause_next_action_and_no_internals(tmp_path
             shutil.rmtree(folder)
     gct("report", "all", "--format", "json", "--workspace", root)
     assert "already exists; nothing was overwritten" in refused(root, ["--format", "json"], 4)
+    # Story 7.4: a stored original missing from files/ stops the PDF export before anything is written.
+    exports = sorted(p.name for p in (root / "exports").iterdir())
+    (root / "files").rename(tmp_path / "away")
+    err = refused(root, ["--format", "pdf", "--complete"], 3)  # the gate fixture shares no page in sanitised mode
+    assert err.startswith("error: The stored copy of document ") and err.endswith(
+        " is missing from the workspace.\nnext: Add the same file again with gct doc add to restore it, then run the"
+        " report again.\n")
+    assert sorted(p.name for p in (root / "exports").iterdir()) == exports
 
 
 def test_adjudicate_and_flag_messages_have_no_internals(ws, gct, make_file):
