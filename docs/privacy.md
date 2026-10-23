@@ -108,7 +108,8 @@ strings, CSV in its byte-order encoding, every member of an XLSX or other zip ar
 text, metadata and every stream of every object, HTML with its entities and `data:` URIs, and SQLite databases
 through their raw bytes, their `-wal` file and a dump of a copy made outside the scanned folder. Images in any of
 these are decoded to pixels and checked for an exact private pixel hash and for the marker colour. A part it cannot
-read stops the scan with an error. It never skips a part.
+read stops the scan with an error. It never skips a part. A PDF cross-reference entry that every section marks free,
+with no object behind it, is not a part.
 
 Every report format, in both modes, is written through `gct report all`. Both packages are written through
 `gct package create`, the complete one with `--include-private`. A complete output must hold each complete-only
