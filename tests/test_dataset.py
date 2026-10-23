@@ -977,3 +977,21 @@ def test_every_run_command_is_a_fixed_string():
     planted = {**sources, "gct/stages/planted.py": "from gct.workspace import runs\n"
                                                     "def go(conn, name):\n    runs.run(conn, f'add {name}')\n"}
     assert command_problems(planted) == ["gct/stages/planted.py: runs.run(conn, f'add {name}')"]
+
+
+# M1 story 7.6 series-key round 2: a synthetic credential typed into a metric, a unit and a boundary statement
+# reaches no report in any format or mode. Before match.py scrubbed ahead of match.unit_text_of, the restatement
+# log's unit_family held the unit's token lowercased with its space removed ("printed:bearer<token>").
+def test_a_credential_in_a_claim_text_reaches_no_report(tmp_path):
+    import leakage
+    from test_package import SEEDS, credential_workspace
+    from gct.reports import export
+    root = tmp_path / "w" / "ws"
+    g = credential_workspace(root)
+    g("publish", "build")
+    for flags in ((), ("--complete",)):
+        folder = Path(g("report", "all", "--format", ",".join(sorted(export.FORMATS)), *flags)["folder"])
+        assert {p.suffix for p in folder.rglob("*") if p.is_file()} >= {".json", ".xlsx", ".csv", ".pdf"}, flags
+        log = json.loads(next(folder.rglob("dataset.json")).read_text(encoding="utf-8"))["restatement_log"]
+        assert "printed:redacted" in {r["unit_family"] for r in log}, flags
+        assert leakage.found(folder, SEEDS) == {}, flags

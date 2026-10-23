@@ -1027,8 +1027,8 @@ def keys(ws, table) -> list:
 
 # Fix round 1 (Codex review of 9e421e2): the reviewer's synthetic workspaces. One company; an optional private PDF
 # added first; one shareable PDF; read, extract, infer, every boundary statement scoped to its page, every proposed
-# group accepted, match.
-def small(root, shared, private=None):
+# group of the given fields accepted, match.
+def small(root, shared, private=None, fields=("period", "boundary")):
     gate_fixture.gct("workspace", "init", root)
 
     def g(*argv):
@@ -1049,20 +1049,24 @@ def small(root, shared, private=None):
     g("infer")
     for group in sorted(g("infer", "groups", "--state", "proposed")["groups"],
                         key=lambda x: (x["document"], x["field"], str(x["start"]))):
-        g("infer", "accept", group["id"], *gate_fixture.WHO)
+        if group["field"] in fields:
+            g("infer", "accept", group["id"], *gate_fixture.WHO)
     g("match")
     return g, doc, [c["id"] for c in g("claims", "list", "--doc", doc)["claims"]]
 
 
 def packages(g, root) -> dict:
-    """{mode: (read_back of the package, its preview)} after a fresh publish build."""
+    """{mode: (read_back of the package, its preview)} after a fresh publish build; each package holds the rows its
+    preview counts, made with the preview's token."""
     g("publish", "build")
     out = {}
     for mode, flags in (("sanitised", ()), ("complete", ("--complete",))):
         p = g("package", "preview", *flags)
         folder = g("package", "create", *flags, *(("--include-private",) if flags else ()), "--confirm",
                    p["token"])["folder"]
-        out[mode] = (read_back(root / folder), p)
+        back = read_back(root / folder)
+        assert {t: len(back["workspace"][t]) for t in p["included"]["tables"]} == p["included"]["tables"], mode
+        out[mode] = (back, p)
     return out
 
 
@@ -1157,38 +1161,75 @@ def parity(out) -> None:
 
 
 # Round 2, F3: history. A review and a restatement recorded against the standalone series stay after both rule claims
-# are resolved to consolidated (the key is no longer formed), in the sanitised package as in the complete one
+# are resolved to consolidated (the key is no longer formed), in the sanitised package as in the complete one (W').
+# W adds an unrelated private document first (another metric, its groups accepted, a series of its own): its sanitised
+# package keeps the same public history, key for key once renumbered.
 def test_rows_naming_a_series_their_claims_formed_earlier_ship_in_an_all_shareable_package(tmp_path):
-    root = tmp_path / "w" / "ws"
-    root.parent.mkdir()
     shared = gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", v] for v in ("100", "110", "120")], ["FY 2024-25"],
                                lines=[(40, 150, gate_fixture.NOTE)])
-    g, doc, claims = small(root, shared)
+    unrelated = gate_fixture.page([[gate_fixture.ENERGY, "GJ", "5", "6"]], ["FY 2024-25", "FY 2023-24"])
+    got = {}
+    for name, private in (("w2", None), ("w", unrelated)):
+        root = tmp_path / name / "ws"
+        root.parent.mkdir()
+        g, doc, claims = small(root, shared, private)
+        g("restate", "record", "--original", claims[0], "--restated", claims[1], "--page", 1, "--quote",
+          gate_fixture.QUOTE, *gate_fixture.WHO)
+        g("infer", "reject", "--claim", claims[2], "--field", "boundary", *gate_fixture.WHO)
+        sid = next(s["id"] for s in g("series", "list")["series"] if s["metric_key"] == "ghg_scope_1")
+        g("match", "link", claims[2], "--series", sid, *gate_fixture.WHO)
+        for c in claims[:2]:
+            g("infer", "resolve", c, "--field", "boundary", "--boundary", "consolidated", *gate_fixture.WHO)
+        g("doc", "archive", doc, *gate_fixture.WHO)
+        got[name] = packages(g, root)
+    parity(got["w2"])
+    ws = got["w2"]["sanitised"][0]["workspace"]
+    assert len(ws["match_review"]) == len(ws["restatement"]) == 1 and '"standalone"' in ws["restatement"][0]["series_key"]
+    other, p = got["w"]["sanitised"]
+    for t in package.SERIES_NAMED:
+        assert keys(other["workspace"], t) == keys(ws, t), t
+    assert p["withheld"]["selection_recomputed"] == 0
+
+
+# Round 2: history that rests on a withheld basis stays withheld, and a proposal never accepted is no state. The
+# shareable PDF proposes standalone for both claims (left unaccepted); each claim's standalone boundary is accepted
+# from the private PDF's statement instead; the restatement is recorded on that series, then both claims are
+# resolved to consolidated. No shipped row ever made the series, so the sanitised package withholds the restatement.
+def test_history_formed_only_through_a_withheld_basis_is_withheld(tmp_path):
+    root = tmp_path / "w" / "ws"
+    root.parent.mkdir()
+    private = gate_fixture.page([[gate_fixture.ENERGY, "GJ", "5"]], ["FY 2024-25"])
+    shared = gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "100"], [gate_fixture.SCOPE_1, "tCO2e", "110"]],
+                               ["FY 2024-25"], lines=[(40, 150, gate_fixture.NOTE)])
+    g, doc, claims = small(root, shared, private, fields=("period",))
+    for c in claims:
+        borrow(root, c, f"document_id != {doc}")
     g("restate", "record", "--original", claims[0], "--restated", claims[1], "--page", 1, "--quote",
       gate_fixture.QUOTE, *gate_fixture.WHO)
-    g("infer", "reject", "--claim", claims[2], "--field", "boundary", *gate_fixture.WHO)
-    g("match", "link", claims[2], "--series", g("series", "list")["series"][0]["id"], *gate_fixture.WHO)
-    for c in claims[:2]:
+    for c in claims:
         g("infer", "resolve", c, "--field", "boundary", "--boundary", "consolidated", *gate_fixture.WHO)
-    g("doc", "archive", doc, *gate_fixture.WHO)
     out = packages(g, root)
-    parity(out)
-    ws = out["sanitised"][0]["workspace"]
-    assert len(ws["match_review"]) == len(ws["restatement"]) == 1 and '"standalone"' in ws["restatement"][0]["series_key"]
+    san, p = out["sanitised"]
+    assert any(i["boundary"] == "standalone" and i["basis_id"] for i in san["workspace"]["inference"])  # proposed
+    assert san["workspace"]["restatement"] == [] and p["withheld"]["selection_recomputed"] == 1
+    assert len(out["complete"][0]["workspace"]["restatement"]) == 1
 
 
-# Round 2, F1: synthetic tokens only. TOKEN1 is typed into three metric corrections (one with squeezed spaces), so
-# the unmapped series key holds it lowercased inside series_key[1]; TOKEN2 is in the boundary statement, so it reaches
-# basis, inference, inference.group_key and series_key[3]; TOKEN3 is typed as a unit, which a unit as printed key
-# (here a restatement's) holds lowercased with its spaces removed. Both packages hold none of them in any form; the
-# sanitised one keeps both rows (their keys built from the written text, series of the package's own version 1).
+# Round 2, F1: synthetic tokens only. TOKEN1 is typed into three metric corrections (one with squeezed spaces), which
+# an unmapped series key holds lowercased inside series_key[1]; TOKEN2 is in the boundary statement, so it reaches
+# basis, inference, inference.group_key and series_key[3] verbatim; TOKEN3 is typed as a unit, which a unit as
+# printed key holds lowercased with its space removed. match.py now scrubs before it lowercases, so new keys hold
+# "[redacted]"; the legacy case writes the old forms back. Both packages hold none of the tokens in any form; the
+# sanitised one keeps both reviews (their keys, as written, series of the package's own version 1).
 TOKENS = {f"CRED-KEY-0{n}": f"GCTSYNTHTOKEN{n}{'q' * 20}" for n in (1, 2, 3)}
+SEEDS = [{"name": n, "kind": "credential", "expect": "never", "value": v} for n, v in TOKENS.items()]
 
 
-def test_a_credential_in_a_claim_text_reaches_no_key_in_either_package(tmp_path):
+def credential_workspace(root, legacy=None):
+    """The workspace above, with two link reviews (an unmapped and a unit as printed series); legacy: a monkeypatch
+    with which the reviews are recorded by match.py without its scrub (then undone). Returns g."""
     from gct.stages import match
     t1, t2, t3 = TOKENS.values()
-    root = tmp_path / "w" / "ws"
     root.parent.mkdir()
     shared = gate_fixture.page([["Mystery water recycled", "kL", "100", "110", "120"],
                                 [gate_fixture.SCOPE_1, "tCO2e", "200", "210", "220"]], ["FY 2024-25"] * 3,
@@ -1206,36 +1247,52 @@ def test_a_credential_in_a_claim_text_reaches_no_key_in_either_package(tmp_path)
     for group in g("infer", "groups", "--state", "proposed")["groups"]:
         g("infer", "accept", group["id"], *gate_fixture.WHO)
     g("match")
+    if legacy:
+        legacy.setattr(match, "scrub", lambda s: s, raising=False)
     for c, printed in ((water[2], False), (scope[2], True)):
         g("infer", "reject", "--claim", c, "--field", "boundary", *gate_fixture.WHO)
         sid = next(s["id"] for s in g("series", "list")["series"] if s["document_id"] == doc
                    and s["unit_family"].startswith("printed:") == printed)
         g("match", "link", c, "--series", sid, *gate_fixture.WHO)
-    seeds = [{"name": n, "kind": "credential", "expect": "never", "value": v} for n, v in TOKENS.items()]
+    if legacy:
+        legacy.undo()  # back to the current match.py (the caller patches nothing else)
+    return g
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_a_credential_in_a_claim_text_reaches_no_key_in_either_package(tmp_path, monkeypatch, legacy):
+    """legacy: the two review keys as match.py wrote them before it scrubbed (the token lowercased in the metric, and
+    lowercased with its space removed in the unit): the package scrubs them; the metric one is still the series the
+    package forms, the unit as printed one ("printed:[redacted]" against "printed:redacted") is not, so the sanitised
+    package withholds it."""
+    from gct.stages import match
+    t1, t2, t3 = TOKENS.values()
+    root = tmp_path / "w" / "ws"
+    g = credential_workspace(root, monkeypatch if legacy else None)
     source = sqlite3.connect(root / layout.DB_NAME)
     review, flat = (k for (k,) in source.execute("SELECT series_key FROM match_review ORDER BY id"))
     source.close()
-    assert set(leakage.found(root / layout.DB_NAME, seeds)) == set(TOKENS)  # each token is in the source
-    assert t1.lower() in review and t2 in review  # lowercased inside the metric, verbatim in the detail
-    assert f"printed:bearer{t3.lower()}" in flat  # lowercased, its space removed
+    assert t2 in review  # verbatim in the boundary detail
+    assert (t1.lower() in review, f"printed:bearer{t3.lower()}" in flat) == (legacy, legacy), (review, flat)
+    assert set(leakage.found(root / layout.DB_NAME, SEEDS)) == set(TOKENS)  # each token is in the source
     out = packages(g, root)
     for mode, (back, p) in out.items():
-        assert len(back["workspace"]["match_review"]) == 2, mode
+        assert len(back["workspace"]["match_review"]) == (1 if legacy and mode == "sanitised" else 2), mode
         folder = root / "exports" / next(n for n in made(root) if n.endswith(mode))
         for db in (folder / layout.DB_NAME, folder / "published" / "v1.db"):  # the original PDF prints TOKEN2
-            assert leakage.found(db, seeds) == {}, (mode, db)
+            assert leakage.found(db, SEEDS) == {}, (mode, db)
         text = (dump_text(folder / layout.DB_NAME) + dump_text(folder / "published" / "v1.db")).casefold()
         assert not [t for t in TOKENS.values() if t.casefold() in text], mode
         conn = store.connect(folder / layout.DB_NAME)
         formed = {s["key"] for s in match.compute(conn)["series"].values()}
         conn.close()
-        assert back["workspace"]["match_review"] and {r["series_key"] for r in back["workspace"]["match_review"]} <= (
-            formed), mode
-    assert out["sanitised"][1]["withheld"]["selection_recomputed"] == 0
+        if mode == "sanitised" or not legacy:
+            assert {r["series_key"] for r in back["workspace"]["match_review"]} <= formed, mode
+    assert out["sanitised"][1]["withheld"]["selection_recomputed"] == (1 if legacy else 0)
 
 
-# The candidate keys package.series_keys builds cover every key match.compute forms, on the source (stored keys) and
-# on both packages (written keys): the check that ties its copy of the key shape to match.py
+# The replay in package.series_keys reaches every key match.compute forms, on the source and on both packages (the
+# current state is the replay's last step): the check that ties its copy of the key shape to match.py
 def test_series_keys_cover_what_match_compute_forms(rw, tmp_path, monkeypatch, gct):
     from gct.stages import match
     src = copy(rw, tmp_path / "w", monkeypatch)
@@ -1243,7 +1300,7 @@ def test_series_keys_cover_what_match_compute_forms(rw, tmp_path, monkeypatch, g
     def rows(db) -> dict:
         conn = store.connect(db)
         try:
-            return {t: [dict(r) for r in conn.execute(f"SELECT * FROM {t}")] for t in (
+            return {t: [dict(r) for r in conn.execute(f"SELECT * FROM {t} ORDER BY id")] for t in (
                 "claim", "claim_version", "metric_assignment", "inference", "inference_review")}
         finally:
             conn.close()
@@ -1253,21 +1310,24 @@ def test_series_keys_cover_what_match_compute_forms(rw, tmp_path, monkeypatch, g
         conn = store.connect(db)
         formed = {s["key"] for s in match.compute(conn)["series"].values()}
         conn.close()
-        assert formed and formed <= set(package.series_keys(rows(db))), db
+        assert formed and formed <= package.series_keys(rows(db)), db
 
 
-# A complete package's key that no shipped state explains is scrubbed part by part in any case: a lowercased bearer
-# token with squeezed spaces inside series_key[1], and a configured key's value lowercased in the boundary detail
-def test_an_unexplained_key_is_scrubbed_in_any_case(monkeypatch):
+# The shared scrubber (gct/models/redact.py; its own tests are in tests/test_models.py, outside this round's grant):
+# a bearer scheme in any case, with squeezed spaces, or joined to its token as match.unit_text_of leaves it; a
+# configured key's value in any case. Synthetic values only.
+def test_scrub_catches_a_bearer_scheme_in_any_case_and_form(monkeypatch):
     from gct.models import redact
-    bearer, env = (f"gctsynthtoken{n}{'q' * 20}" for n in (4, 5))
+    token, env = (f"gctsynthtoken{n}{'q' * 20}" for n in (4, 5))
+    for text in (f"Bearer {token}", f"bearer {token}", f"BeArEr {token}", f"bearer   {token}", f"bearer\t{token}",
+                 f"bearer{token}", f"BEARER{token.upper()}", f"printed:bearer{token}"):
+        assert token not in redact.scrub(text).casefold() and redact.MARK in redact.scrub(text), text
+    assert redact.scrub(f'["doc:3:p1:t0r1:bearer {token}", 2]') == '["doc:3:p1:t0r1:[redacted]", 2]'  # stops at "
+    for plain in ("the bearers of risk", "bearer", "Total Scope 1 emissions"):
+        assert redact.scrub(plain) == plain, plain
     monkeypatch.setattr(redact, "_names", lambda: ("GCT_SYNTH_KEY",))
     monkeypatch.setenv("GCT_SYNTH_KEY", env.upper())
-    key = [1, f"doc:3:p1:t0r1:bearer   {bearer}", "subsidiary_set", f"acme and {env}", "tco2e", 3, "fiscal_year"]
-    written = package._scrub_key(json.dumps(key))
-    assert bearer not in written.casefold() and env not in written.casefold(), written
-    assert json.loads(written)[1] == "doc:3:p1:t0r1:[redacted]" and json.loads(written)[3] == "acme and [redacted]"
-    assert json.loads(written)[0::4] == [1, "tco2e"] and package._scrub_key("") == ""
+    assert redact.scrub(f"acme and {env}") == "acme and [redacted]"
 
 
 # F2: an unmapped metric's series key holds its document id inside the metric ("doc:N:..."); ID_TEXT declares it, so

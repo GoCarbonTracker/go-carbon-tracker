@@ -6,7 +6,10 @@ import os
 import re
 
 MARK = "[redacted]"
-PATTERNS = re.compile(r'(?<![A-Za-z0-9])(?:sk|nvapi)-[A-Za-z0-9_-]{16,}|Bearer\s+[^\s"]+')
+# In any case: a key text is lowercased (match.label_of), and a unit text also loses its spaces (match.unit_text_of),
+# so the scheme is also caught joined to a long token
+PATTERNS = re.compile(r'(?<![A-Za-z0-9])(?:sk|nvapi)-[A-Za-z0-9_-]{16,}|bearer(?:\s+[^\s"]+|[A-Za-z0-9._~+/=-]{16,})',
+                      re.I)
 
 
 @functools.lru_cache(maxsize=None)
@@ -26,5 +29,5 @@ def scrub(text):
         return text
     for name in _names():
         if value := os.environ.get(name):  # read live, so a key set after the first call is still redacted
-            text = text.replace(value, MARK)
+            text = re.sub(re.escape(value), MARK, text, flags=re.I)
     return PATTERNS.sub(MARK, text)

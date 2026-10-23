@@ -5,6 +5,7 @@ import re
 
 from collections import Counter
 
+from gct.models.redact import scrub
 from gct.stages import Stage, correct, infer, run_stage, version_of
 from gct.stages.extract import WESTERN
 from gct.stages.link import EXTRACT_FIRST
@@ -348,7 +349,7 @@ def compute(conn, company=None) -> dict:
         if p["state"] not in KNOWN:
             _state(c, NOT_MATCHABLE, PERIOD_UNKNOWN)
             continue
-        label = label_of(c["metric_text"])
+        label = label_of(scrub(c["metric_text"]))  # scrubbed first: a key holds the text lowercased
         if c["metric_key"] is None and not label:
             _state(c, NOT_MATCHABLE, NO_LABEL)
             continue
@@ -368,7 +369,7 @@ def compute(conn, company=None) -> dict:
             _state(c, SERIES, sid=series_id(key))
             continue
         if c["boundary_known"] and row:  # a unit not usable across documents may still join the columns of its row
-            c["printed"] = head + [f"printed:{unit_text_of(c['unit_text'] or '') or '-'}", c["document_id"], p["kind"],
+            c["printed"] = head + [f"printed:{unit_text_of(scrub(c['unit_text']) or '') or '-'}", c["document_id"], p["kind"],
                                    f"p{c['page_number']}:{row}"]
         waiting.append(c)
     printed = {}
