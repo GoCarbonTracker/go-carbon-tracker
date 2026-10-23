@@ -2,6 +2,7 @@ import argparse
 import json
 import math
 import os
+import shlex
 import sys
 import webbrowser
 from collections import Counter
@@ -11,7 +12,7 @@ from gct.api import server
 from gct.measure import g2
 from gct.models import adapters, policy
 from gct.stages import (adjudicate, archive, correct, deletion, extract, highlight, infer, link, match, missing, read,
-                        restate, review, sheet)
+                        restate, review, saved_view, sheet, view)
 from gct.workspace import intake, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
@@ -1151,6 +1152,174 @@ def cmd_publish_status(args) -> None:
     _print(args, {"status": "ok", **st}, text)
 
 
+def _filter_arg(given: str | None) -> dict:
+    """--filter JSON, or @FILE holding it."""
+    if given is None:
+        return {}
+    text = given
+    if given.startswith("@"):
+        try:
+            text = open(given[1:], encoding="utf-8").read()
+        except OSError:
+            raise GctError(layout.NOT_FOUND, f"The filter file {given[1:]} cannot be read.",
+                           "Give the path of a file holding the filter as JSON, for example --filter @filter.json") from None
+    try:
+        return json.loads(text)
+    except ValueError:
+        raise GctError(layout.USAGE, "The filter is not valid JSON.",
+                       """Give it as JSON, for example --filter '{"company": [1], "text": "scope 1"}'""") from None
+
+
+def _sort_arg(given: str) -> dict:
+    key, _, way = given.partition(":")
+    if way not in ("", "asc", "desc"):
+        raise GctError(layout.USAGE, f"The sort {given} is not KEY or KEY:desc.", "Give for example --sort value:desc")
+    return {"key": key, "dir": way or "asc"}
+
+
+def _claims_arg(given: str | None) -> list[int] | None:
+    if given is None:
+        return None
+    try:
+        return [int(x) for x in given.split(",")]
+    except ValueError:
+        raise GctError(layout.USAGE, f"The claims {given} are not claim ids separated by commas.",
+                       "Give for example --claims 12,13") from None
+
+
+def _records_text(r: dict) -> list[str]:
+    """What every shape says besides its claims: the count, the F7 lines and the ids not found."""
+    n = r["matched"]
+    lines = [f"{n} claim{' matches' if n == 1 else 's match'} in data version {r['data_version']}."]
+    if r["excluded"]["period_unknown"]:
+        lines.append(f"Left out by the period: {r['excluded']['period_unknown']} with an unknown period.")
+    lines += [r["hidden_by_archive"]["text"]] * bool(r["hidden_by_archive"]["text"])
+    lines += [d["text"] for d in r["deleted_in_filter"]]
+    lines += [f"claim {x['claim_id']}: {x['reason']}" for x in r["not_found"]]
+    return lines
+
+
+def _row_line(row: dict) -> str:
+    c = row["claim"]
+    where = f"sheet {c['sheet']} cell {c['cell']}" if c["sheet"] else f"p{c['page']}" if c["page"] else "no page"
+    figure = f"{c['value_text']} {c['unit_text']}" if c["unit_text"] else c["value_text"]
+    return (f"{c['id']}  {row['company_name']}  {row['document_name']} {where}  {figure}  {c['metric_text'] or '(no wording)'}"
+            f"  evidence: {row['evidence']['text']}  review: {row['review']['text']}")
+
+
+def cmd_view_records(args) -> None:
+    flt, sort, ids = _filter_arg(args.filter), [_sort_arg(s) for s in args.sort], _claims_arg(args.claims)
+    _, pconn = view.pinned(_open(args, write=False), args.root)
+    try:
+        r = view.answer(pconn, flt, args.shape, args.offset, args.limit, sort or None, ids)
+    finally:
+        pconn.close()
+    if args.shape == "values":
+        n = r["matched"]
+        lines = [f"{n} claim{' matches' if n == 1 else 's match'} in data version {r['data_version']}.",
+                 *(f"metric {k['metric_key']}: {k['claims']} claim{'s' * (k['claims'] != 1)}" for k in r["metric_keys"]),
+                 *(f"series {s['id']}  {s['metric_key']}  company {s['company_id']}  {s['points']}"
+                   f" point{'s' * (s['points'] != 1)}"
+                   for s in r["series"])]
+        return _print(args, r, "\n".join(lines))
+    _print(args, r, "\n".join(_shape_lines(r, args.shape)))
+
+
+def _shape_lines(r: dict, shape: str) -> list[str]:
+    """What gct view records and gct view open print for a table, graph or series answer."""
+    lines = _records_text(r)
+    if shape == "table":
+        lines += [_row_line(x) for x in r["rows"]]
+        if r["empty"]:
+            lines.append(r["empty"])
+        elif r["rows"]:
+            lines.append(f"Rows {r['offset'] + 1} to {r['offset'] + len(r['rows'])} of {r['matched']}.")
+        else:
+            lines.append(f"No rows from row {r['offset'] + 1}: {r['matched']} match.")
+    elif not r["drawable"]:
+        lines.append(r["reason"])
+    elif shape == "graph":
+        lines.append(f"A graph of {r['matched']} claims: {len(r['nodes'])} nodes, {len(r['hyperedges'])} hyperedges,"
+                     f" {len(r['edges'])} edges.")
+    else:
+        s = r["series"]
+        lines += [f"series {s['id']}  {s['company_name']}  {s['metric_key'] or s['label']}  {s['reporting_boundary']}",
+                  *(f"  {p['period_start']}..{p['period_end']}  " + _row_line(p) for p in r["points"]),
+                  *(f"  claims {p['claim_a']} and {p['claim_b']}: {p['state']}" for p in r["comparisons"])]
+    return lines
+
+
+# Saved views and guided questions (story 6.4 part A): a view stores the filter, never claims or a version.
+
+def _version_of(args, conn) -> int | None:
+    current = published.current_version(conn, args.root)
+    return None if current is None else current[0]
+
+
+def _view_line(v: dict) -> str:
+    return (f"{v['name']}  {v['section']}  saved {v['saved_at'][:10]} by {v['contributor']}  {json.dumps(v['filter'])}"
+            + (f"  ({v['earlier']} earlier save{'s' * (v['earlier'] != 1)} kept)" if v["earlier"] else ""))
+
+
+def cmd_view_save(args) -> None:
+    conn = _open(args)
+    r = saved_view.save(conn, args.name, _filter_arg(args.filter), args.section, args.as_)
+    v = r["view"]
+    _print(args, {"status": "ok", **r, "data_version": _version_of(args, conn)},
+           f"Saved view {_view_line(v)}.\nIt opens on the current data version, with claims of reports added later:"
+           f" gct view open {shlex.quote(v['name'])}")
+
+
+def cmd_view_list(args) -> None:
+    conn = _open(args, write=False)
+    r = saved_view.listing(conn)
+    lines = [*map(_view_line, r["views"])] or ["No saved views. Save one with: gct view save NAME --filter JSON --as KEY"]
+    if r["hidden"]:
+        lines.append(f"{r['hidden']} removed view{'s are' if r['hidden'] != 1 else ' is'} not listed.")
+    _print(args, {"status": "ok", "data_version": _version_of(args, conn), **r}, "\n".join(lines))
+
+
+def cmd_view_open(args) -> None:
+    conn = _open(args, write=False)
+    v = saved_view.get(conn, args.name)
+    shape = args.shape or ("graph" if v["section"] == "graphs" else "table")
+    _, pconn = view.pinned(conn, args.root)
+    try:
+        r = view.answer(pconn, v["filter"], shape, args.offset, args.limit, [_sort_arg(s) for s in args.sort] or None)
+    finally:
+        pconn.close()
+    _print(args, {"status": "ok", "view": v, **r},
+           "\n".join([f"Saved view {_view_line(v)}", *_shape_lines(r, shape)]))
+
+
+def cmd_view_remove(args) -> None:
+    conn = _open(args)
+    r = saved_view.remove(conn, args.name, args.as_)
+    x = r["removed"]
+    _print(args, {"status": "ok", **r, "data_version": _version_of(args, conn)},
+           f"Removed saved view {x['name']} from the list. Its saves and this removal by {x['contributor']} stay in"
+           " the workspace.")
+
+
+def cmd_view_questions(args) -> None:
+    _, pconn = view.pinned(_open(args, write=False), args.root)
+    try:
+        r = saved_view.questions(pconn)
+    finally:
+        pconn.close()
+    lines = []
+    for q in r["questions"]:
+        if q["key"] == saved_view.SERIES_QUESTION:
+            n = len(q["choices"])
+            lines += [f"{q['key']}  {q['text']}  {n} series with two or more periods ({q['section']})",
+                      *(f"  series {c['series']}  {c['company']}  {c['label']}  {c['periods']} periods"
+                        for c in q["choices"])]
+        else:
+            lines.append(f"{q['key']}  {q['text']}  {q['matched']} claim{'s' * (q['matched'] != 1)} in data version"
+                         f" {r['data_version']} ({q['section']})")
+    _print(args, {"status": "ok", **r}, "\n".join(lines))
+
+
 def _run_line(r: dict) -> str:
     return f"{r['id']}  {r['started_at']}  {r['command']}  {r['outcome']}"
 
@@ -1380,7 +1549,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,review,adjudicate,flag,claims,sheet,correct,contributor,expect,pages,gap,publish,run,approve,model,measure,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,review,adjudicate,flag,claims,sheet,correct,contributor,expect,pages,gap,publish,view,run,approve,model,measure,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -1695,6 +1864,39 @@ def build_parser() -> argparse.ArgumentParser:
     publish.add_parser("build", parents=[common], help="build the next version and make it current").set_defaults(func=cmd_publish_build)
     publish.add_parser("restore", parents=[common], help="make the previous version current again").set_defaults(func=cmd_publish_restore)
     publish.add_parser("status", parents=[common], help="show the current version").set_defaults(func=cmd_publish_status)
+
+    views = group("view", "Tables and Graphs: claims of the current published version selected by one filter")
+    rec = views.add_parser("records", parents=[common], help="the claims a filter selects, as a table, graph or series")
+    rec.add_argument("--filter", metavar="JSON|@FILE", help="the filter object (default: {}, every claim; see docs/views.md)")
+    rec.add_argument("--shape", choices=view.SHAPES, default="table")
+    rec.add_argument("--offset", type=int, default=0, metavar="N", help="the first row of the table page (default: 0)")
+    rec.add_argument("--limit", type=int, default=view.LIMIT, metavar="N", help=f"rows per page, 1 to {view.MAX_LIMIT}"
+                                                                                  f" (default: {view.LIMIT})")
+    rec.add_argument("--sort", action="append", default=[], metavar="KEY[:desc]", help=f"one of: {', '.join(view.SORTS)}")
+    rec.add_argument("--claims", metavar="ID,ID", help="only these claims, of those the filter selects")
+    rec.set_defaults(func=cmd_view_records)
+    sv = views.add_parser("save", parents=[common], help="save a filter under a name, to open on later data versions")
+    sv.add_argument("name", metavar="NAME")
+    sv.add_argument("--filter", required=True, metavar="JSON|@FILE", help="the filter object (see docs/views.md)")
+    sv.add_argument("--section", default="tables", metavar="tables|graphs", help="the tab it opens (default: tables)")
+    sv.add_argument("--as", dest="as_", required=True, metavar="KEY", help="the contributor making this record")
+    sv.set_defaults(func=cmd_view_save)
+    views.add_parser("list", parents=[common], help="the saved views, by name").set_defaults(func=cmd_view_list)
+    op = views.add_parser("open", parents=[common], help="a saved view's claims on the current data version")
+    op.add_argument("name", metavar="NAME")
+    op.add_argument("--shape", choices=("table", "graph", "series"), help="default: table for a tables view, graph"
+                                                                          " for a graphs view")
+    op.add_argument("--offset", type=int, default=0, metavar="N", help="the first row of the table page (default: 0)")
+    op.add_argument("--limit", type=int, default=view.LIMIT, metavar="N", help=f"rows per page, 1 to {view.MAX_LIMIT}"
+                                                                                 f" (default: {view.LIMIT})")
+    op.add_argument("--sort", action="append", default=[], metavar="KEY[:desc]", help=f"one of: {', '.join(view.SORTS)}")
+    op.set_defaults(func=cmd_view_open)
+    rm = views.add_parser("remove", parents=[common], help="take a saved view off the list (its record stays)")
+    rm.add_argument("name", metavar="NAME")
+    rm.add_argument("--as", dest="as_", required=True, metavar="KEY", help="the contributor making this record")
+    rm.set_defaults(func=cmd_view_remove)
+    views.add_parser("questions", parents=[common], help="six guided questions with their counts on the current"
+                                                         " version").set_defaults(func=cmd_view_questions)
 
     run = group("run", "the run log")
     run.add_parser("list", parents=[common], help="list runs, newest first").set_defaults(func=cmd_run_list)

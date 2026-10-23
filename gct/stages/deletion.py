@@ -78,6 +78,9 @@ KEPT = {
     "reviewer_flag": "id claim_version_id decision contributor_version_id created_at",
     # Story 5.4: a highlight's version and contributor.
     "highlight": "id claim_version_id contributor_version_id created_at",
+    # Story 6.4: a saved view is the user's name and a filter of ids, states and the user's own words, attached to no
+    # document (as expected_item); a deleted document named in its filter is shown as deleted when it is opened.
+    "saved_view": "id name action filter section contributor_version_id created_at",
 }
 VERSIONS = "SELECT v.id FROM claim_version v JOIN claim c ON c.id = v.claim_id WHERE c.document_id = :d"
 FREE = {"capacity": ":m", "rationale": ":m"}  # contributor-typed text on a record attached to the document (Codex 190)
