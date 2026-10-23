@@ -545,9 +545,9 @@ export opened. `mode`, `include` and `preview` are as in `report preview`; `data
 identity with both marks (the terminal is the local user; a sanitised file holds only the first four). `stale` is true
 when the workspace changed after that version was built: the export still shows it, with a warning. Refused, with
 nothing written and no run: an unknown format (exit 2, cause "Unknown format X. Available: json."), a filter, inclusion
-class or filter file as `report preview` refuses them, another command holding the workspace, a workspace made by a
-newer gct, and every refusal of the version pin (exit 4). An older workspace is upgraded first, as by every writing
-command. Refused after the run opened,
+class or filter file as `report preview` refuses them, another command holding the workspace, a workspace that needs
+an upgrade (exit 4, with `report preview`'s cause and next step; an export never upgrades it), a workspace made by a
+newer gct, and every refusal of the version pin (exit 4). Refused after the run opened,
 leaving no folder and the run `failed` (exit 4): an export folder of that name already exists, and a format's own
 refusal, printed with its cause and next step.
 

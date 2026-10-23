@@ -263,11 +263,16 @@ def test_every_export_validates(ws, gct):
                ("--filter", json.dumps({"text": "nothing matches this"})),
                ("--filter", json.dumps({"text": f.METRIC, "document": [8, 1]})),
                *(("--filter", json.dumps(x)) for x in FILTERS),
-               *(("--complete", "--filter", json.dumps(x)) for x in FILTERS)]
+               *(("--complete", "--filter", json.dumps(x)) for x in FILTERS),
+               # view.normalise takes any integer id, and a complete export echoes it as given
+               *((*m, "--filter", json.dumps({k: [i]})) for m in ((), ("--complete",)) for k in ("company", "document")
+                 for i in (0, -1))]
     seen = {}
     for argv in configs:
         d = check(export_(gct, ws, *argv)[1])
         seen.setdefault(d["mode"], []).append(d)
+    assert {json.dumps(d["filter"]) for d in seen["complete"]} >= {json.dumps({k: [i]}) for k in ("company", "document")
+                                                                    for i in (0, -1)}
     by_name = []
     for name in names:
         data, folder = export_(gct, ws, name=name)
@@ -563,6 +568,24 @@ def test_every_refusal_writes_nothing(ws, gct, tmp_path, monkeypatch):
     finally:
         lock.release(held)
     assert dump(old) == old_before and listing(old) == old_files  # the lock refusal wrote nothing either
+
+
+def test_a_workspace_that_needs_an_upgrade_is_refused_and_not_upgraded(gct, tmp_path):
+    old = tmp_path / "w20"  # schema 20 under this code: an upgrade is pending
+    for name in layout.SUBDIRS:
+        (old / name).mkdir(parents=True)
+    c = store.connect(old / layout.DB_NAME)
+    store.migrate(c, up_to=20)
+    c.close()
+    before, files_before = dump(old), listing(old)
+    r = gct("report", "all", "--format", "json", "--workspace", old, "--json")
+    assert r.code == 4 and r.data["cause"] == "This workspace needs an upgrade before a report can be built."
+    assert r.data["next_action"] == gct("report", "preview", "--workspace", old, "--json").data["next_action"]
+    assert dump(old) == before and listing(old) == files_before
+    c = sqlite3.connect(old / layout.DB_NAME)
+    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 20
+    assert c.execute("SELECT COUNT(*) FROM run").fetchone()[0] == 0
+    c.close()
 
 
 def test_a_renderer_failure_leaves_a_failed_run_and_no_folder(ws, gct, monkeypatch):

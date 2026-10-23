@@ -4164,16 +4164,14 @@
      "description": "Companies by id.",
      "type": "array",
      "items": {
-      "type": "integer",
-      "minimum": 1
+      "type": "integer"
      }
     },
     "document": {
      "description": "Documents by id.",
      "type": "array",
      "items": {
-      "type": "integer",
-      "minimum": 1
+      "type": "integer"
      }
     },
     "metric": {

@@ -1577,19 +1577,24 @@ def report_dataset(args) -> tuple[dict, dict]:
     conn = published.open_version(args.root / layout.DB_NAME)
     try:
         try:
-            upgrade = store.pending(conn)
+            _no_report_upgrade(conn)
         except sqlite3.OperationalError:
             raise GctError(layout.REFUSED, f"The working database in {args.root} cannot be read: SQLite adds its -wal"
                                            " and -shm files beside it to read it, and that folder is read-only.",
                            "Make the folder writable, or build the report from a writable copy of the workspace.") from None
-        if upgrade:
-            raise GctError(layout.REFUSED, "This workspace needs an upgrade before a report can be built.",
-                           "Run a command that writes, for example gct publish build: it upgrades the workspace first"
-                           " and records the upgrade in the run log.")
-        store.migrate(conn)  # nothing to apply here; refuses a workspace made by a newer gct
         return dataset.build(conn, args.root, **report_options(args))
     finally:
         conn.close()
+
+
+def _no_report_upgrade(conn) -> None:
+    """A report never upgrades the workspace (7.1-P9, 7.2 AC 2): refuses a pending upgrade before anything is written,
+    then a workspace made by a newer gct (store.migrate, with nothing to apply)."""
+    if store.pending(conn):
+        raise GctError(layout.REFUSED, "This workspace needs an upgrade before a report can be built.",
+                       "Run a command that writes, for example gct publish build: it upgrades the workspace first"
+                       " and records the upgrade in the run log.")
+    store.migrate(conn)
 
 
 def report_options(args) -> dict:
@@ -1637,7 +1642,10 @@ def cmd_report(args) -> None:
                        "Give one of them, for example: gct report all --format json")
     opts = report_options(args)
     view.normalise(opts["filter"])
-    conn = _open(args)
+    args.root = layout.locate(args.workspace)  # not _open: a refused export must not have upgraded the workspace
+    args.lock = lock.hold(args.root)
+    conn = store.connect(args.root / layout.DB_NAME)
+    _no_report_upgrade(conn)
     d, p = dataset.build(conn, args.root, **opts)
     stale = published.status(conn, args.root)["stale"]
     with runs.run(conn, "report") as run_id:

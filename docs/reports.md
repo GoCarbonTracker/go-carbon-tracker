@@ -32,7 +32,8 @@ changes: gct publish build, then export again."
 
 A refused export writes nothing: no folder, no run, and the workspace is unchanged. It is refused for an unknown
 format, a filter, filter file or inclusion class that `gct report preview` refuses, another command holding the
-workspace, no published version, a `--data-version` that is not the current one, a version file that is missing or
+workspace, a workspace that needs an upgrade (an export never upgrades it: run a command that writes, for example
+`gct publish build`, first), a workspace made by a newer gct, no published version, a `--data-version` that is not the current one, a version file that is missing or
 still holds a deleted document, a deletion that did not finish, and a version file built before projection schema
 16 (build a fresh one with `gct publish build`).
 
@@ -278,6 +279,7 @@ headings only, never a value from a row.
 
 ## Exports and deletion
 
-GCT never changes or removes a file in `exports/`. Copies already exported or shared, including files in
+GCT never changes or removes an export or a file you put in `exports/`; it removes only the temporary folder of an
+export that failed. Copies already exported or shared, including files in
 `exports/`, cannot be recalled by GCT: after `gct doc delete`, an export made before the deletion still holds the
 deleted document's rows. An export made after it reads the rewritten version, with a new `sha256`.
