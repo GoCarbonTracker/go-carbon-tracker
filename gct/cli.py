@@ -1687,14 +1687,23 @@ def cmd_serve(args) -> None:
         srv.stop()
 
 
+class Parser(argparse.ArgumentParser):
+    """A usage error is a GctError (FR78 shape, exit 2); every subparser inherits this class."""
+
+    def error(self, message):
+        cause = message[:1].upper() + message[1:]
+        raise GctError(layout.USAGE, cause if cause.endswith(".") else cause + ".", f"See the options with: {self.prog} --help")
+
+
 def build_parser() -> argparse.ArgumentParser:
     json_flag = argparse.ArgumentParser(add_help=False)
     json_flag.add_argument("--json", action="store_true", help="print one JSON object")
     common = argparse.ArgumentParser(add_help=False, parents=[json_flag])
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
-    parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,review,adjudicate,flag,claims,sheet,correct,contributor,expect,pages,gap,publish,package,view,run,approve,model,measure,serve}")
+    parser = Parser(prog="gct", description="GoCarbonTracker workspace tools.")
+    parser.add_argument("--version", action="version", version=f"gct {__version__}")
+    top = parser.add_subparsers(dest="group", required=True)
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -2128,7 +2137,13 @@ def _fail(args, cause: str, next_action: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    argv = sys.argv[1:] if argv is None else argv
+    try:
+        args = build_parser().parse_args(argv)
+    except GctError as e:  # a usage error; --json counts only before "--", after it it is an argument
+        _fail(argparse.Namespace(json="--json" in argv[:argv.index("--")] if "--" in argv else "--json" in argv),
+              e.cause, e.next_action)
+        return e.code
     try:
         return args.func(args) or 0
     except GctError as e:

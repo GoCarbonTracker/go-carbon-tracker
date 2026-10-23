@@ -109,8 +109,13 @@ def load() -> dict[str, Adapter]:
         return {}
     try:
         data = tomllib.loads(file.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
-        raise GctError(REFUSED, f"{file} could not be read as TOML ({e}).", f"Correct {file}.") from None
+    except OSError:
+        raise GctError(REFUSED, f"{file} could not be opened.", f"Correct {file}.") from None
+    except UnicodeDecodeError:
+        raise GctError(REFUSED, f"{file} is not UTF-8 text.", f"Correct {file}.") from None
+    except tomllib.TOMLDecodeError as e:
+        line = f" (line {e.lineno})" if getattr(e, "lineno", None) else ""  # Python 3.14 adds lineno
+        raise GctError(REFUSED, f"{file} is not valid TOML{line}.", f"Correct {file}.") from None
     return {name: _check(table, name, file) for name, table in data.get("adapters", {}).items()}
 
 

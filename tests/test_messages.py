@@ -1,13 +1,32 @@
+import argparse
+import itertools
 import json
 import socket
 import sqlite3
+import subprocess
+import sys
 
 import pytest
 
 from conftest import PDF
 from gct.workspace import registry
 
-INTERNAL_WORDS = ["Traceback", "sqlite", "sha256", "schema_version"]
+# Every exception class name loaded once all of gct is imported (a fresh process, so pytest's own classes and test
+# order play no part): names ending in Error, Exception or Warning, and CamelCase names such as BadZipFile.
+EXCEPTION_NAMES = subprocess.run([sys.executable, "-c", """
+import importlib, pkgutil, re, sys
+import gct
+for m in pkgutil.walk_packages(gct.__path__, "gct."):
+    if m.name != "gct.__main__":
+        importlib.import_module(m.name)
+names = {c.__name__ for mod in list(sys.modules.values()) for c in vars(mod).values()
+         if isinstance(c, type) and issubclass(c, BaseException)}
+print(" ".join(sorted(n for n in names if n not in ("Error", "Exception", "Warning") and not n.startswith("_")
+                      and (n.endswith(("Error", "Exception", "Warning")) or re.fullmatch(r"(?:[A-Z][a-z0-9]+){2,}", n)))))
+"""], capture_output=True, text=True, check=True).stdout.split()
+# "sqlite" in every letter case, so a plain substring check is case-insensitive for it.
+SQLITE = ["".join(c) for c in itertools.product(*zip("sqlite", "SQLITE"))]
+INTERNAL_WORDS = ["Traceback", *SQLITE, "-wal", "-shm", "sha256", "schema_version", *EXCEPTION_NAMES]
 WHO = ["--as", "ana", "--capacity", "analyst", "--rationale", "checked by eye"]
 
 
@@ -121,7 +140,74 @@ def refusals(ws, tmp_path, make_file):
         (["doc", "restore", "99", *WHO, "--workspace", ws], 3),
         (["doc", "delete", "99", "--workspace", ws], 3),
         (["doc", "delete", "99", "--confirm", "abc", *WHO, "--workspace", ws], 3),
+        (["approve", "spend", "abc", "--workspace", ws], 2),
+        (["approve", "transfer", "nobody", "--workspace", ws], 3),
     ]
+
+
+def assert_refusal(gct, argv, code, names=()) -> dict:
+    """The FR78 shape in text and JSON, with no internal word or name in either; returns the JSON error."""
+    human = gct(*argv)
+    assert human.code == code and human.out == "", (argv, human.code, human.out)
+    assert human.err.startswith("error: ") and "\nnext: " in human.err, (argv, human.err)
+    machine = gct(*argv, "--json")
+    assert machine.code == code and machine.data["status"] == "error"
+    assert machine.data["cause"] and machine.data["next_action"]
+    for text in (human.err, machine.out):
+        for word in [*INTERNAL_WORDS, *names]:
+            assert word not in text, (argv, word)
+    return machine.data
+
+
+def test_the_e8_d16_causes_are_fixed_sentences(ws, gct, tmp_path, make_file, monkeypatch):
+    from conftest import xlsx_bytes
+    from gct.models import redact
+
+    gct("company", "add", "Acme")
+    assert gct("doc", "add", make_file("book.xlsx", xlsx_bytes(tmp_path)), "--company", "Acme", "--kind", "evidence").code == 0
+    names = internal_names(ws)
+    data = assert_refusal(gct, ["sheet", "show", "1"], 4, names)
+    assert data["cause"] == "Document 1 could not be read as a spreadsheet."
+    models = tmp_path / "models.toml"
+    monkeypatch.setenv("GCT_MODELS", str(models))
+    line = " (line 1)" if sys.version_info >= (3, 14) else ""  # TOMLDecodeError carries lineno from 3.14
+    for content, cause in ((b"[adapters.x\n", f"{models} is not valid TOML{line}."),
+                           (b"\xff\xfe[", f"{models} is not UTF-8 text.")):
+        models.write_bytes(content)
+        redact._names.cache_clear()
+        assert assert_refusal(gct, ["model", "list"], 4)["cause"] == cause
+    models.chmod(0)
+    try:
+        if models.read_bytes() is not None:
+            pytest.skip("this user can read a file with no permissions")
+    except PermissionError:
+        redact._names.cache_clear()
+        assert assert_refusal(gct, ["model", "list"], 4)["cause"] == f"{models} could not be opened."
+    finally:
+        models.chmod(0o644)
+
+
+def test_measure_g2_refusals_have_no_internals(ws, gct, make_file, tmp_path):
+    """The g2 refusals test_measure.py provokes, except the three E8-D16 leaves as known: g2.py:134 (a gold file
+    differs from its sha256), g2.py:325 (a read-only folder, -wal and -shm files) and g2.py:353-354 (a gold document
+    differs, sha256)."""
+    import hashlib
+
+    from conftest import make_pdf
+    from test_measure import A, DOCS, build, text_page, write_gold
+
+    empty = make_pdf([text_page(["No figures here."])])
+    build(gct, make_file, docs=(("a.pdf", A, "Acme Limited"), ("b.pdf", empty, "Mahi Limited")), publish=False)
+    docs = [DOCS[0], {**DOCS[1], "sha256": hashlib.sha256(empty).hexdigest()}]
+    names = internal_names(ws)
+    gold = ["measure", "g2", "--gold"]
+    assert "no published version" in assert_refusal(gct, [*gold, write_gold(tmp_path / "g1", docs, {})], 4, names)["cause"]
+    gct("publish", "build")
+    assert "no current claims for Mahi Limited" in assert_refusal(
+        gct, [*gold, write_gold(tmp_path / "g2", docs, {})], 4, names)["cause"]
+    missing = [*docs, {**DOCS[0], "doc": "c.pdf", "sha256": "1" * 64}]
+    assert "c.pdf has no document row" in assert_refusal(
+        gct, [*gold, write_gold(tmp_path / "g3", missing, {})], 4, names)["cause"]
 
 
 def test_restate_refusals_have_cause_next_action_and_no_internals(ws, gct, make_file):
@@ -625,6 +711,46 @@ def test_serve_port_held_on_all_interfaces_refusal(ws, gct):
 def test_usage_errors_exit_2_without_traceback(gct, argv):
     r = gct(*argv)
     assert r.code == 2 and "Traceback" not in r.err
+    assert r.out == "" and r.err.startswith("error: ") and "\nnext: See the options with: gct" in r.err, r.err
+    j = gct(*argv, "--json")
+    assert j.code == 2 and j.err == "" and set(j.data) == {"status", "cause", "next_action"}
+    assert j.data["status"] == "error" and j.data["next_action"].startswith("See the options with: gct")
+
+
+def test_a_usage_error_keeps_argparse_words_and_names_the_command_help(gct):
+    r = gct("claims", "list", "--json")
+    assert (r.code, r.data) == (2, {"status": "error", "cause": "The following arguments are required: --doc.",
+                                    "next_action": "See the options with: gct claims list --help"})
+
+
+def test_json_after_a_double_dash_is_an_argument_not_the_flag(gct):
+    r = gct("approve", "spend", "--", "-5", "--json")
+    assert r.code == 2 and r.out == "" and r.err.startswith("error: ") and "-5 is not an amount" in r.err, r.err
+
+
+def _subparser_actions(parser):
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            yield action
+            for sub in action.choices.values():
+                yield from _subparser_actions(sub)
+
+
+def test_version_and_help_list_every_group(gct, capsys):
+    from gct import __version__, cli
+
+    r = gct("--version")
+    assert (r.code, r.out, r.err) == (0, f"gct {__version__}\n", "")
+    parser = cli.build_parser()
+    top, *rest = _subparser_actions(parser)
+    shown = gct("--help")
+    assert shown.code == 0 and top.metavar is None
+    assert {"highlight", "report"} <= set(top.choices)
+    for name in top.choices:
+        assert f"    {name} " in shown.out or f"    {name}\n" in shown.out, name
+    metavars = [a for a in rest if a.metavar is not None]
+    assert metavars and all(a.metavar == "{" + ",".join(a.choices) + "}" for a in metavars), \
+        [(a.metavar, list(a.choices)) for a in metavars]
 
 
 def test_unexpected_exception_prints_short_message_and_log_path(ws, gct, monkeypatch):
