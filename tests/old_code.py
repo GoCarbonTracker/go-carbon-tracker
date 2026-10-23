@@ -1,6 +1,7 @@
-"""Run gct commands with the code of commit BASE, product main before projection schema 15 (story 7.1 part B): B8
-builds a projection-14 file with it and B9 compares its outputs. The code comes from `git archive`, so the tests that
-use it skip outside a git checkout that holds BASE."""
+"""Run gct commands with the code of commit BASE, product main just before projection schema 15 (story 7.1 part B;
+workspace schema 20, projection 14): B8 builds a projection-14 file with it and B9 compares its outputs. BASE must
+know the workspace schema the current code writes, so it moves when main gains a migration before part B lands. The
+code comes from `git archive`, so the tests that use it skip outside a git checkout that holds BASE."""
 import io
 import json
 import os
@@ -11,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-BASE = "33fad4d"
+BASE = "1c9b602"
 NOW = "2026-10-23T09:00:00+00:00"
 # One process for all commands. The working directory is the old tree, so it comes first on sys.path and shadows the
 # gct the venv points at; the caller checks gct.__file__.
