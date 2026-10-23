@@ -10,7 +10,8 @@ member, image or database) does not stop the rest of the scan; at the end found 
 place, so it never returns a result for a scan that skipped a part. Only bytes with a strong image signature (PNG,
 JPEG, GIF, WebP, TIFF) are opened as images (ones that do not decode are text if UTF-8, else unreadable), and a PDF
 stream's decoded data never is; object stream members are read as objects. found returns {name: [places]} for the
-seeds it finds.
+seeds it finds: a hex image seed by exact pixel hash only, and a marker-colour hit only under the image seeds whose
+value is None (7.1 G). parts(path) gives the same parts for checks that are not seeds.
 
 Known ceilings (not decoded; recorded in the TASK-0224 worker notes): Indexed and 16-bit PDF images (reported as
 unreadable, so a scan meeting one raises); UTF-16LE text without a BOM; free-page overflow chains and UTF-16
@@ -62,33 +63,54 @@ class Unreadable(Exception):
 def found(path, seeds) -> dict:
     """{seed name: [place]} for every seed found under path (a file or a folder); seeds not found are left out."""
     texts, digests, images = _check(seeds)
-    root = Path(path)
-    links = [root] if root.is_symlink() else [
-        Path(d, n) for d, dirs, names in os.walk(root) for n in dirs + names if Path(d, n).is_symlink()]
-    if links:
-        raise ValueError("symbolic links under the scanned path: " + ", ".join(map(str, links)))
-    files = sorted(p for p in root.rglob("*") if p.is_file()) if root.is_dir() else [root]
     hits, unreadable = {}, []
-    with tempfile.TemporaryDirectory() as tmp:
-        assert not Path(tmp).resolve().is_relative_to(root.resolve()), "the temporary folder is inside the scanned path"
-        for p in files:
-            rel = p.relative_to(root).as_posix() if root.is_dir() else p.name
-            for kind, place, part in [("text", f"{rel}: path", rel),
-                                      *_blob(p.read_bytes(), rel, tmp, p.with_name(p.name + "-wal"))]:
-                if kind == "unreadable":
-                    unreadable.append(f"{place} ({part})")
-                for name, where in _match(kind, place, part, texts, digests, images):
-                    hits.setdefault(name, set()).add(where)
+    for kind, place, part in _scan(path):
+        if kind == "unreadable":
+            unreadable.append(f"{place} ({part})")
+        for name, where in _match(kind, place, part, texts, digests, images):
+            hits.setdefault(name, set()).add(where)
     result = {name: sorted(places) for name, places in hits.items()}
     if unreadable:
         raise Unreadable(unreadable, result)
     return result
 
 
+def parts(path) -> list[tuple[str, str, str]]:
+    """Every part found reads under path, as (kind, place, value): "text" with its text, "hash" with the file's
+    sha256, "image" with the sha256 of its decoded RGB pixels. For the checks that are not seeds (a path pattern, a
+    sentence, a mark) and for comparing two outputs part by part. Raises Unreadable as found does."""
+    out, unreadable = [], []
+    for kind, place, part in _scan(path):
+        if kind == "unreadable":
+            unreadable.append(f"{place} ({part})")
+        else:
+            out.append((kind, place, hashlib.sha256(part.convert("RGB").tobytes()).hexdigest()
+                        if kind == "image" else part))
+    if unreadable:
+        raise Unreadable(unreadable, out)
+    return out
+
+
+def _scan(path):
+    """(kind, place, part) of every file under path: its relative path as text, then _blob's parts."""
+    root = Path(path)
+    links = [root] if root.is_symlink() else [
+        Path(d, n) for d, dirs, names in os.walk(root) for n in dirs + names if Path(d, n).is_symlink()]
+    if links:
+        raise ValueError("symbolic links under the scanned path: " + ", ".join(map(str, links)))
+    files = sorted(p for p in root.rglob("*") if p.is_file()) if root.is_dir() else [root]
+    with tempfile.TemporaryDirectory() as tmp:
+        assert not Path(tmp).resolve().is_relative_to(root.resolve()), "the temporary folder is inside the scanned path"
+        for p in files:
+            rel = p.relative_to(root).as_posix() if root.is_dir() else p.name
+            yield "text", f"{rel}: path", rel
+            yield from _blob(p.read_bytes(), rel, tmp, p.with_name(p.name + "-wal"))
+
+
 def _check(seeds):
     """Seed hygiene (section 3): kinds are 7.1 G's six tokens, text seeds use [A-Za-z0-9-] only, digests are sha256
     hex (exempt from the charset), no value is a substring of another. Returns the text seeds [(name, casefolded
-    value)], {digest: [name]} and the image seed names."""
+    value)], {digest: [name]} and the names of the image seeds whose value is None (the marker seeds)."""
     names = [s["name"] for s in seeds]
     if len(set(names)) != len(names):
         raise ValueError("seed names repeat")
@@ -106,7 +128,8 @@ def _check(seeds):
                     raise ValueError(f"seed {name}: {field} is a sha256 hex digest")
                 digests.setdefault(d.lower(), []).append(name)
                 values.append((name, d.casefold()))
-            images.append(name)
+            if value is None:  # 7.1 G: a marker hit is reported only under an image seed whose value is None
+                images.append(name)
             continue
         rule = DIGEST if kind == "file_hash" else SAFE
         if not isinstance(value, str) or not rule.fullmatch(value):

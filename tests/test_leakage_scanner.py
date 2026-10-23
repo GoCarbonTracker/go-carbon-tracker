@@ -285,7 +285,7 @@ EXPECTED = {
 }
 MARKED = ["doc.pdf: object 6 image", "doc.pdf: object 8 image", "doc.pdf: page 1 inline image 1",
           "book.xlsx > xl/media/image1.png", "page.html > data URI 2"]
-for _name in IMAGES:
+for _name in (s["name"] for s in SEEDS if s["kind"] == "image" and s["value"] is None):  # 7.1 G: the marker seeds
     EXPECTED[_name] = EXPECTED[_name] + [f"{m}: marker colour" for m in MARKED]
 
 
@@ -326,11 +326,13 @@ def test_marker_survives_scaling_and_pixel_hash_is_exact(tmp_path):
     (tmp_path / "double.png").write_bytes(png(scene.resize((200, 200))))
     (tmp_path / "lossless.png").write_bytes(png(scene))
     (tmp_path / "lossy.jpg").write_bytes(jpeg(scene))
-    seeds = [{"name": "GCT-LEAK-SCAN-SCENE-01", "kind": "image", "expect": "complete_only", "value": pixels(scene)}]
-    assert found(tmp_path, seeds) == {"GCT-LEAK-SCAN-SCENE-01": [
+    seeds = [{"name": "GCT-LEAK-SCAN-SCENE-01", "kind": "image", "expect": "complete_only", "value": pixels(scene)},
+             {"name": "GCT-LEAK-SCAN-MARKER-02", "kind": "image", "expect": "complete_only", "value": None}]
+    assert found(tmp_path, seeds) == {"GCT-LEAK-SCAN-SCENE-01": ["lossless.png: pixel hash"],
+                                      "GCT-LEAK-SCAN-MARKER-02": [
         "double.png: marker colour", "half.png: marker colour", "lossless.png: marker colour",
-        "lossless.png: pixel hash", "lossy.jpg: marker colour"]}
-    assert found(tmp_path / "half.png", seeds) == {"GCT-LEAK-SCAN-SCENE-01": ["half.png: marker colour"]}
+        "lossy.jpg: marker colour"]}
+    assert found(tmp_path / "half.png", seeds) == {"GCT-LEAK-SCAN-MARKER-02": ["half.png: marker colour"]}
 
 
 def test_no_marker_on_grey_renders(tmp_path):
@@ -573,10 +575,11 @@ def test_pdf_image_colour_spaces(tmp_path):
         _stream(RGB_IMAGE % (16, 12, 8, b"/DeviceGray") + b"/Filter /FlateDecode", zlib.compress(grey.tobytes())),
         _stream(RGB_IMAGE % (13, 9, 1, b"/DeviceGray") + b"/Filter /FlateDecode", zlib.compress(mask.tobytes()))])
     seeds = [{"name": n, "kind": "image", "expect": "complete_only", "value": v}
-             for n, v in (("GCT-LEAK-FIX-GREY-05", pixels(grey)), ("GCT-LEAK-FIX-MASK-05", pixels(mask)))]
+             for n, v in (("GCT-LEAK-FIX-GREY-05", pixels(grey)), ("GCT-LEAK-FIX-MASK-05", pixels(mask)),
+                          ("GCT-LEAK-FIX-MARKER-05", None))]
     result = found(put(tmp_path / "good", {"a.pdf": good}), seeds)
     for obj in (6, 8):
-        assert where(result, "GCT-LEAK-FIX-GREY-05", f"a.pdf: object {obj} image: marker colour"), obj
+        assert where(result, "GCT-LEAK-FIX-MARKER-05", f"a.pdf: object {obj} image: marker colour"), obj
     assert where(result, "GCT-LEAK-FIX-GREY-05", "a.pdf: object 9 image: pixel hash")
     assert where(result, "GCT-LEAK-FIX-MASK-05", "a.pdf: object 10 image: pixel hash")
 

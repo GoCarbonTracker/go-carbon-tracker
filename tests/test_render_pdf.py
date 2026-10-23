@@ -798,8 +798,7 @@ def expected_hits(d, c, report, seeds):
     out.update({s["name"]: "pixel hash" for s in seeds if s["kind"] == "image" and s["value"] in drawn})
     private = next(s["value"] for s in seeds if s["name"] == "FILE-PDF-01")
     if any(e["sha256"] == private and e["page"] == f.IMAGE_PAGE for e in d["evidence"] if e["id"] in embeds):
-        out.update({s["name"]: "marker colour" for s in seeds if s["kind"] == "image"})  # leakage._match reports
-        # every image seed on a marker hit, IMG-MARKER-01 (value None) among them
+        out["IMG-MARKER-01"] = "marker colour"  # found reports a marker hit under the value-None seed only (7.1 G)
     return out
 
 
