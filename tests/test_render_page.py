@@ -55,11 +55,24 @@ def collapse(s: str) -> str:
 
 # The read-back contract (C4b)
 
+def shown_value(value, row, key, words):
+    """The test-owned page print rule, independent of renderer code."""
+    if row is not None and key in row["withheld"]:
+        return words["withheld"]
+    if key is not None and key.startswith("outside_selection."):
+        return words["outside_selection"] if value else ""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return words["fixed"]["booleans"]["true" if value else "false"]
+    if isinstance(value, list):
+        return words["fixed"]["separator"].join(str(x) for x in value)
+    return str(value)
+
+
 def printed(value, row, key, fmt):
-    """How a page prints a dataset value, as html.parser and a browser give it back: render_page._shown (the C2a and C3
-    print form), U+0000 as U+FFFD, each run of white space as one space and the ends stripped. fmt is "page" here and
-    ignored."""
-    return collapse(nul(render_page._shown(value, row, key, dataset.words())))
+    """The page print rule with HTML null replacement and collapsed white space."""
+    return collapse(nul(shown_value(value, row, key, dataset.words())))
 
 
 def nul(s: str) -> str:
@@ -183,7 +196,12 @@ def read_back(path) -> dict:
 # The dataset side, written out here (Design, "Pages")
 
 def dotted(row, key):
-    return render_page._dotted(row, key)
+    value = row
+    for part in key.split("."):
+        if value is None:
+            return None
+        value = value[{"a": 0, "b": 1}[part]] if isinstance(value, list) else value[part]
+    return value
 
 
 def subs(table_id, row) -> list:
@@ -282,7 +300,7 @@ def check_folder(d, c, folder, reports):
 
     def where(div, i, row):
         e = evidence[i]
-        name = render_page._shown(documents[e["document_id"]]["name"], None, None, w)
+        name = shown_value(documents[e["document_id"]]["name"], None, None, w)
         loc = [f"E{i}", f"{fixed['headings']['document_name']}: {name}"] + (
             [f"{fixed['headings']['page']}: {e['page']}"] if e["page"] is not None else
             [f"{fixed['headings']['sheet']}: {e['sheet']}", f"{fixed['headings']['cell']}: {e['cell']}"])

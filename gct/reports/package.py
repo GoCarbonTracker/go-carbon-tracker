@@ -342,7 +342,7 @@ def _lines(conn, p: dict, docs: dict, shipped: list, names: dict, paths: int) ->
 
     held = [doc(docs[i], _doc_cause(conn, docs[i])[1]) for i in docs if i not in shipped]
     if p["mode"] == "sanitised" and not shipped:
-        return [head, EMPTY, *held, RELABEL]
+        return [scrub(line) for line in [head, EMPTY, *held, RELABEL]]
     lines = [head, "Included documents:", *(doc(docs[d["id"]], d["label"]) for d in p["included"]["documents"])]
     if held:
         lines += ["Withheld documents:", *held]
@@ -360,7 +360,7 @@ def _lines(conn, p: dict, docs: dict, shipped: list, names: dict, paths: int) ->
         lines.append(f"It also carries contributor names and text, reviewer flags, {tables['saved_view']} saved views"
                      f" and {paths} run log lines that name local paths.")
         lines.append(f"Not in the package: {gone['approvals']} approvals, {gone['page_images']} page images.")
-        return [*lines, _create_line(p)]
+        return [scrub(line) for line in [*lines, _create_line(p)]]
     inc = p["include"]
     k = len(names)
     lines.append("Contributor names, organisations and keys are kept as recorded." if "identity" in inc else
@@ -372,7 +372,7 @@ def _lines(conn, p: dict, docs: dict, shipped: list, names: dict, paths: int) ->
                  "Reviewer flags are withheld; include flags to keep them.")
     lines.append(f"Not in the package: {gone['run_log_lines']} run log lines (each run keeps its outcome),"
                  f" {gone['approvals']} approvals, {gone['saved_views']} saved views, {gone['page_images']} page images.")
-    return [*lines, _create_line(p)]
+    return [scrub(line) for line in [*lines, _create_line(p)]]
 
 
 def _failed(cause: str) -> GctError:
