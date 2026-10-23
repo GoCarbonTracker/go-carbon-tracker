@@ -271,6 +271,60 @@ def test_report_preview_messages_have_cause_next_action_and_no_internals(tmp_pat
         assert r.code == 0 and r.err == "" and not [w for w in [*INTERNAL_WORDS, *names] if w in r.out], (argv, r.out)
 
 
+def test_report_export_messages_have_cause_next_action_and_no_internals(tmp_path, gct, monkeypatch):
+    import shutil
+
+    import gate_fixture
+    from gct.reports import export
+    from gct.workspace import lock
+
+    class Refusal(Exception):  # a format's own refusal (story 7.2, AC 12b)
+        cause = "The evidence index has a cell the format cannot hold (claim 3, column Metric as printed)."
+        next_step = "Export that report as JSON instead: gct report evidence-index --format json"
+
+    def refuses(dataset, reports, folder, crops):
+        raise Refusal()
+
+    root = gate_fixture.build(tmp_path / "gws")
+    names = internal_names(root)
+    empty = tmp_path / "empty"
+    gct("workspace", "init", empty)
+    monkeypatch.setitem(export.FORMATS, "strict", {"write": refuses, "crops": False})
+    monkeypatch.setattr(export, "stamp", lambda: "20261023T000000000000Z")
+    cases = [((root, "--format", "xlsx"), 2), ((root, "--format", "json", "--filter", '{"colour": [1]}'), 2),
+             ((root, "--format", "json", "--include", "names"), 2),
+             ((root, "--format", "json", "--filter", f"@{tmp_path / 'none.json'}"), 3),
+             ((root, "--format", "json", "--data-version", 9), 4), ((empty, "--format", "json"), 4),
+             ((root, "--format", "strict"), 4)]
+
+    def refused(where, argv, code):
+        human, machine = (gct("report", "all", *argv, "--workspace", where, *j) for j in ((), ("--json",)))
+        assert human.code == machine.code == code and human.out == "", (argv, human.out)
+        assert human.err.startswith("error: ") and "\nnext: " in human.err, (argv, human.err)
+        assert machine.data["status"] == "error" and machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in [*INTERNAL_WORDS, *names]:
+                assert word not in text, (argv, word)
+        return human.err
+
+    for (where, *argv), code in cases:
+        refused(where, argv, code)
+    assert refused(root, ["--format", "strict"], 4) == f"error: {Refusal.cause}\nnext: {Refusal.next_step}\n"
+    held = lock.hold(root)
+    try:
+        assert "Another gct command is using this workspace." in refused(root, ["--format", "json"], 4)
+    finally:
+        lock.release(held)
+    for argv in ((), ("--complete",), ("--include", "flags,identity,contributor_text")):
+        r = gct("report", "all", "--format", "json", *argv, "--workspace", root)
+        assert r.code == 0 and r.err == "", (argv, r.err)
+        assert not [w for w in [*INTERNAL_WORDS, *names] if w in r.out.split(":\n", 1)[1]], (argv, r.out)
+        for folder in (root / "exports").iterdir():
+            shutil.rmtree(folder)
+    gct("report", "all", "--format", "json", "--workspace", root)
+    assert "already exists; nothing was overwritten" in refused(root, ["--format", "json"], 4)
+
+
 def test_adjudicate_and_flag_messages_have_no_internals(ws, gct, make_file):
     from test_restate import cp2
 

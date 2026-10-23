@@ -529,6 +529,52 @@ run log."), a workspace made by a newer gct (exit 4), a folder where SQLite cann
 every refusal of the version pin (exit 4): no published version, a `--data-version` that is not current, an unfinished
 deletion, a version file missing, holding a deleted document or built by an older gct.
 
+## report evidence-index
+- top: status, run_id, folder, files, outputs, data_version, mode, include, stale, preview
+- data_version: version, built_at, sha256, projection_schema, history_mark, labels_mark
+- outputs: format, files, notes
+- preview: included, withheld, history_mark, labels_mark, filter, lines, answer
+
+`gct report NAME --format F[,F...] [--filter JSON|@FILE] [--complete] [--include identity,contributor_text,flags]
+[--data-version V]` (NAME `evidence-index`, `restatement-log`, `gap-report` or `all`) writes one export of the current
+published version into `folder`, the absolute path of `exports/<NAME>-v<N>-<stamp>-<mode>/` (see `docs/reports.md`).
+`--format` takes the format names (today `json`; a repeated name counts once). `files` lists every file written,
+relative to `folder` (with `json`: `dataset.json` and `dataset-1.schema.json`); `outputs` has one entry per format in
+`--format` order with its own `files` and `notes` (local lines, never in a file). `run_id` is the `report` run the
+export opened. `mode`, `include` and `preview` are as in `report preview`; `data_version` is the version's full
+identity with both marks (the terminal is the local user; a sanitised file holds only the first four). `stale` is true
+when the workspace changed after that version was built: the export still shows it, with a warning. Refused, with
+nothing written and no run: an unknown format (exit 2, cause "Unknown format X. Available: json."), a filter, inclusion
+class or filter file as `report preview` refuses them, another command holding the workspace, a workspace made by a
+newer gct, and every refusal of the version pin (exit 4). An older workspace is upgraded first, as by every writing
+command. Refused after the run opened,
+leaving no folder and the run `failed` (exit 4): an export folder of that name already exists, and a format's own
+refusal, printed with its cause and next step.
+
+## report restatement-log
+- top: status, run_id, folder, files, outputs, data_version, mode, include, stale, preview
+- data_version: version, built_at, sha256, projection_schema, history_mark, labels_mark
+- outputs: format, files, notes
+- preview: included, withheld, history_mark, labels_mark, filter, lines, answer
+
+As `report evidence-index`. A JSON export holds the whole dataset whatever NAME is.
+
+## report gap-report
+- top: status, run_id, folder, files, outputs, data_version, mode, include, stale, preview
+- data_version: version, built_at, sha256, projection_schema, history_mark, labels_mark
+- outputs: format, files, notes
+- preview: included, withheld, history_mark, labels_mark, filter, lines, answer
+
+As `report evidence-index`.
+
+## report all
+- top: status, run_id, folder, files, outputs, data_version, mode, include, stale, preview
+- data_version: version, built_at, sha256, projection_schema, history_mark, labels_mark
+- outputs: format, files, notes
+- preview: included, withheld, history_mark, labels_mark, filter, lines, answer
+
+As `report evidence-index`, for the three reports.
+
 ## serve
 - top: status, url, port
 
