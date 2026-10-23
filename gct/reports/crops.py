@@ -64,7 +64,7 @@ def credential_documents(conn, root, documents) -> set:
 def withheld(dataset, entry):
     """The dataset notice that withholds this entry's image, or None. Notices retain the schema's evidence fields."""
     prefix = f"Evidence images for document {entry['document_id']} ("
-    return next((n for n in dataset["notices"] if n.startswith(prefix)), None)
+    return next((n for n in dataset.get("notices", ()) if n.startswith(prefix)), None)
 
 
 def _pixels(rect, size) -> tuple[int, int, int, int]:
