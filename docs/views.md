@@ -109,3 +109,32 @@ The review text names, in this order, the company's and the auditor's latest out
 N", "highlights: N", "needs renewed review: N", "corrected" and "adjudications: N", or reads "no review records". The
 evidence text reads "matched", "cited: reason", "unresolved: reason" or "not checked: run gct link". No score,
 percentage or ranking is given.
+
+## Graphs
+
+The Graphs tab of the viewer draws the claims of one `graph` or `series` answer in three views. Neighbourhood and
+Hypergraph are drawn from the same `graph` answer, so switching between them sends no request; Time series asks the
+`series` shape. The tab sends the shared filter and the pinned version, and states the count and version of the answer
+it drew, in the words of the count line above it.
+
+- Neighbourhood: each claim node joined to its page or cell, its known period and boundary, its series, its review
+  records and adjudications, and an edge labelled with the comparison state between two compared claims of the answer.
+- Hypergraph: one small hub per claim, joined to the claim and to each member of its hyperedge. Members are the same
+  shared nodes as in the neighbourhood view, so a page of three claims is one node with three hub edges.
+- Time series: one node per point, a column per period in order, a row per document (a restatement in a later report
+  sits in the original's column), points of one period and document stacked by claim id. The value and unit are
+  printed on the point; there is no value axis.
+
+Over the graph limit, or with no single series for the time series, the tab shows the answer's `reason` and draws
+nothing. Every drawn element is also a row of a table under the canvas (Nodes and Edges, Hyperedges, or Points and
+Comparisons); a row's button selects its element on focus, opens its source on Enter or a click, and Space adds it to
+the selection. A double-click on the canvas opens the source too. A page target is opened only when its page lies
+inside the document; a location that does not resolve shows its reason and opens nothing. Labels use printed wording
+and plain words only.
+
+Layout: Cytoscape's built-in `cose` (no animation), except above 250 nodes, where `breadthfirst` is used, and the
+time series, which is placed by its own positions. Measured in headless Chrome on 2026-10-23 (Apple silicon laptop,
+fixture of `tests/test_viewer_graphs.py`): `cose` alone took about 1.0 s at 230 nodes, 1.5 s at 283, 2.2 s at 334,
+5.2 to 6.4 s for the 500-claim neighbourhood graph (538 nodes, 1,100 edges) and about 20 s for its hypergraph (1,038
+nodes); `breadthfirst` took 74 ms and 131 ms on those two. With the 250-node rule, the 500-claim neighbourhood graph
+was drawn about 0.7 s after the filter changed and its hypergraph about 0.4 s after the view switched.

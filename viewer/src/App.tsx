@@ -1,8 +1,9 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ADJUDICATION_STATES, bandText, boundaryText, type Box, byPosition, correctionBody, correctionText, type CorrectionFields, decide, type Entry, evidenceTarget, flagText, hasRecords, highlightText, label, newestOnly, overlayShown, periodText, recordBody, restateCommand, reReviewText, SELF_DECLARED, stepClaim, stepPage, type Version, whoText, type Claim } from "./logic.ts";
 import { availableText, countText, type EvidenceTarget, type Filter, isCell, isStale, newerVersion, periodUnknownText, recordsBody, type SeriesValue } from "./records.ts";
 import { FilterBar } from "./FilterBar.tsx";
 import { CellView } from "./CellView.tsx";
+const Graphs = lazy(() => import("./Graphs.tsx")); // story 6.3; it imports Cytoscape only when the Graphs tab is shown
 
 type Company = { id: number; name: string; documents: Doc[] };
 type Doc = { id: number; logical_name: string; version: number; file_type: string };
@@ -767,7 +768,7 @@ export function App() {
               <p className="hint">The table of these claims is not in this version of the viewer yet.</p>
             </div>
             <div role="tabpanel" id="body-graphs" aria-labelledby="tab-graphs" hidden={tab !== "graphs"}>
-              <p className="hint">The graphs of these claims are not in this version of the viewer yet.</p>
+              <Suspense fallback={null}><Graphs filter={filter} dataVersion={pinned} openEvidence={openEvidence} onStale={() => { checkVersion().catch(() => undefined); }} /></Suspense>
             </div>
           </>
         )}
