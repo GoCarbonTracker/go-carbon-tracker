@@ -7,7 +7,10 @@ The builder writes nothing; the caller holds the workspace lock. Stage modules a
 import copy
 import json
 import math
+import os
+import re
 import sqlite3
+import unicodedata
 from pathlib import PurePosixPath
 
 from gct import __version__
@@ -204,12 +207,42 @@ def _finite(x):
     return x if x is None or math.isfinite(x) else None
 
 
+def _text(text):
+    """Scrub credentials after compatibility expansion, preserving every other source character."""
+    if text.isascii():
+        return redact.scrub(text)
+    expanded = unicodedata.normalize("NFKC", text)
+    if redact.scrub(expanded) == expanded:
+        return redact.scrub(text)
+    groups = []
+    for i, char in enumerate(text):
+        part = unicodedata.normalize("NFKC", char)
+        if groups and (unicodedata.combining(part[0]) or
+                       unicodedata.normalize("NFC", groups[-1][2] + part) != groups[-1][2] + part):
+            first = groups[-1][0]
+            groups[-1] = (first, i + 1, unicodedata.normalize("NFKC", text[first:i + 1]))
+        else:
+            groups.append((i, i + 1, part))
+    positions = [(first, last) for first, last, part in groups for _ in part]
+    patterns = [redact.PATTERNS]
+    patterns += [re.compile(re.escape(value), re.I) for name in redact._names() if (value := os.environ.get(name))]
+    spans = sorted((positions[m.start()][0], positions[m.end() - 1][1])
+                   for pattern in patterns for m in pattern.finditer(expanded))
+    spans = sorted([*spans, *(m.span() for pattern in patterns for m in pattern.finditer(text))])
+    out, end = [], 0
+    for first, last in spans:
+        if first >= end:
+            out.extend((text[end:first], redact.MARK))
+        end = max(end, last)
+    return "".join(out) + text[end:]
+
+
 def _scrub(x, seen=None):
     """P9: every string through redact.scrub, and the builder's own keys (a leading underscore) left out, in place:
     the rows are built for this one output, and a copy of them would double the build's memory (AC 17). A container
     shared in the tree (a sub-table's columns) is visited once."""
     if isinstance(x, str):
-        return redact.scrub(x)
+        return _text(x)
     seen = set() if seen is None else seen
     if isinstance(x, (list, dict)) and id(x) not in seen:  # the tree is alive throughout, so an id names one container
         seen.add(id(x))
@@ -958,6 +991,9 @@ def _finish(b: _Build, mode, acct, mine) -> tuple[dict, dict]:
                           "name": d["logical_name"] if d else hidden[i]["logical_name"] if i in hidden else None,
                           "version": d and d["version"], "kind": d and d["kind"], "file_type": d and d["file_type"],
                           "availability": e["availability"], "state": state, "_company": d and d["company_id"]})
+    from gct.reports.crops import credential_documents
+
+    held = credential_documents(b.conn, b.root, [mine["docs"][i] for i in named if i in mine["docs"]])
     empty = not mine["evidence_index"]
     notices = []
     if sanitised:
@@ -968,6 +1004,8 @@ def _finish(b: _Build, mode, acct, mine) -> tuple[dict, dict]:
         notices += [x["text"] for x in a["deleted_in_filter"]]
     if set(flt) - {"company", "document"}:
         notices.append(EXPECTATIONS_SCOPE)
+    notices += [f"Evidence images for document {d['id']} ({d['name']}) are withheld because its PDF text layer"
+                " contains a credential or could not be read." for d in documents if d["id"] in held]
     echo = copy.deepcopy(flt)  # the dataset is scrubbed in place; the preview prints flt
     if sanitised:
         companies = {d["_company"] for d in documents}
