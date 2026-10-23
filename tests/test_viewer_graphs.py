@@ -173,6 +173,10 @@ def test_graphs_in_a_headless_browser(gws, srv, tmp_path):
     assert out["keyboard"] == out["edge"]
     assert out["returned"]["el"] == "claim:1>company:1"  # back in Tables and Graphs, focus is on the row that opened it
     assert out["arrows"]["claim"] == out["keyboard"]["claim"]  # the arrows in the tables never moved Evidence's claim
+    # S5b by keyboard (review P1): Space on two claim rows holds both, the second added in one change; Tab between them
+    # keeps what Space picked; Space again drops only the second; the canvas selection follows the rows
+    assert out["spaced"] == {"picks": [["claim:1"], ["claim:1", "claim:2"], ["claim:1"]],
+                             "both": ["claim:1", "claim:2"], "after": ["claim:1"], "focus": "claim:2"}
     assert out["cell"] == "700"  # a spreadsheet cell opens the cell view with the cell marked
     assert out["auditor"].endswith(": no document cited") and out["stillHere"]
     assert out["seriesNode"].endswith("A series groups claims; open one of its claims to see its source.")

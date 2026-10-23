@@ -71,6 +71,7 @@ export default function Graphs({ filter, dataVersion, openEvidence, selection, o
   const root = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
   const cy = useRef<Core | null>(null);
+  const spaced = useRef(false); // Space has picked on the rows since the last drawing or mouse click on a row
   const opener = useRef<HTMLElement | null>(null); // the row that opened a page, focused again on return
   const requests = useRef(newestOnly()).current;
   const pageCounts = useRef(new Map<number, number>()).current;
@@ -171,6 +172,7 @@ export default function Graphs({ filter, dataVersion, openEvidence, selection, o
     }
     let live = true;
     setChosen([]);
+    spaced.current = false;
     import("cytoscape").then(({ default: cytoscape }) => {
       if (!live || !canvas.current) return;
       cy.current?.destroy();
@@ -203,15 +205,27 @@ export default function Graphs({ filter, dataVersion, openEvidence, selection, o
     c.$id(id).select();
   };
 
+  // The first Space keeps what focus picked; later ones add or drop the row's element, and focus then picks nothing.
   const toggle = (id: string) => {
     const e = cy.current?.$id(id);
-    if (e) e.selected() ? e.unselect() : e.select();
+    if (!e) return;
+    if (!spaced.current) {
+      spaced.current = true;
+      e.select();
+    } else e.selected() ? e.unselect() : e.select();
   };
 
   // A row's button: focus or click selects its element, Enter or click opens its source, Space adds it to the picked.
   const rowButton = (i: Item, text?: string) => (
-    <button type="button" className={chosen.includes(i.id) ? "link picked" : "link"} data-el={i.id} onFocus={() => pick(i.id)}
-      onClick={() => open(i)}
+    <button type="button" className={chosen.includes(i.id) ? "link picked" : "link"} data-el={i.id}
+      onFocus={() => spaced.current || pick(i.id)}
+      onClick={(e) => {
+        if (e.detail > 0) { // a mouse click picks this one alone; Enter keeps what Space picked
+          spaced.current = false;
+          pick(i.id);
+        }
+        open(i);
+      }}
       onKeyDown={(e) => {
         if (e.key === " ") {
           e.preventDefault();

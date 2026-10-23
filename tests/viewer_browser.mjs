@@ -505,11 +505,11 @@ if (mode === "stale") {
       await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: c });
     }
   };
-  const KEYS = { Tab: ["Tab", 9, ""], Enter: ["Enter", 13, "\r"], ArrowDown: ["ArrowDown", 40, ""], ArrowUp: ["ArrowUp", 38, ""] };
+  const KEYS = { Tab: ["Tab", 9, ""], Enter: ["Enter", 13, "\r"], Space: ["Space", 32, " ", " "], ArrowDown: ["ArrowDown", 40, ""], ArrowUp: ["ArrowUp", 38, ""] };
   const key = async (k) => {
-    const [code, keyCode, text] = KEYS[k];
-    await send("Input.dispatchKeyEvent", { type: "keyDown", key: k, code, windowsVirtualKeyCode: keyCode, text });
-    await send("Input.dispatchKeyEvent", { type: "keyUp", key: k, code, windowsVirtualKeyCode: keyCode });
+    const [code, keyCode, text, name = k] = KEYS[k];
+    await send("Input.dispatchKeyEvent", { type: "keyDown", key: name, code, windowsVirtualKeyCode: keyCode, text });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key: name, code, windowsVirtualKeyCode: keyCode });
   };
   await run(async () => {
     // the new tab may still show about:blank: wait for the viewer, whose window then holds the helpers
@@ -633,6 +633,30 @@ if (mode === "stale") {
       g.section("Evidence");
       return g.evidence();
     });
+    // P1: Space on two claim rows picks both, Tab past the rows between keeps what Space picked, Space again drops only
+    // the second.
+    // The picked rows (what Graphs hands to onSelectionChange) are logged once per change.
+    await call(async () => {
+      g.section("Tables and Graphs");
+      await g.wait(() => g.cy(), "the graph");
+      const picks = () => [...new Set([...document.querySelectorAll(".graphs .picked")].map((b) => b.dataset.el))].sort();
+      window.picks = [];
+      new MutationObserver(() => {
+        const now = picks();
+        if (JSON.stringify(now) !== JSON.stringify(window.picks.at(-1))) window.picks.push(now);
+      }).observe(document.querySelector(".graphs"), { attributes: true, attributeFilter: ["class"], subtree: true });
+      const all = [...document.querySelectorAll(".graphs button")];
+      all[all.indexOf(g.row("claim:1")) - 1].focus();
+    });
+    const selected = () => call(() => g.cy().$(":selected").map((e) => e.id()).sort());
+    const focus = () => call(() => document.activeElement.dataset.el);
+    await key("Tab");
+    await key("Space");
+    for (let i = 0; i < 40 && (await focus()) !== "claim:2"; i++) await key("Tab"); // past the rows of claim 1's items
+    await key("Space");
+    const both = await selected();
+    await key("Space");
+    const spaced = { picks: await call(() => window.picks), both, after: await selected(), focus: await focus() };
     const rest = await call(async () => {
       g.section("Tables and Graphs");
       await g.wait(() => g.cy(), "the graph");
@@ -682,7 +706,7 @@ if (mode === "stale") {
       return { cell, auditor, seriesNode, stillHere, sides, hyper, noSeries, noCanvas, scope1, energy,
         newest: { shell: g.shell(), graph: g.graph() }, graphText };
     });
-    out = { ...first, nodeTap, node, nodeBack, edgeTap, edge, focused, keyboard, returned, arrows, ...rest, requests };
+    out = { ...first, nodeTap, node, nodeBack, edgeTap, edge, focused, keyboard, returned, arrows, spaced, ...rest, requests };
   } else if (mode === "graphs-stale") {
     await run(async () => {
       g.section("Tables and Graphs");
