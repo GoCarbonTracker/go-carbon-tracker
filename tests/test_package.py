@@ -1,19 +1,24 @@
 """Story 7.6 (TASK-0223): gct package preview and gct package create, complete and sanitised packages (D1 to D10).
-The leakage scans through 7.7's found() with 7.1's report_fixture.SEEDS (G1, G2) and the differential (G6) wait for
-those modules; the spot checks here use the gate fixture's own words and are no scanner."""
+The leakage scans (G1, G2) go through 7.7's leakage.found with 7.1's report_fixture.SEEDS; the differential's local
+case (G6) compares the sanitised packages of report_fixture W and W'. The gate-fixture spot checks are no scanner."""
 import ast
 import hashlib
 import json
 import re
 import shutil
 import sqlite3
+import tempfile
+from collections import Counter
 from pathlib import Path
 
 import pytest
 
 import gate_fixture
+import leakage
+import report_fixture as rf
 from conftest import PDF
 from test_intake import web  # noqa: F401 (a fixture)
+from test_report_fixture import _build
 from gct.reports import package
 from gct.reports import pin as pinning
 from gct.stages import deletion
@@ -76,6 +81,24 @@ def src(built, tmp_path, monkeypatch):
     return root
 
 
+@pytest.fixture(scope="module")
+def rw(tmp_path_factory):
+    """report_fixture W (7.1 G), built once and never written to: tests copy it."""
+    return _build(tmp_path_factory, "rw", False)
+
+
+@pytest.fixture(scope="module")
+def rw2(tmp_path_factory):
+    """report_fixture W' (without_private)."""
+    return _build(tmp_path_factory, "rw2", True)
+
+
+def copy(root, to, monkeypatch) -> Path:
+    shutil.copytree(root, to)
+    monkeypatch.setenv("GCT_WORKSPACE", str(to))
+    return to
+
+
 def preview(gct, *flags) -> dict:
     r = gct("package", "preview", *flags, "--json")
     assert r.code == 0, r.out
@@ -103,6 +126,24 @@ def refused(gct, src, argv, cause, code=4) -> dict:
     assert (r.code, r.data["status"], r.data["cause"]) == (code, "error", cause), r.data
     assert made(src) == before and run_count(src) == runs_before
     return r.data
+
+
+def matches_plan(src, folder, p) -> dict:
+    """G3: rows per table, document ids and sha256s and the file list are the preview's; no WAL, log, page image,
+    .incoming- folder or package create run. Returns read_back(folder)."""
+    back = read_back(folder)
+    ws, files = back["workspace"], p["included"]["files"]
+    assert {t: len(ws[t]) for t in p["included"]["tables"]} == p["included"]["tables"]
+    assert [[d["id"], d["sha256"]] for d in ws["document"]] == [[d["id"], d["sha256"]] for d in
+                                                                   p["included"]["documents"]]
+    assert set(back["files"]) == {"workspace.db", "published/v1.db", package.MANIFEST} | {
+        f"files/{o['sha256'][:2]}/{o['sha256']}" for o in files["originals"]} | {
+        a["path"] for a in ws["artifact"] if (src / a["path"]).is_file()}
+    assert len([f for f in back["files"] if f.startswith("artifacts/")]) == files["readings"]
+    assert not [f for f in back["files"] if f.endswith(("-wal", "-shm")) or f.startswith(("logs/", "artifacts/pages"))]
+    assert not list((src / "exports").glob(".incoming-*"))
+    assert "package create" not in {r["command"] for r in ws["run"]}
+    return back
 
 
 # AC 1 (D3 test (a)): COLUMNS names every table and column of a freshly migrated workspace, and nothing else
@@ -145,10 +186,12 @@ def test_columns_agree_with_deletion_and_every_stage_names_its_documents(tmp_pat
     conn.close()
 
 
-# AC 1 (ID_TEXT): each entry parses the stored values of its column (on the gate fixture; on 7.1 part C's fixture when
-# it lands); infer and match input_version stay id_hash, outside ID_TEXT
-def test_id_text_entries_parse_the_stored_values(src):
-    conn = store.connect(src / layout.DB_NAME)
+# AC 1 (ID_TEXT): each entry parses the stored values of its column, on the gate fixture and on report_fixture W;
+# infer and match input_version stay id_hash, outside ID_TEXT
+def id_text_seen(root) -> set:
+    """The ID_TEXT entries with at least one stored value; every stored value parses (or its entry is partial) and
+    every id it holds is a row of the table the entry names."""
+    conn = store.connect(root / layout.DB_NAME)
     seen = {}
     for (table, column), spec in package.ID_TEXT.items():
         stages = spec.get("stages")
@@ -171,11 +214,24 @@ def test_id_text_entries_parse_the_stored_values(src):
                         ids = entry[key] if isinstance(entry[key], list) else [entry[key]]
                         assert all(conn.execute(f"SELECT 1 FROM {target} WHERE id = ?", (i,)).fetchone() for i in ids)
                         seen[table, column] = True
-    assert {("attempt", "item"), ("attempt", "input_version"), ("attempt", "output"), ("basis", "wording")} <= set(seen)
+    conn.close()
+    return set(seen)
+
+
+def test_id_text_entries_parse_the_stored_values(src):
+    assert {("attempt", "item"), ("attempt", "input_version"), ("attempt", "output"), ("basis", "wording")} <= (
+        id_text_seen(src))
     assert package.COLUMNS["attempt"]["input_version"] == package.ID_HASH
     assert "infer" not in package.ID_TEXT["attempt", "input_version"]["stages"]
     assert "match" not in package.ID_TEXT["attempt", "input_version"]["stages"]
-    conn.close()
+
+
+def test_id_text_entries_parse_the_report_fixture_values(rw, tmp_path, monkeypatch, gct):
+    root = copy(rw, tmp_path / "w", monkeypatch)
+    item = gct("expect", "add", "--company", "Acme", "--metric", "Total water recycled", "--doc", 1, "--json")
+    assert gct("pages", "accept", "--doc", 1, "--pages", 1, "--type", "figures", *WHO).code == 0
+    assert gct("gap", "confirm", item.data["expectation"]["id"], *WHO).code == 0  # a documents_checked value
+    assert id_text_seen(root) == set(package.ID_TEXT)
 
 
 # AC 2: package.py holds no second map and no SQL naming the label or the document-naming columns
@@ -202,19 +258,10 @@ def test_a_sanitised_package_holds_what_its_preview_says_and_reopens(src, gct, m
     out = create(gct, token=p["token"])
     assert out.code == 0, out.data
     folder = src / out.data["folder"]
-    back, ws = read_back(folder), read_back(folder)["workspace"]
-    assert {t: len(ws[t]) for t in p["included"]["tables"]} == p["included"]["tables"]
-    assert [[d["id"], d["sha256"]] for d in ws["document"]] == [[d["id"], d["sha256"]] for d in
-                                                                   p["included"]["documents"]]
+    ws = matches_plan(src, folder, p)["workspace"]
     assert [d["id"] for d in ws["document"]] == SHARED and {d["label"] for d in p["included"]["documents"]} == {
         "shareable"}
-    files = p["included"]["files"]
-    assert set(back["files"]) == {"workspace.db", "published/v1.db", package.MANIFEST} | {
-        f"files/{o['sha256'][:2]}/{o['sha256']}" for o in files["originals"]} | {
-        a["path"] for a in ws["artifact"] if (src / a["path"]).is_file()}
-    assert len([f for f in back["files"] if f.startswith("artifacts/")]) == files["readings"] > 0
-    assert not [f for f in back["files"] if f.endswith(("-wal", "-shm")) or f.startswith(("logs/", "artifacts/pages"))]
-    assert not list((src / "exports").glob(".incoming-*"))
+    assert p["included"]["files"]["readings"] > 0
     # D3, D4, D7: no approval, saved view, fetch attempt or run line but each shipped run's finished event
     assert ws["approval"] == [] and ws["saved_view"] == [] and not [a for a in ws["attempt"] if a["stage"] == "fetch"]
     assert {(e["kind"], e["item"], e["message"]) for e in ws["run_event"]} == {("finished", None, None)}
@@ -270,12 +317,11 @@ def test_a_complete_package_needs_include_private_and_carries_every_row(src, gct
     out = create(gct, "--complete", "--include-private", token=p["token"])
     assert out.code == 0, out.data
     folder = src / out.data["folder"]
-    ws = read_back(folder)["workspace"]
+    ws = matches_plan(src, folder, p)["workspace"]
     for t in package.COLUMNS:
         if t not in package.FROM_INIT + package.NEVER:
             assert len(ws[t]) == len(before[t]), t
     assert ws["approval"] == [] and len(before["approval"]) == 1
-    assert "package create" not in {r["command"] for r in ws["run"]}
     assert [a for a in ws["artifact"] if a["document_id"] == 5] and not (
         folder / registry.stored_path(Path(), before["document"][4][4])).exists()
     assert KEY.encode() in (src / "workspace.db").read_bytes() and KEY.encode() not in (folder / "workspace.db").read_bytes()
@@ -752,3 +798,94 @@ def test_package_texts_pass_the_wording_guard():
     for n in ast.walk(ast.parse((GCT / "reports" / "package.py").read_text(encoding="utf-8"))):
         if isinstance(n, ast.Constant) and isinstance(n.value, str):
             assert not WORDS.search(n.value) and "contradiction" not in n.value.lower(), n.value
+
+
+@pytest.fixture
+def keyed(tmp_path, monkeypatch):
+    """CRED-ENV-01 is the value of a configured api_key_env variable while the packages are written."""
+    from gct.models import redact
+    models = tmp_path / "models.toml"
+    models.write_text(rf.MODELS)
+    monkeypatch.setenv("GCT_MODELS", str(models))
+    monkeypatch.setenv(rf.API_KEY_ENV, rf.CRED_ENV)
+    redact._names.cache_clear()
+    yield
+    redact._names.cache_clear()
+
+
+def readings(root) -> list:
+    """The derived reading seeds (G2): each reading file of the private PDF, as a file_hash seed of its sha256 (found
+    as text in artifact rows and as the hash of its file) with its relative path, which no text seed can hold."""
+    conn = store.connect(root / layout.DB_NAME)
+    rows = conn.execute("SELECT a.path, a.sha256 FROM artifact a JOIN document d ON d.id = a.document_id"
+                        " WHERE d.logical_name = ? ORDER BY a.id", (rf.NAME,)).fetchall()
+    conn.close()
+    assert rows
+    return [{"name": f"READING-{n:02d}", "kind": "file_hash", "expect": "complete_only", "value": r["sha256"],
+             "path": r["path"]} for n, r in enumerate(rows, 1)]
+
+
+# AC 4 (G3, both modes on the report fixture) and AC 9 (G1, G2): each seed is found in the source and the complete
+# package first, then none in the sanitised packages of W and W'
+def test_leakage_seeds_are_found_in_the_source_and_complete_package_and_none_in_the_sanitised(rw, rw2, tmp_path,
+                                                                                              monkeypatch, gct, keyed):
+    seeds = rf.SEEDS + readings(rw)
+    kind = {s["name"]: s["kind"] for s in seeds}
+    stored = {n for n, k in kind.items() if k in ("document_text", "contributor", "file_hash")}
+    # The source, untouched: every stored seed and the two never seeds stored raw. CRED-ENV-01 lives only in the
+    # environment and CRED-RUN-01 is scrubbed when written, so neither is in the source either; no page is rendered.
+    assert set(leakage.found(rw, seeds)) == stored | rf.STORED_RAW
+    local = str(Path(tempfile.gettempdir()).resolve()).encode()  # the folder the fixture added its files from
+    assert local in (rw / layout.DB_NAME).read_bytes()
+
+    src = copy(rw, tmp_path / "w", monkeypatch)
+    pc = preview(gct, "--complete")
+    com = src / create(gct, "--complete", "--include-private", token=pc["token"]).data["folder"]
+    hits = leakage.found(com, seeds)
+    # Complete: everything stored but the credentials, which redact.scrub cleans; the run lines that name local paths
+    # ship (D6's refusal says so), so PATH-01 is found although 7.1 labels it never for reports
+    assert set(hits) == stored | {"PATH-01"}
+    sha = rf.SEEDS[[s["name"] for s in rf.SEEDS].index("FILE-PDF-01")]["value"]
+    assert f"files/{sha[:2]}/{sha}: file hash" in hits["FILE-PDF-01"] and any(
+        p.startswith("workspace.db") for p in hits["FILE-PDF-01"])
+    back = matches_plan(src, com, pc)
+    assert {s["path"] for s in readings(rw)} <= set(back["files"]) and local in (com / layout.DB_NAME).read_bytes()
+
+    ps = preview(gct)
+    san = src / create(gct, token=ps["token"]).data["folder"]
+    assert leakage.found(san, seeds) == {}
+    back = matches_plan(src, san, ps)
+    assert not {s["path"] for s in readings(rw)} & set(back["files"])
+    home = re.compile(rb"/(?:Users|home)/[A-Za-z0-9._-]+/")  # tests/test_hygiene.py's pattern
+    for f in back["files"]:
+        data = (san / f).read_bytes()
+        assert local not in data and not home.search(data), f
+    src2 = copy(rw2, tmp_path / "w2", monkeypatch)
+    assert leakage.found(src2 / create(gct).data["folder"], seeds) == {}
+
+
+def attempts(folder, renumber) -> Counter:
+    """(stage, item, outcome) of every attempt; renumbered, the item's leading document id becomes its sha256."""
+    conn = store.connect(folder / layout.DB_NAME)
+    sha = dict(conn.execute("SELECT id, sha256 FROM document").fetchall())
+    assert len(set(sha.values())) == len(sha)  # a sha256 names one shipped document
+    head = re.compile(package.ID_TEXT["attempt", "item"]["pattern"])
+    out = Counter()
+    for a in conn.execute("SELECT stage, item, outcome FROM attempt"):
+        m = head.search(a["item"])
+        item = sha[int(m[1])] + a["item"][m.end(1):] if renumber else a["item"]
+        out[a["stage"], item, a["outcome"]] += 1
+    conn.close()
+    return out
+
+
+# AC 9 (G6, the local case; the full differential is 7.7's): the shareable documents' attempt rows in the sanitised
+# packages of W and W' are equal on (stage, renumbered item, outcome), and differ before renumbering
+def test_the_sanitised_packages_of_w_and_w_prime_hold_the_same_attempts_once_renumbered(rw, rw2, tmp_path,
+                                                                                        monkeypatch, gct):
+    w = copy(rw, tmp_path / "w", monkeypatch)
+    a = w / create(gct).data["folder"]
+    w2 = copy(rw2, tmp_path / "w2", monkeypatch)
+    b = w2 / create(gct).data["folder"]
+    assert attempts(a, False) != attempts(b, False)  # the private PDF, added first in W, moves every later id
+    assert attempts(a, True) == attempts(b, True) and sum(attempts(a, True).values()) > 0
