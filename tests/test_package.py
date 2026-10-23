@@ -206,6 +206,18 @@ def id_text_seen(root) -> set:
                 if found:
                     assert conn.execute(f"SELECT 1 FROM {spec['table']} WHERE id = ?", (int(found[1]),)).fetchone()
                     seen[table, column] = True
+            elif "positions" in spec:
+                if value == "":  # deletion clears it
+                    continue
+                data = json.loads(value)
+                assert isinstance(data[0], int), (table, column, value)
+                for i, target in spec["positions"].items():
+                    if isinstance(data[i], int):
+                        assert conn.execute(f"SELECT 1 FROM {target} WHERE id = ?", (data[i],)).fetchone()
+                        seen[table, column, target] = True
+                    else:
+                        assert data[i] in ("label", None), (table, column, value)
+                seen[table, column] = True
             else:
                 data = json.loads(value)
                 keys = spec["json"][r["stage"]] if stages else spec["json"]
@@ -231,7 +243,10 @@ def test_id_text_entries_parse_the_report_fixture_values(rw, tmp_path, monkeypat
     item = gct("expect", "add", "--company", "Acme", "--metric", "Total water recycled", "--doc", 1, "--json")
     assert gct("pages", "accept", "--doc", 1, "--pages", 1, "--type", "figures", *WHO).code == 0
     assert gct("gap", "confirm", item.data["expectation"]["id"], *WHO).code == 0  # a documents_checked value
-    assert id_text_seen(root) == set(package.ID_TEXT)
+    seen = id_text_seen(root)
+    assert {k[:2] for k in seen} == set(package.ID_TEXT)
+    assert {("inference", "group_key", "document"), ("inference", "group_key", "basis"),
+            ("match_review", "series_key", "company"), ("match_review", "series_key", "document")} <= seen
 
 
 # AC 2: package.py holds no second map and no SQL naming the label or the document-naming columns
@@ -940,3 +955,61 @@ def test_the_sanitised_packages_of_w_and_w_prime_hold_the_same_attempts_once_ren
     b = w2 / create(gct).data["folder"]
     assert attempts(a, False) != attempts(b, False)  # the private PDF, added first in W, moves every later id
     assert attempts(a, True) == attempts(b, True) and sum(attempts(a, True).values()) > 0
+
+
+def dump_text(db) -> str:
+    conn = sqlite3.connect(f"{Path(db).resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+    try:
+        return "\n".join(conn.iterdump())
+    finally:
+        conn.close()
+
+
+# Follow-up (7.7 B's differential): a decision on a shareable claim against a series only private claims form (report
+# fixture: acme-review.pdf's claims against the Acme Labs and Acme Tools series of acme-private.pdf) is not in the
+# sanitised package, which then holds what the package of W' holds; the complete package keeps it
+PRIVATE_SERIES = ("Acme Labs", "Acme Tools")
+
+
+def test_a_row_naming_a_series_only_withheld_claims_form_is_not_in_the_sanitised_package(rw, rw2, tmp_path,
+                                                                                        monkeypatch, gct):
+    from gct.stages import match
+    src = copy(rw, tmp_path / "w", monkeypatch)
+    conn = store.connect(src / layout.DB_NAME)
+    private = [r["id"] for r in conn.execute(
+        "SELECT r.id, r.series_key, d.logical_name FROM match_review r JOIN claim_version v ON v.id = r.claim_version_id"
+        " JOIN claim c ON c.id = v.claim_id JOIN document d ON d.id = c.document_id ORDER BY r.id")
+        if any(x in r["series_key"] for x in PRIVATE_SERIES) and r["logical_name"] == "acme-review.pdf"]
+    conn.close()
+    assert len(private) == 3  # report_fixture: link a to Labs, unlink a from Tools, unlink b from Labs
+    p = preview(gct)
+    assert p["withheld"]["selection_recomputed"] == 3
+    san = src / create(gct, token=p["token"]).data["folder"]
+    back = read_back(san)
+    series = {s["id"] for s in back["published"]["series"]}
+    for t in package.SERIES_NAMED:
+        assert back["workspace"][t] and all(match.series_id(json.loads(r["series_key"])) in series
+                                            for r in back["workspace"][t]), t
+    for db in (san / layout.DB_NAME, san / "published" / "v1.db"):
+        text = dump_text(db)
+        assert not [x for x in PRIVATE_SERIES if x in text], db
+    com = read_back(src / create(gct, "--complete", "--include-private").data["folder"])
+    assert set(private) <= {r["id"] for r in com["workspace"]["match_review"]}
+    assert any(x in dump_text(src / layout.DB_NAME) for x in PRIVATE_SERIES)  # the source holds the text
+    w2 = copy(rw2, tmp_path / "w2", monkeypatch)
+    other = read_back(w2 / create(gct).data["folder"])["workspace"]
+    for t in package.SERIES_NAMED:  # the same decisions as the package of W', key for key once renumbered
+        assert keys(back["workspace"], t) == keys(other, t), t
+
+
+def keys(ws, table) -> list:
+    """The table's series keys with their ids renumbered through ID_TEXT (company by name, document by sha256)."""
+    by = {"company": {c["id"]: c["name"] for c in ws["company"]},
+          "document": {d["id"]: d["sha256"] for d in ws["document"]}}
+    out = []
+    for r in ws[table]:
+        key = json.loads(r["series_key"])
+        for i, target in package.ID_TEXT[table, "series_key"]["positions"].items():
+            key[i] = by[target][key[i]] if isinstance(key[i], int) else key[i]
+        out.append(key)
+    return sorted(out, key=json.dumps)

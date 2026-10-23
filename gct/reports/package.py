@@ -17,7 +17,7 @@ from gct import __version__
 from gct.models.redact import scrub
 from gct.reports import pin as pinning
 from gct.reports.export import folder as _folder
-from gct.stages import deletion, sheet
+from gct.stages import deletion, match, sheet
 from gct.workspace import labels, layout, published, registry, runs, store
 from gct.workspace.layout import REFUSED, USAGE, GctError
 
@@ -124,12 +124,19 @@ ID_TEXT = {
     ("basis", "wording"): {"pattern": r"^declared in sheet mapping #(\d+) by ", "table": "sheet_mapping",
                            "partial": True},
     ("gap_confirmation", "documents_checked"): {"json": {"id": "document"}, "list": True},
+    # infer's group key, a JSON list: the claim's document id first and the basis id at index 8 (or "label" or null)
+    ("inference", "group_key"): {"positions": {0: "document", 8: "basis"}},
+    # match's series key, a JSON list: the company id first and, for a unit as printed series, the document id at 5
+    **dict.fromkeys((("match_review", "series_key"), ("restatement", "series_key")),
+                    {"positions": {0: "company", 5: "document"}}),
 }
 
 FROM_INIT = ("schema_version", "workspace")  # written by init in both modes
 NEVER = ("approval", "published_version", "published_pointer", "published_purge")  # the package builds its own v1
 COMPLETE_ONLY = ("saved_view",)
 REFERENCED = ("company", "contributor_version", "run")  # sanitised: only rows a shipped row points at
+# Sanitised: tables whose series_key names a series; a row ships only while shipped claims form that series.
+SERIES_NAMED = ("match_review", "restatement")
 INCLUDE = ("identity", "contributor_text", "flags")
 CAUSES = ("private_document", "absent_from_version", "same_bytes_private", "names_private_document", "flag",
           "archived", "deleted", "selection_recomputed", "contributor_text", "identity")
@@ -193,6 +200,15 @@ def _decide(conn, root, mode: str, include: tuple):
                 withheld[cause] += 1
     if mode == "sanitised":
         ship.update(dict.fromkeys(COMPLETE_ONLY, []))
+        # A series exists by its rule points (match.compute); one only withheld claims form is not in the package,
+        # so a decision or restatement naming it would reveal it (its key holds the boundary text those claims print)
+        shipped = {c["id"] for c in ship["claim"]}
+        formed = {s["key"] for s in match.compute(conn)["series"].values()
+                  if any(p["link"] == "rule" and p["claim_id"] in shipped for p in s["points"])}
+        for t in SERIES_NAMED:
+            kept = [r for r in ship[t] if r["series_key"] in formed]
+            withheld["selection_recomputed"] += len(ship[t]) - len(kept)
+            ship[t] = kept
         pointed = {t: set() for t in REFERENCED}
         for t, rows in ship.items():
             for col, target in keys[t].items():
