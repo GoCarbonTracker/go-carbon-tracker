@@ -863,11 +863,6 @@ def _entry_line(e: dict) -> str:
             + ("" if e["binds"] else " (on an earlier version)") + _mark(e["evidence_deleted"], e["created_at"]))
 
 
-def _disagreement_line(version: int, d: dict) -> str:
-    return (f"company confirmation and auditor review disagree on version {version}: company "
-            f"{', '.join(d['company'])}; auditor {', '.join(d['auditor'])}")
-
-
 def _ledger_lines(v: dict, indent: str = "  ") -> list[str]:
     """Both ledgers of one version as two lists, then their disagreement."""
     lines = []
@@ -875,7 +870,7 @@ def _ledger_lines(v: dict, indent: str = "  ") -> list[str]:
         lines.append(f"{indent}{words}s:" + ("" if v[key] else " none"))
         lines += [f"{indent}  {_entry_line(e)}" for e in v[key]]
     if v["disagreement"]:
-        lines.append(indent + _disagreement_line(v["id"], v["disagreement"]))
+        lines.append(indent + review.disagreement_line(v["id"], v["disagreement"]))
     return lines
 
 
@@ -895,7 +890,7 @@ def cmd_review_record(args) -> None:
     lines = [f"Recorded {review.LEDGERS[e['ledger']][1]} #{e['id']} on version {c['version']} of claim {c['id']}"
              f" (document {c['document']}, company {c['company']}):", f"  {_entry_line(e)}"]
     if r["disagreement"]:
-        lines.append("  " + _disagreement_line(c["version"], r["disagreement"]))
+        lines.append("  " + review.disagreement_line(c["version"], r["disagreement"]))
     _print(args, {"status": "ok", **r}, "\n".join([*lines, review.SELF_DECLARED]))
 
 

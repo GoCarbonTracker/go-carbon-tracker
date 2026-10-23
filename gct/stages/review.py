@@ -45,6 +45,12 @@ def _entry(conn, ledger: str, r) -> dict:
             "created_at": r["created_at"]}
 
 
+def disagreement_line(version: int, d: dict) -> str:
+    """The sentence for a disagreement of entries() (7.1-P12: the CLI and the report dataset print it)."""
+    return (f"company confirmation and auditor review disagree on version {version}: company "
+            f"{', '.join(d['company'])}; auditor {', '.join(d['auditor'])}")
+
+
 def _position(entries: list[dict]) -> list[str]:
     return [o for o in OUTCOMES if any(e["latest"] and e["outcome"] == o for e in entries)]
 
