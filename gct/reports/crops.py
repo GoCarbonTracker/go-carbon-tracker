@@ -121,7 +121,8 @@ def cut(root, dataset) -> dict:
     pages = [e for e in dataset["evidence"] if e["page"] is not None and not withheld(dataset, e)]
     if len(pages) > LIMIT:
         return {}
-    missing = sorted({e["document_id"] for e in pages if not registry.stored_path(root, e["sha256"]).is_file()})
+    missing = sorted({e["document_id"] for e in dataset["evidence"]  # withheld entries too: 7.4's refusal stands
+                      if e["page"] is not None and not registry.stored_path(root, e["sha256"]).is_file()})
     if missing:
         raise GctError(NOT_FOUND, f"The stored copy of document {missing[0]} is missing from the workspace.",
                        "Add the same file again with gct doc add to restore it, then run the report again.")

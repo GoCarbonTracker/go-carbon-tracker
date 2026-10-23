@@ -81,6 +81,17 @@ modes.
 
 Credentials visible only as image pixels are not detected because GCT does not use OCR.
 
+Text drawn by a PDF annotation (for example a note box) is not checked for credentials, because the check reads the
+page text that pdfplumber extracts and that text leaves annotations out. A credential in an annotation can therefore
+appear in an evidence image and in the copied original inside a package.
+
+CSV and XLSX originals are not checked for credentials. A credential in a cell ships in the copied original in both
+package kinds.
+
+The package databases (workspace.db and published/v1.db) pass the scrubber on their text as stored, without the
+compatibility normalisation (NFKC) the reports apply first. A credential written in fullwidth or other compatibility
+characters is redacted in every report format but ships in both package databases, in both package kinds.
+
 ## Sequential ids
 
 Document, claim and record ids are kept as they are in sanitised outputs. Because they are sequential, a gap in
