@@ -1698,7 +1698,8 @@ def in_76s_terms(folder, exempt=EXEMPT) -> dict:
             x = json.loads(v)
         except ValueError:  # a complete package's failed attempt keeps its plain output text, which names no id
             return v
-        if "positions" in spec:
+        if "positions" in spec:  # only a JSON list is positional; any other shape fails (Codex fix check 3)
+            assert type(x) is list, (t, c, v)
             x = [place(spec["positions"].get(i), y) for i, y in enumerate(x)]
         else:
             x = ids_in(x, spec["json"][row["stage"]] if "stages" in spec else spec["json"])
@@ -1753,3 +1754,65 @@ def test_the_sanitised_packages_of_w_and_w_prime_are_equal_in_76s_terms(lw, lw2)
     c = in_76s_terms(lw2["root"] / gct("package", "create", "--complete", "--include-private", "--confirm", token,
                                        *at)["folder"])
     assert in_76s_terms(lw["complete package"])["tables"] != c["tables"]
+
+
+def keyed(folder, key) -> None:
+    """Write key as the series_key of the package's first match_review (its update guard dropped: a fault on a copy)."""
+    conn = sqlite3.connect(folder / layout.DB_NAME)
+    try:
+        for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'match_review'"
+                                    " AND sql LIKE '%UPDATE%'").fetchall():
+            conn.execute(f'DROP TRIGGER "{name}"')
+        conn.execute("UPDATE match_review SET series_key = ? WHERE id = (SELECT MIN(id) FROM match_review)",
+                     (json.dumps(key),))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_the_package_differential_compares_series_key_values_and_refuses_other_shapes(lw, tmp_path):
+    """Codex fix check 3: a series_key's value at a position that names no id is compared as it is, and a series_key
+    that is a JSON object, not a list, fails the differential instead of normalising to its keys (the reviewer's
+    fault: {"0": 1, "1": private boundary text} and {"0": 1, "1": "shareable only"} once came out equal)."""
+    key = json.loads(series_keys(lw["sanitised package"])[0])
+    a, b = (Path(shutil.copytree(lw["sanitised package"], tmp_path / n)) for n in ("a", "b"))
+    keyed(a, [*key[:3], "combining the information of Acme Labs", *key[4:]])
+    keyed(b, [*key[:3], "shareable only", *key[4:]])
+    assert in_76s_terms(a)["tables"]["match_review"] != in_76s_terms(b)["tables"]["match_review"]
+    for folder, text in ((a, "combining the information of Acme Labs"), (b, "shareable only")):
+        keyed(folder, {"0": 1, "1": text})
+        with pytest.raises(AssertionError, match="series_key"):
+            in_76s_terms(folder)
+
+
+def series_keys(folder) -> list:
+    """The package's match_review series keys, by id."""
+    conn = sqlite3.connect(f"{(Path(folder) / layout.DB_NAME).resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        return [k for (k,) in conn.execute("SELECT series_key FROM match_review ORDER BY id")]
+    finally:
+        conn.close()
+
+
+def test_an_unmapped_metric_series_key_is_renumbered_through_its_pattern(tmp_path):
+    """The pattern-spec position (an unmapped metric's "doc:N:..." in series_key[1]) on 7.6's own small W and W'
+    (tests/test_package.py): the shared document's id differs (W adds a private PDF first), the raw keys differ, and
+    in_76s_terms makes the match_review rows equal."""
+    import gate_fixture
+    import test_package
+    shared = gate_fixture.page([["Mystery water recycled", "kL", "100", "110", "120"]], ["FY 2024-25"] * 3,
+                               lines=[(40, 150, gate_fixture.NOTE)])
+    raw, got = {}, {}
+    for name, private in (("w", gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "999"]], ["FY 2024-25"])),
+                          ("w2", None)):
+        root = tmp_path / name / "ws"
+        root.parent.mkdir()
+        g, doc, claims = test_package.small(root, shared, private)
+        g("infer", "reject", "--claim", claims[2], "--field", "boundary", *gate_fixture.WHO)
+        sid = next(s["id"] for s in g("series", "list")["series"] if s["document_id"] == doc)
+        g("match", "link", claims[2], "--series", sid, *gate_fixture.WHO)
+        g("publish", "build")
+        folder = root / g("package", "create", "--confirm", g("package", "preview")["token"])["folder"]
+        raw[name], got[name] = series_keys(folder), in_76s_terms(folder)["tables"]["match_review"]
+    assert raw["w"] != raw["w2"] and all(json.loads(k)[1].startswith("doc:") for k in raw["w"] + raw["w2"])
+    assert got["w"] == got["w2"] and sum(got["w"].values()) == 1
