@@ -198,20 +198,22 @@ def _finite(x):
     return x if x is None or math.isfinite(x) else None
 
 
-def _scrub(x, memo=None):
-    """P9: every string through redact.scrub, and the builder's own keys (a leading underscore) left out, in one
-    traversal. A container shared in the input (a sub-table's columns) is copied once and stays shared (AC 17)."""
+def _scrub(x, seen=None):
+    """P9: every string through redact.scrub, and the builder's own keys (a leading underscore) left out, in place:
+    the rows are built for this one output, and a copy of them would double the build's memory (AC 17). A container
+    shared in the tree (a sub-table's columns) is visited once."""
     if isinstance(x, str):
         return redact.scrub(x)
-    if not isinstance(x, (list, dict)):
-        return x
-    memo = {} if memo is None else memo
-    if id(x) not in memo:  # the input tree is alive throughout, so an id names one container
-        if isinstance(x, list):
-            memo[id(x)] = [_scrub(v, memo) for v in x]
-        else:
-            memo[id(x)] = {k: _scrub(v, memo) for k, v in x.items() if not k.startswith("_")}
-    return memo[id(x)]
+    seen = set() if seen is None else seen
+    if isinstance(x, (list, dict)) and id(x) not in seen:  # the tree is alive throughout, so an id names one container
+        seen.add(id(x))
+        if isinstance(x, dict):
+            for k in [k for k in x if k.startswith("_")]:
+                del x[k]
+        for k, v in (x.items() if isinstance(x, dict) else enumerate(x)):
+            if isinstance(v, (str, list, dict)):
+                x[k] = _scrub(v, seen)
+    return x
 
 
 def _in(ids) -> tuple[str, str]:
@@ -515,13 +517,14 @@ class _Rows:
         return self.location(kind, doc_id, page=page)
 
     # Claims (C3a).
-    def answer_rows(self, flt, claim_ids=None) -> list[dict]:
-        out, offset = [], 0
+    def answer_rows(self, flt, claim_ids=None):
+        """E6's answer rows, one page at a time, so a page is let go once its claim rows are made (AC 17)."""
+        offset = 0
         while True:
-            page = self.view.answer(self.work, flt, "table", offset, BATCH, claim_ids=claim_ids)
-            out += page["rows"]
-            if claim_ids is not None or len(page["rows"]) < BATCH:
-                return out
+            page = self.view.answer(self.work, flt, "table", offset, BATCH, claim_ids=claim_ids)["rows"]
+            yield from page
+            if claim_ids is not None or len(page) < BATCH:
+                return
             offset += BATCH
 
     def renewal_docs(self, cid, entries) -> set:
@@ -959,7 +962,7 @@ def _finish(b: _Build, mode, acct, mine) -> tuple[dict, dict]:
         notices += [x["text"] for x in a["deleted_in_filter"]]
     if set(flt) - {"company", "document"}:
         notices.append(EXPECTATIONS_SCOPE)
-    echo = dict(flt)
+    echo = copy.deepcopy(flt)  # the dataset is scrubbed in place; the preview prints flt
     if sanitised:
         companies = {d["_company"] for d in documents}
         series = {mine["claims"][r["claim_id"]]["series_id"] for t, r in rows if t in ("evidence_index", "related_claims")}
