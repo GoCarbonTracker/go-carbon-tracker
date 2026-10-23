@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 dependencies = ["fastapi>=0.115", "uvicorn>=0.30", "pdfplumber>=0.11", "pypdfium2>=5.9"]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "jsonschema>=4.26"]
 
 [project.scripts]
 gct = "gct.cli:main"
@@ -25,6 +25,8 @@ include = ["gct*"]
 "gct.workspace" = ["migrations/*.sql"]
 # The committed viewer build: a plain folder (no __init__.py), so it needs its own glob.
 "gct" = ["viewer_dist/*", "viewer_dist/assets/*"]
+# The published JSON Schema of the report dataset (story 7.2), copied into every JSON export.
+"gct.reports" = ["*.schema.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,5686 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "urn:gct:dataset-schema:1",
+ "title": "GCT report dataset, dataset schema 1",
+ "description": "The JSON export of a GCT report dataset (gct report NAME --format json): one published data version, the evidence index, the restatement log and the gap report with GCT's exact words. Every object is closed and every key required; the identity, the filter echo and the label column depend on mode. Validate with any Draft 2020-12 validator; no network is needed.",
+ "type": "object",
+ "properties": {
+  "dataset_schema": {
+   "description": "The dataset schema number this file follows.",
+   "type": "integer",
+   "const": 1
+  },
+  "gct_version": {
+   "description": "The GCT version that built the dataset.",
+   "type": "string",
+   "minLength": 1
+  },
+  "built_at": {
+   "description": "When the dataset was built.",
+   "$ref": "#/$defs/timestamp"
+  },
+  "mode": {
+   "description": "sanitised (private content left out) or complete (every row with its label).",
+   "type": "string",
+   "enum": [
+    "sanitised",
+    "complete"
+   ]
+  },
+  "include": {
+   "description": "The inclusion classes a sanitised output kept, sorted.",
+   "type": "array",
+   "items": {
+    "type": "string",
+    "enum": [
+     "contributor_text",
+     "flags",
+     "identity"
+    ]
+   },
+   "uniqueItems": true
+  },
+  "data_version": {
+   "description": "The published version this output was built from (identity per mode).",
+   "type": "object"
+  },
+  "filter": {
+   "description": "The filter, as it shipped in this mode.",
+   "type": "object"
+  },
+  "words": {
+   "description": "GCT's fixed wording.",
+   "$ref": "#/$defs/words"
+  },
+  "columns": {
+   "description": "The ordered printed columns of every report, sub-table and list.",
+   "type": "object",
+   "properties": {
+    "evidence_index": {
+     "description": "The columns of evidence_index.",
+     "$ref": "#/$defs/columns"
+    },
+    "related_claims": {
+     "description": "The columns of related_claims.",
+     "$ref": "#/$defs/columns"
+    },
+    "records": {
+     "description": "The columns of records.",
+     "$ref": "#/$defs/columns"
+    },
+    "disagreements": {
+     "description": "The columns of disagreements.",
+     "$ref": "#/$defs/columns"
+    },
+    "restatement_log": {
+     "description": "The columns of restatement_log.",
+     "$ref": "#/$defs/columns"
+    },
+    "candidates": {
+     "description": "The columns of candidates.",
+     "$ref": "#/$defs/columns"
+    },
+    "restatements": {
+     "description": "The columns of restatements.",
+     "$ref": "#/$defs/columns"
+    },
+    "unpaired_restatements": {
+     "description": "The columns of unpaired_restatements.",
+     "$ref": "#/$defs/columns"
+    },
+    "adjudications": {
+     "description": "The columns of adjudications.",
+     "$ref": "#/$defs/columns"
+    },
+    "documents": {
+     "description": "The columns of documents.",
+     "$ref": "#/$defs/columns"
+    },
+    "expectations": {
+     "description": "The columns of expectations.",
+     "$ref": "#/$defs/columns"
+    },
+    "reasons": {
+     "description": "The columns of reasons.",
+     "$ref": "#/$defs/columns"
+    },
+    "accepted": {
+     "description": "The columns of accepted.",
+     "$ref": "#/$defs/columns"
+    },
+    "declared": {
+     "description": "The columns of declared.",
+     "$ref": "#/$defs/columns"
+    },
+    "documents_checked": {
+     "description": "The columns of documents_checked.",
+     "$ref": "#/$defs/columns"
+    },
+    "extraction_limits": {
+     "description": "The columns of extraction_limits.",
+     "$ref": "#/$defs/columns"
+    },
+    "archived": {
+     "description": "The columns of archived.",
+     "$ref": "#/$defs/columns"
+    },
+    "deleted": {
+     "description": "The columns of deleted.",
+     "$ref": "#/$defs/columns"
+    }
+   },
+   "required": [
+    "evidence_index",
+    "related_claims",
+    "records",
+    "disagreements",
+    "restatement_log",
+    "candidates",
+    "restatements",
+    "unpaired_restatements",
+    "adjudications",
+    "documents",
+    "expectations",
+    "reasons",
+    "accepted",
+    "declared",
+    "documents_checked",
+    "extraction_limits",
+    "archived",
+    "deleted"
+   ],
+   "additionalProperties": false
+  },
+  "documents": {
+   "description": "Every document the rows name, plus the gap report's documents that ship.",
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/documents"
+   }
+  },
+  "evidence_index": {
+   "description": "One row per selected claim that ships.",
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/evidence_index"
+   }
+  },
+  "related_claims": {
+   "description": "Pair sides outside the selection.",
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/related_claims"
+   }
+  },
+  "restatement_log": {
+   "description": "One row per comparison pair that ships.",
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/restatement_log"
+   }
+  },
+  "unpaired_restatements": {
+   "description": "Restatement records whose claims form no pair.",
+   "$ref": "#/$defs/unpaired_restatements_table"
+  },
+  "gap_report": {
+   "description": "The gap report's sections.",
+   "type": "object",
+   "properties": {
+    "candidates": {
+     "description": "Inconsistency candidates.",
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/candidates"
+     }
+    },
+    "expectations": {
+     "description": "Expected figures.",
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/expectations"
+     }
+    },
+    "documents_checked": {
+     "description": "Documents checked.",
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/documents_checked"
+     }
+    },
+    "extraction_limits": {
+     "description": "Extraction limits.",
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/extraction_limits"
+     }
+    },
+    "archived": {
+     "description": "Archived documents; empty in sanitised mode.",
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/archived"
+     }
+    },
+    "deleted": {
+     "description": "Deleted documents; empty in sanitised mode.",
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/deleted"
+     }
+    }
+   },
+   "required": [
+    "candidates",
+    "expectations",
+    "documents_checked",
+    "extraction_limits",
+    "archived",
+    "deleted"
+   ],
+   "additionalProperties": false
+  },
+  "evidence": {
+   "description": "One entry per evidence location of a shipped row.",
+   "type": "array",
+   "items": {
+    "oneOf": [
+     {
+      "$ref": "#/$defs/evidence_page"
+     },
+     {
+      "$ref": "#/$defs/evidence_cell"
+     }
+    ]
+   }
+  },
+  "notices": {
+   "description": "The sentences every rendering prints, in order.",
+   "type": "array",
+   "items": {
+    "type": "string",
+    "minLength": 1
+   }
+  }
+ },
+ "required": [
+  "dataset_schema",
+  "gct_version",
+  "built_at",
+  "mode",
+  "include",
+  "data_version",
+  "filter",
+  "words",
+  "columns",
+  "documents",
+  "evidence_index",
+  "related_claims",
+  "restatement_log",
+  "unpaired_restatements",
+  "gap_report",
+  "evidence",
+  "notices"
+ ],
+ "additionalProperties": false,
+ "if": {
+  "properties": {
+   "mode": {
+    "const": "sanitised"
+   }
+  }
+ },
+ "then": {
+  "properties": {
+   "data_version": {
+    "description": "Sanitised identity: no history or labels mark.",
+    "$ref": "#/$defs/data_version_sanitised"
+   },
+   "filter": {
+    "description": "The sanitised filter echo.",
+    "$ref": "#/$defs/filter_sanitised"
+   },
+   "columns": {
+    "description": "Sanitised columns: no label column.",
+    "additionalProperties": {
+     "type": "array",
+     "items": {
+      "properties": {
+       "key": {
+        "not": {
+         "const": "label"
+        }
+       }
+      }
+     }
+    }
+   },
+   "gap_report": {
+    "description": "Sanitised mode names no archived or deleted document.",
+    "properties": {
+     "archived": {
+      "description": "Always empty.",
+      "maxItems": 0
+     },
+     "deleted": {
+      "description": "Always empty.",
+      "maxItems": 0
+     }
+    }
+   }
+  }
+ },
+ "else": {
+  "properties": {
+   "data_version": {
+    "description": "Complete identity, with both marks.",
+    "$ref": "#/$defs/data_version_complete"
+   },
+   "filter": {
+    "description": "The full normalised filter.",
+    "$ref": "#/$defs/filter_complete"
+   }
+  }
+ },
+ "$defs": {
+  "version_number": {
+   "description": "A published data version number.",
+   "type": "integer",
+   "minimum": 1
+  },
+  "timestamp": {
+   "description": "A UTC time as GCT stores it (store.now()); the format is an annotation, the pattern is the check.",
+   "type": "string",
+   "format": "date-time",
+   "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\+00:00$"
+  },
+  "day": {
+   "description": "A day in the form YYYY-MM-DD.",
+   "type": "string",
+   "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+  },
+  "sha256": {
+   "description": "A SHA-256 digest in lower-case hex.",
+   "type": "string",
+   "pattern": "^[0-9a-f]{64}$"
+  },
+  "label": {
+   "description": "A privacy label.",
+   "type": "string",
+   "enum": [
+    "private",
+    "shareable"
+   ]
+  },
+  "claim_state": {
+   "description": "A claim state in GCT's printed words.",
+   "type": "string",
+   "enum": [
+    "current",
+    "not found in the newest reading",
+    "page read again, not yet extracted"
+   ]
+  },
+  "match_state": {
+   "description": "A match state in GCT's printed words.",
+   "type": "string",
+   "enum": [
+    "series",
+    "reviewed",
+    "uncertain",
+    "not matchable"
+   ]
+  },
+  "pair_state": {
+   "description": "A comparison state in GCT's printed words.",
+   "type": "string",
+   "enum": [
+    "same value",
+    "restatement",
+    "unresolved conflict",
+    "not compared"
+   ]
+  },
+  "adjudication_state": {
+   "description": "An adjudication outcome in GCT's printed words.",
+   "type": "string",
+   "enum": [
+    "explained difference",
+    "extraction error",
+    "reviewer-confirmed issue",
+    "evidence not found"
+   ]
+  },
+  "shown_state": {
+   "description": "A conflict's shown adjudication state.",
+   "type": "string",
+   "enum": [
+    "explained difference",
+    "extraction error",
+    "reviewer-confirmed issue",
+    "evidence not found",
+    "unreviewed candidate"
+   ]
+  },
+  "outcome": {
+   "description": "A company confirmation or auditor review outcome.",
+   "type": "string",
+   "enum": [
+    "accepted",
+    "rejected",
+    "disputed"
+   ]
+  },
+  "record_kind": {
+   "description": "The kind of a review record in GCT's printed words.",
+   "type": "string",
+   "enum": [
+    "company confirmation",
+    "auditor review",
+    "reviewer flag",
+    "highlight"
+   ]
+  },
+  "missing_state": {
+   "description": "An expectation's missing-evidence state, printed verbatim.",
+   "type": "string",
+   "enum": [
+    "processing incomplete or failed",
+    "not found in successfully processed material",
+    "confirmed disclosure gap"
+   ]
+  },
+  "column": {
+   "description": "A printed column.",
+   "type": "object",
+   "properties": {
+    "key": {
+     "description": "The row key printed in this column (dotted for a part of an object).",
+     "type": "string",
+     "minLength": 1
+    },
+    "heading": {
+     "description": "The column heading, from words.fixed.headings.",
+     "type": "string",
+     "minLength": 1
+    },
+    "complete_only": {
+     "description": "Present and true on the label column, printed in complete mode only.",
+     "type": "boolean",
+     "const": true
+    }
+   },
+   "required": [
+    "key",
+    "heading"
+   ],
+   "additionalProperties": false
+  },
+  "columns": {
+   "description": "An ordered list of printed columns.",
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/column"
+   },
+   "minItems": 1
+  },
+  "correction": {
+   "description": "The correction that made the claim's current version.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The correction id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "corrects_version": {
+     "description": "The claim version it replaced.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "fields": {
+     "description": "The corrected fields.",
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "replaced": {
+     "description": "The replaced version's values, under the claim's label.",
+     "type": "object",
+     "properties": {
+      "value_text": {
+       "description": "The replaced version's value_text.",
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "unit_text": {
+       "description": "The replaced version's unit_text.",
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "metric_text": {
+       "description": "The replaced version's metric_text.",
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "period_label": {
+       "description": "The replaced version's period_label.",
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "value_text",
+      "unit_text",
+      "metric_text",
+      "period_label"
+     ],
+     "additionalProperties": false
+    },
+    "created_at": {
+     "description": "When the correction was stored.",
+     "$ref": "#/$defs/timestamp"
+    },
+    "contributor": {
+     "description": "Who corrected the claim; null only when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "organisation": {
+     "description": "The corrector's organisation; null when none or withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "capacity": {
+     "description": "The corrector's declared capacity; null only when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "rationale": {
+     "description": "The corrector's rationale; null only when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   },
+   "required": [
+    "id",
+    "corrects_version",
+    "fields",
+    "replaced",
+    "created_at",
+    "contributor",
+    "organisation",
+    "capacity",
+    "rationale"
+   ],
+   "additionalProperties": false
+  },
+  "evidence_index": {
+   "description": "An evidence index row: one selected claim.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "correction.capacity",
+       "correction.contributor",
+       "correction.organisation",
+       "correction.rationale"
+      ]
+     },
+     "uniqueItems": true
+    },
+    "claim_id": {
+     "description": "The claim id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "version_id": {
+     "description": "The claim's current version id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "company": {
+     "description": "The company's name.",
+     "type": "string"
+    },
+    "document_id": {
+     "description": "The id of the claim's document.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "document_name": {
+     "description": "The document's name in the workspace.",
+     "type": "string"
+    },
+    "document_version": {
+     "description": "The document's version number.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "page": {
+     "description": "The page of a PDF claim; null for a spreadsheet claim.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1
+    },
+    "sheet": {
+     "description": "The sheet of a spreadsheet claim; null for a PDF claim.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "cell": {
+     "description": "The cell of a spreadsheet claim, for example C2; null for a PDF claim.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "metric_text": {
+     "description": "The metric wording as printed in the document.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "value_text": {
+     "description": "The value as printed in the document.",
+     "type": "string"
+    },
+    "value": {
+     "description": "The value read from value_text; null when it has no unambiguous or finite value.",
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "unit_text": {
+     "description": "The unit as printed in the document.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "period_label": {
+     "description": "The reporting period as printed.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "period_start": {
+     "description": "The effective period's first day.",
+     "anyOf": [
+      {
+       "$ref": "#/$defs/day"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "period_end": {
+     "description": "The effective period's last day.",
+     "anyOf": [
+      {
+       "$ref": "#/$defs/day"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "period_state": {
+     "description": "How the effective period was settled, in GCT's words.",
+     "type": "string"
+    },
+    "boundary": {
+     "description": "The effective reporting boundary.",
+     "type": "string"
+    },
+    "boundary_detail": {
+     "description": "Detail of a subsidiary-set boundary.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "boundary_state": {
+     "description": "How the effective boundary was settled, in GCT's words.",
+     "type": "string"
+    },
+    "claim_state": {
+     "description": "The claim's state in GCT's printed words.",
+     "$ref": "#/$defs/claim_state"
+    },
+    "match_state": {
+     "description": "The claim's match state in GCT's printed words.",
+     "$ref": "#/$defs/match_state"
+    },
+    "match_reason": {
+     "description": "Why the claim has that match state.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "evidence_text": {
+     "description": "Whether the claim's own evidence was matched, cited or unresolved, in GCT's words.",
+     "type": "string"
+    },
+    "review_text": {
+     "description": "The review summary of the claim, computed from the records in this output.",
+     "type": "string"
+    },
+    "needs_renewed_review": {
+     "description": "One sentence per record on an earlier version that asks for a renewed review.",
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "correction": {
+     "description": "The correction that made the current version, or null for an extracted one.",
+     "anyOf": [
+      {
+       "$ref": "#/$defs/correction"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "records": {
+     "description": "The sub-table of review records on every version of the claim.",
+     "$ref": "#/$defs/records_table"
+    },
+    "disagreements": {
+     "description": "The sub-table of company and auditor disagreements per claim version.",
+     "$ref": "#/$defs/disagreements_table"
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "claim_id",
+    "version_id",
+    "company",
+    "document_id",
+    "document_name",
+    "document_version",
+    "page",
+    "sheet",
+    "cell",
+    "metric_text",
+    "value_text",
+    "value",
+    "unit_text",
+    "period_label",
+    "period_start",
+    "period_end",
+    "period_state",
+    "boundary",
+    "boundary_detail",
+    "boundary_state",
+    "claim_state",
+    "match_state",
+    "match_reason",
+    "evidence_text",
+    "review_text",
+    "needs_renewed_review",
+    "correction",
+    "records",
+    "disagreements"
+   ],
+   "additionalProperties": false,
+   "allOf": [
+    {
+     "if": {
+      "properties": {
+       "correction": {
+        "type": "object",
+        "properties": {
+         "contributor": {
+          "type": "null"
+         }
+        },
+        "required": [
+         "contributor"
+        ]
+       }
+      },
+      "required": [
+       "correction"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "correction.contributor"
+        }
+       }
+      }
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "correction": {
+        "type": "object",
+        "properties": {
+         "capacity": {
+          "type": "null"
+         }
+        },
+        "required": [
+         "capacity"
+        ]
+       }
+      },
+      "required": [
+       "correction"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "correction.capacity"
+        }
+       }
+      }
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "correction": {
+        "type": "object",
+        "properties": {
+         "rationale": {
+          "type": "null"
+         }
+        },
+        "required": [
+         "rationale"
+        ]
+       }
+      },
+      "required": [
+       "correction"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "correction.rationale"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  "related_claims": {
+   "description": "A pair side outside the selection, in the evidence index's shape.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "correction.capacity",
+       "correction.contributor",
+       "correction.organisation",
+       "correction.rationale"
+      ]
+     },
+     "uniqueItems": true
+    },
+    "claim_id": {
+     "description": "The claim id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "version_id": {
+     "description": "The claim's current version id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "company": {
+     "description": "The company's name.",
+     "type": "string"
+    },
+    "document_id": {
+     "description": "The id of the claim's document.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "document_name": {
+     "description": "The document's name in the workspace.",
+     "type": "string"
+    },
+    "document_version": {
+     "description": "The document's version number.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "page": {
+     "description": "The page of a PDF claim; null for a spreadsheet claim.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1
+    },
+    "sheet": {
+     "description": "The sheet of a spreadsheet claim; null for a PDF claim.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "cell": {
+     "description": "The cell of a spreadsheet claim, for example C2; null for a PDF claim.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "metric_text": {
+     "description": "The metric wording as printed in the document.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "value_text": {
+     "description": "The value as printed in the document.",
+     "type": "string"
+    },
+    "value": {
+     "description": "The value read from value_text; null when it has no unambiguous or finite value.",
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "unit_text": {
+     "description": "The unit as printed in the document.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "period_label": {
+     "description": "The reporting period as printed.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "period_start": {
+     "description": "The effective period's first day.",
+     "anyOf": [
+      {
+       "$ref": "#/$defs/day"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "period_end": {
+     "description": "The effective period's last day.",
+     "anyOf": [
+      {
+       "$ref": "#/$defs/day"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "period_state": {
+     "description": "How the effective period was settled, in GCT's words.",
+     "type": "string"
+    },
+    "boundary": {
+     "description": "The effective reporting boundary.",
+     "type": "string"
+    },
+    "boundary_detail": {
+     "description": "Detail of a subsidiary-set boundary.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "boundary_state": {
+     "description": "How the effective boundary was settled, in GCT's words.",
+     "type": "string"
+    },
+    "claim_state": {
+     "description": "The claim's state in GCT's printed words.",
+     "$ref": "#/$defs/claim_state"
+    },
+    "match_state": {
+     "description": "The claim's match state in GCT's printed words.",
+     "$ref": "#/$defs/match_state"
+    },
+    "match_reason": {
+     "description": "Why the claim has that match state.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "evidence_text": {
+     "description": "Whether the claim's own evidence was matched, cited or unresolved, in GCT's words.",
+     "type": "string"
+    },
+    "review_text": {
+     "description": "The review summary of the claim, computed from the records in this output.",
+     "type": "string"
+    },
+    "needs_renewed_review": {
+     "description": "One sentence per record on an earlier version that asks for a renewed review.",
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "correction": {
+     "description": "The correction that made the current version, or null for an extracted one.",
+     "anyOf": [
+      {
+       "$ref": "#/$defs/correction"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "records": {
+     "description": "The sub-table of review records on every version of the claim.",
+     "$ref": "#/$defs/records_table"
+    },
+    "disagreements": {
+     "description": "The sub-table of company and auditor disagreements per claim version.",
+     "$ref": "#/$defs/disagreements_table"
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "claim_id",
+    "version_id",
+    "company",
+    "document_id",
+    "document_name",
+    "document_version",
+    "page",
+    "sheet",
+    "cell",
+    "metric_text",
+    "value_text",
+    "value",
+    "unit_text",
+    "period_label",
+    "period_start",
+    "period_end",
+    "period_state",
+    "boundary",
+    "boundary_detail",
+    "boundary_state",
+    "claim_state",
+    "match_state",
+    "match_reason",
+    "evidence_text",
+    "review_text",
+    "needs_renewed_review",
+    "correction",
+    "records",
+    "disagreements"
+   ],
+   "additionalProperties": false,
+   "allOf": [
+    {
+     "if": {
+      "properties": {
+       "correction": {
+        "type": "object",
+        "properties": {
+         "contributor": {
+          "type": "null"
+         }
+        },
+        "required": [
+         "contributor"
+        ]
+       }
+      },
+      "required": [
+       "correction"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "correction.contributor"
+        }
+       }
+      }
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "correction": {
+        "type": "object",
+        "properties": {
+         "capacity": {
+          "type": "null"
+         }
+        },
+        "required": [
+         "capacity"
+        ]
+       }
+      },
+      "required": [
+       "correction"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "correction.capacity"
+        }
+       }
+      }
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "correction": {
+        "type": "object",
+        "properties": {
+         "rationale": {
+          "type": "null"
+         }
+        },
+        "required": [
+         "rationale"
+        ]
+       }
+      },
+      "required": [
+       "correction"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "correction.rationale"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  "records": {
+   "description": "A review record: a company confirmation, auditor review, reviewer flag or highlight, on any version of the claim.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "capacity",
+       "conclusion",
+       "evidence_note",
+       "note",
+       "organisation",
+       "rationale",
+       "scope"
+      ]
+     },
+     "uniqueItems": true
+    },
+    "claim_id": {
+     "description": "The claim id (the parent key).",
+     "type": "integer",
+     "minimum": 1
+    },
+    "kind": {
+     "description": "The record kind in GCT's printed words.",
+     "$ref": "#/$defs/record_kind"
+    },
+    "claim_version_id": {
+     "description": "The claim version the record is on.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "binds": {
+     "description": "True when the record is on the current versions it names, so it counts now.",
+     "type": "boolean"
+    },
+    "earlier": {
+     "description": "words.earlier_version when the record does not bind, else null.",
+     "type": [
+      "string",
+      "null"
+     ],
+     "enum": [
+      "on an earlier version",
+      null
+     ]
+    },
+    "latest": {
+     "description": "True when this is its contributor's latest position on that version.",
+     "type": "boolean"
+    },
+    "outcome": {
+     "description": "A ledger entry's outcome; null on a flag or highlight.",
+     "anyOf": [
+      {
+       "$ref": "#/$defs/outcome"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "decision": {
+     "description": "A reviewer flag's decision; null otherwise.",
+     "type": [
+      "string",
+      "null"
+     ],
+     "enum": [
+      "raised",
+      "withdrawn",
+      null
+     ]
+    },
+    "reviewed_on": {
+     "description": "The day a ledger entry says the review was made; null otherwise.",
+     "anyOf": [
+      {
+       "$ref": "#/$defs/day"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "created_at": {
+     "description": "When the record was stored (UTC).",
+     "$ref": "#/$defs/timestamp"
+    },
+    "contributor": {
+     "description": "Who made the record: the contributor's name, or in sanitised mode without the identity class a pseudonym 'Contributor N'.",
+     "type": "string",
+     "minLength": 1
+    },
+    "organisation": {
+     "description": "The contributor's organisation as they declared it; null when none is stored or when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "capacity": {
+     "description": "The capacity the contributor declared for this record (self-declared); null only when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "scope": {
+     "description": "A ledger entry's stated scope; null on a flag or highlight, or when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "conclusion": {
+     "description": "A ledger entry's stated conclusion; null on a flag or highlight, or when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "evidence_document_id": {
+     "description": "The document a ledger entry cites, if any.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1
+    },
+    "evidence_page": {
+     "description": "The page it cites, if any.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1
+    },
+    "evidence_note": {
+     "description": "A ledger entry's evidence note; null when none or withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "evidence_state": {
+     "description": "The cited document's state where it is not active, in GCT's words.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "note": {
+     "description": "A highlight's note; null otherwise or when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "rationale": {
+     "description": "A reviewer flag's rationale; null otherwise or when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "claim_id",
+    "kind",
+    "claim_version_id",
+    "binds",
+    "earlier",
+    "latest",
+    "outcome",
+    "decision",
+    "reviewed_on",
+    "created_at",
+    "contributor",
+    "organisation",
+    "capacity",
+    "scope",
+    "conclusion",
+    "evidence_document_id",
+    "evidence_page",
+    "evidence_note",
+    "evidence_state",
+    "note",
+    "rationale"
+   ],
+   "additionalProperties": false,
+   "allOf": [
+    {
+     "if": {
+      "properties": {
+       "capacity": {
+        "type": "null"
+       }
+      },
+      "required": [
+       "capacity"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "capacity"
+        }
+       }
+      }
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "kind": {
+        "enum": [
+         "company confirmation",
+         "auditor review"
+        ]
+       }
+      }
+     },
+     "then": {
+      "allOf": [
+       {
+        "if": {
+         "properties": {
+          "scope": {
+           "type": "null"
+          }
+         },
+         "required": [
+          "scope"
+         ]
+        },
+        "then": {
+         "properties": {
+          "withheld": {
+           "contains": {
+            "const": "scope"
+           }
+          }
+         }
+        }
+       },
+       {
+        "if": {
+         "properties": {
+          "conclusion": {
+           "type": "null"
+          }
+         },
+         "required": [
+          "conclusion"
+         ]
+        },
+        "then": {
+         "properties": {
+          "withheld": {
+           "contains": {
+            "const": "conclusion"
+           }
+          }
+         }
+        }
+       }
+      ]
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "kind": {
+        "const": "highlight"
+       }
+      }
+     },
+     "then": {
+      "allOf": [
+       {
+        "if": {
+         "properties": {
+          "note": {
+           "type": "null"
+          }
+         },
+         "required": [
+          "note"
+         ]
+        },
+        "then": {
+         "properties": {
+          "withheld": {
+           "contains": {
+            "const": "note"
+           }
+          }
+         }
+        }
+       }
+      ]
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "kind": {
+        "const": "reviewer flag"
+       }
+      }
+     },
+     "then": {
+      "allOf": [
+       {
+        "if": {
+         "properties": {
+          "rationale": {
+           "type": "null"
+          }
+         },
+         "required": [
+          "rationale"
+         ]
+        },
+        "then": {
+         "properties": {
+          "withheld": {
+           "contains": {
+            "const": "rationale"
+           }
+          }
+         }
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "disagreements": {
+   "description": "A disagreement between the latest company and auditor positions on one claim version.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": false,
+     "uniqueItems": true
+    },
+    "claim_id": {
+     "description": "The claim id (the parent key).",
+     "type": "integer",
+     "minimum": 1
+    },
+    "claim_version_id": {
+     "description": "The claim version.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "text": {
+     "description": "The disagreement sentence in GCT's words.",
+     "type": "string"
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "claim_id",
+    "claim_version_id",
+    "text"
+   ],
+   "additionalProperties": false
+  },
+  "restatement_log": {
+   "description": "A comparison pair with at least one selected side.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": false,
+     "uniqueItems": true
+    },
+    "series_id": {
+     "description": "The series id (a text hash).",
+     "type": "string",
+     "minLength": 1
+    },
+    "metric_key": {
+     "description": "The series' metric key; null for an unmapped series.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "reporting_boundary": {
+     "description": "The series' reporting boundary.",
+     "type": "string"
+    },
+    "unit_family": {
+     "description": "The series' unit family.",
+     "type": "string"
+    },
+    "period_start": {
+     "description": "The compared period's first day.",
+     "$ref": "#/$defs/day"
+    },
+    "period_end": {
+     "description": "The compared period's last day.",
+     "$ref": "#/$defs/day"
+    },
+    "claim_a": {
+     "description": "The row id (in evidence_index or related_claims) of the pair's first claim.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "claim_b": {
+     "description": "The row id (in evidence_index or related_claims) of the pair's second claim.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "outside_selection": {
+     "description": "For claim_a and claim_b, true when that side is outside this selection (listed in related_claims).",
+     "type": "array",
+     "prefixItems": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "boolean"
+      }
+     ],
+     "items": false,
+     "minItems": 2
+    },
+    "state": {
+     "description": "The comparison state in GCT's printed words.",
+     "$ref": "#/$defs/pair_state"
+    },
+    "reason": {
+     "description": "Why the pair has that state, where GCT gives one.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "shown_state": {
+     "description": "For an unresolved conflict, its adjudication state from the binding records in this output; else null.",
+     "anyOf": [
+      {
+       "$ref": "#/$defs/shown_state"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "restatements": {
+     "description": "The sub-table of restatement records on the pair.",
+     "$ref": "#/$defs/restatements_table"
+    },
+    "adjudications": {
+     "description": "The sub-table of adjudication records on the pair.",
+     "$ref": "#/$defs/adjudications_table"
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "series_id",
+    "metric_key",
+    "reporting_boundary",
+    "unit_family",
+    "period_start",
+    "period_end",
+    "claim_a",
+    "claim_b",
+    "outside_selection",
+    "state",
+    "reason",
+    "shown_state",
+    "restatements",
+    "adjudications"
+   ],
+   "additionalProperties": false
+  },
+  "candidates": {
+   "description": "An unresolved comparison pair: an inconsistency candidate.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": false,
+     "uniqueItems": true
+    },
+    "series_id": {
+     "description": "The series id (a text hash).",
+     "type": "string",
+     "minLength": 1
+    },
+    "metric_key": {
+     "description": "The series' metric key; null for an unmapped series.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "reporting_boundary": {
+     "description": "The series' reporting boundary.",
+     "type": "string"
+    },
+    "unit_family": {
+     "description": "The series' unit family.",
+     "type": "string"
+    },
+    "period_start": {
+     "description": "The compared period's first day.",
+     "$ref": "#/$defs/day"
+    },
+    "period_end": {
+     "description": "The compared period's last day.",
+     "$ref": "#/$defs/day"
+    },
+    "claim_a": {
+     "description": "The row id (in evidence_index or related_claims) of the pair's first claim.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "claim_b": {
+     "description": "The row id (in evidence_index or related_claims) of the pair's second claim.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "outside_selection": {
+     "description": "For claim_a and claim_b, true when that side is outside this selection (listed in related_claims).",
+     "type": "array",
+     "prefixItems": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "boolean"
+      }
+     ],
+     "items": false,
+     "minItems": 2
+    },
+    "state": {
+     "description": "Always unresolved conflict for a candidate.",
+     "const": "unresolved conflict"
+    },
+    "reason": {
+     "description": "Why the pair has that state, where GCT gives one.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "shown_state": {
+     "description": "For an unresolved conflict, its adjudication state from the binding records in this output; else null.",
+     "anyOf": [
+      {
+       "$ref": "#/$defs/shown_state"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "restatements": {
+     "description": "The sub-table of restatement records on the pair.",
+     "$ref": "#/$defs/restatements_table"
+    },
+    "adjudications": {
+     "description": "The sub-table of adjudication records on the pair.",
+     "$ref": "#/$defs/adjudications_table"
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "series_id",
+    "metric_key",
+    "reporting_boundary",
+    "unit_family",
+    "period_start",
+    "period_end",
+    "claim_a",
+    "claim_b",
+    "outside_selection",
+    "state",
+    "reason",
+    "shown_state",
+    "restatements",
+    "adjudications"
+   ],
+   "additionalProperties": false
+  },
+  "restatements": {
+   "description": "A restatement record on a pair, on any version of its two claims.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "capacity",
+       "organisation",
+       "rationale"
+      ]
+     },
+     "uniqueItems": true
+    },
+    "pair_id": {
+     "description": "The pair row's id (the parent key).",
+     "type": "integer",
+     "minimum": 1
+    },
+    "restatement_id": {
+     "description": "The restatement record id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "original_version_id": {
+     "description": "The claim version restated.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "restated_version_id": {
+     "description": "The claim version that restates it.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "decision": {
+     "description": "Whether the restatement was recorded or withdrawn.",
+     "type": "string",
+     "enum": [
+      "recorded",
+      "withdrawn"
+     ]
+    },
+    "evidence_document_id": {
+     "description": "The document that states the restatement.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "evidence_page": {
+     "description": "The page that states it; null on a withdrawal.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1
+    },
+    "evidence_quote": {
+     "description": "The quoted restatement text; null on a withdrawal.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "binds": {
+     "description": "True when the record is on the current versions it names, so it counts now.",
+     "type": "boolean"
+    },
+    "earlier": {
+     "description": "words.earlier_version when the record does not bind, else null.",
+     "type": [
+      "string",
+      "null"
+     ],
+     "enum": [
+      "on an earlier version",
+      null
+     ]
+    },
+    "contributor": {
+     "description": "Who made the record: the contributor's name, or in sanitised mode without the identity class a pseudonym 'Contributor N'.",
+     "type": "string",
+     "minLength": 1
+    },
+    "organisation": {
+     "description": "The contributor's organisation as they declared it; null when none is stored or when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "capacity": {
+     "description": "The capacity the contributor declared for this record (self-declared); null only when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "rationale": {
+     "description": "The contributor's rationale; null only when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "created_at": {
+     "description": "When the record was stored (UTC).",
+     "$ref": "#/$defs/timestamp"
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "pair_id",
+    "restatement_id",
+    "original_version_id",
+    "restated_version_id",
+    "decision",
+    "evidence_document_id",
+    "evidence_page",
+    "evidence_quote",
+    "binds",
+    "earlier",
+    "contributor",
+    "organisation",
+    "capacity",
+    "rationale",
+    "created_at"
+   ],
+   "additionalProperties": false,
+   "allOf": [
+    {
+     "if": {
+      "properties": {
+       "capacity": {
+        "type": "null"
+       }
+      },
+      "required": [
+       "capacity"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "capacity"
+        }
+       }
+      }
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "rationale": {
+        "type": "null"
+       }
+      },
+      "required": [
+       "rationale"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "rationale"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  "unpaired_restatements": {
+   "description": "A restatement record whose two claims form no pair in this version.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "capacity",
+       "organisation",
+       "rationale"
+      ]
+     },
+     "uniqueItems": true
+    },
+    "original_claim_id": {
+     "description": "The claim restated.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "restated_claim_id": {
+     "description": "The claim that restates it.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "restatement_id": {
+     "description": "The restatement record id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "original_version_id": {
+     "description": "The claim version restated.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "restated_version_id": {
+     "description": "The claim version that restates it.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "decision": {
+     "description": "Whether the restatement was recorded or withdrawn.",
+     "type": "string",
+     "enum": [
+      "recorded",
+      "withdrawn"
+     ]
+    },
+    "evidence_document_id": {
+     "description": "The document that states the restatement.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "evidence_page": {
+     "description": "The page that states it; null on a withdrawal.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1
+    },
+    "evidence_quote": {
+     "description": "The quoted restatement text; null on a withdrawal.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "binds": {
+     "description": "True when the record is on the current versions it names, so it counts now.",
+     "type": "boolean"
+    },
+    "earlier": {
+     "description": "words.earlier_version when the record does not bind, else null.",
+     "type": [
+      "string",
+      "null"
+     ],
+     "enum": [
+      "on an earlier version",
+      null
+     ]
+    },
+    "contributor": {
+     "description": "Who made the record: the contributor's name, or in sanitised mode without the identity class a pseudonym 'Contributor N'.",
+     "type": "string",
+     "minLength": 1
+    },
+    "organisation": {
+     "description": "The contributor's organisation as they declared it; null when none is stored or when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "capacity": {
+     "description": "The capacity the contributor declared for this record (self-declared); null only when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "rationale": {
+     "description": "The contributor's rationale; null only when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "created_at": {
+     "description": "When the record was stored (UTC).",
+     "$ref": "#/$defs/timestamp"
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "original_claim_id",
+    "restated_claim_id",
+    "restatement_id",
+    "original_version_id",
+    "restated_version_id",
+    "decision",
+    "evidence_document_id",
+    "evidence_page",
+    "evidence_quote",
+    "binds",
+    "earlier",
+    "contributor",
+    "organisation",
+    "capacity",
+    "rationale",
+    "created_at"
+   ],
+   "additionalProperties": false,
+   "allOf": [
+    {
+     "if": {
+      "properties": {
+       "capacity": {
+        "type": "null"
+       }
+      },
+      "required": [
+       "capacity"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "capacity"
+        }
+       }
+      }
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "rationale": {
+        "type": "null"
+       }
+      },
+      "required": [
+       "rationale"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "rationale"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  "adjudications": {
+   "description": "An adjudication record on a pair, on any version of its two claims.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "capacity",
+       "closure_reason",
+       "counter_note",
+       "follow_up",
+       "organisation",
+       "procedure",
+       "rationale"
+      ]
+     },
+     "uniqueItems": true
+    },
+    "pair_id": {
+     "description": "The pair row's id (the parent key).",
+     "type": "integer",
+     "minimum": 1
+    },
+    "adjudication_id": {
+     "description": "The adjudication record id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "low_version_id": {
+     "description": "The first claim version it adjudicates.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "high_version_id": {
+     "description": "The second claim version it adjudicates.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "state_text": {
+     "description": "The outcome in GCT's printed words.",
+     "$ref": "#/$defs/adjudication_state"
+    },
+    "binds": {
+     "description": "True when the record is on the current versions it names, so it counts now.",
+     "type": "boolean"
+    },
+    "earlier": {
+     "description": "words.earlier_version when the record does not bind, else null.",
+     "type": [
+      "string",
+      "null"
+     ],
+     "enum": [
+      "on an earlier version",
+      null
+     ]
+    },
+    "counter_document_id": {
+     "description": "The counter-evidence document, if any.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1
+    },
+    "counter_page": {
+     "description": "The counter-evidence page, if any.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1
+    },
+    "counter_note": {
+     "description": "The counter-evidence note; null when none or withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "rationale": {
+     "description": "The rationale; null only when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "procedure": {
+     "description": "The procedure followed; null only when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "follow_up": {
+     "description": "The follow-up; null when none or withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "closure_reason": {
+     "description": "The closure reason; null when none or withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "contributor": {
+     "description": "Who made the record: the contributor's name, or in sanitised mode without the identity class a pseudonym 'Contributor N'.",
+     "type": "string",
+     "minLength": 1
+    },
+    "organisation": {
+     "description": "The contributor's organisation as they declared it; null when none is stored or when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "capacity": {
+     "description": "The capacity the contributor declared for this record (self-declared); null only when withheld.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "created_at": {
+     "description": "When the record was stored (UTC).",
+     "$ref": "#/$defs/timestamp"
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "pair_id",
+    "adjudication_id",
+    "low_version_id",
+    "high_version_id",
+    "state_text",
+    "binds",
+    "earlier",
+    "counter_document_id",
+    "counter_page",
+    "counter_note",
+    "rationale",
+    "procedure",
+    "follow_up",
+    "closure_reason",
+    "contributor",
+    "organisation",
+    "capacity",
+    "created_at"
+   ],
+   "additionalProperties": false,
+   "allOf": [
+    {
+     "if": {
+      "properties": {
+       "capacity": {
+        "type": "null"
+       }
+      },
+      "required": [
+       "capacity"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "capacity"
+        }
+       }
+      }
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "rationale": {
+        "type": "null"
+       }
+      },
+      "required": [
+       "rationale"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "rationale"
+        }
+       }
+      }
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "procedure": {
+        "type": "null"
+       }
+      },
+      "required": [
+       "procedure"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "procedure"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  "documents": {
+   "description": "A document the rows name, or a document of the gap report's scope that ships.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": false,
+     "uniqueItems": true
+    },
+    "company": {
+     "description": "The company's name; null for a document not in this version.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "name": {
+     "description": "The document's name; null for a deleted or unknown document.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "version": {
+     "description": "The document's version number; null when not in this version.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 1
+    },
+    "kind": {
+     "description": "The document kind; null when not in this version.",
+     "type": [
+      "string",
+      "null"
+     ],
+     "enum": [
+      "report",
+      "evidence",
+      null
+     ]
+    },
+    "file_type": {
+     "description": "The file type, for example pdf or csv; null when not in this version.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "availability": {
+     "description": "The document's declared availability.",
+     "type": "string",
+     "enum": [
+      "public",
+      "internal",
+      "unknown"
+     ]
+    },
+    "state": {
+     "description": "Whether the document is in this version.",
+     "type": "string",
+     "enum": [
+      "active",
+      "archived",
+      "deleted",
+      "not in this version"
+     ]
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "company",
+    "name",
+    "version",
+    "kind",
+    "file_type",
+    "availability",
+    "state"
+   ],
+   "additionalProperties": false
+  },
+  "expectations": {
+   "description": "A figure the user expects a company to report, and what GCT found.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "confirmation.capacity",
+       "confirmation.organisation",
+       "confirmation.rationale"
+      ]
+     },
+     "uniqueItems": true
+    },
+    "expected_item_id": {
+     "description": "The expected item id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "company": {
+     "description": "The company's name.",
+     "type": "string"
+    },
+    "metric_text": {
+     "description": "The expected metric wording.",
+     "type": "string"
+    },
+    "period_label": {
+     "description": "The expected period label, if one was given.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "found": {
+     "description": "True when a matching claim was found.",
+     "type": "boolean"
+    },
+    "claims": {
+     "description": "The ids of the matching current claims.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "state": {
+     "description": "The missing-evidence state, or null when found.",
+     "anyOf": [
+      {
+       "$ref": "#/$defs/missing_state"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "confirmation": {
+     "description": "The newest gap confirmation, or null.",
+     "anyOf": [
+      {
+       "description": "A gap confirmation.",
+       "type": "object",
+       "properties": {
+        "gap_confirmation_id": {
+         "description": "The gap confirmation id.",
+         "type": "integer",
+         "minimum": 1
+        },
+        "current": {
+         "description": "True while the confirmation still holds.",
+         "type": "boolean"
+        },
+        "created_at": {
+         "description": "When it was stored.",
+         "$ref": "#/$defs/timestamp"
+        },
+        "contributor": {
+         "description": "Who made the record: the contributor's name, or in sanitised mode without the identity class a pseudonym 'Contributor N'.",
+         "type": "string",
+         "minLength": 1
+        },
+        "organisation": {
+         "description": "The contributor's organisation as they declared it; null when none is stored or when withheld.",
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "capacity": {
+         "description": "The capacity the contributor declared for this record (self-declared); null only when withheld.",
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "rationale": {
+         "description": "The rationale; null only when withheld.",
+         "type": [
+          "string",
+          "null"
+         ]
+        }
+       },
+       "required": [
+        "gap_confirmation_id",
+        "current",
+        "created_at",
+        "contributor",
+        "organisation",
+        "capacity",
+        "rationale"
+       ],
+       "additionalProperties": false
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "reasons": {
+     "description": "The sub-table of reasons the figure is missing.",
+     "$ref": "#/$defs/reasons_table"
+    },
+    "accepted": {
+     "description": "The sub-table of page acceptances counted for the item.",
+     "$ref": "#/$defs/accepted_table"
+    },
+    "declared": {
+     "description": "The sub-table of the item's declared documents.",
+     "$ref": "#/$defs/declared_table"
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "expected_item_id",
+    "company",
+    "metric_text",
+    "period_label",
+    "found",
+    "claims",
+    "state",
+    "confirmation",
+    "reasons",
+    "accepted",
+    "declared"
+   ],
+   "additionalProperties": false,
+   "allOf": [
+    {
+     "if": {
+      "properties": {
+       "confirmation": {
+        "type": "object",
+        "properties": {
+         "capacity": {
+          "type": "null"
+         }
+        },
+        "required": [
+         "capacity"
+        ]
+       }
+      },
+      "required": [
+       "confirmation"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "confirmation.capacity"
+        }
+       }
+      }
+     }
+    },
+    {
+     "if": {
+      "properties": {
+       "confirmation": {
+        "type": "object",
+        "properties": {
+         "rationale": {
+          "type": "null"
+         }
+        },
+        "required": [
+         "rationale"
+        ]
+       }
+      },
+      "required": [
+       "confirmation"
+      ]
+     },
+     "then": {
+      "properties": {
+       "withheld": {
+        "contains": {
+         "const": "confirmation.rationale"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  "reasons": {
+   "description": "A reason an expected figure is missing, per content type.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": false,
+     "uniqueItems": true
+    },
+    "expected_item_id": {
+     "description": "The expected item id (the parent key).",
+     "type": "integer",
+     "minimum": 1
+    },
+    "type": {
+     "description": "The content type the reason is about.",
+     "type": "string"
+    },
+    "reason": {
+     "description": "The reason in GCT's words.",
+     "type": "string"
+    },
+    "count": {
+     "description": "How many places the reason covers.",
+     "type": "integer",
+     "minimum": 0
+    },
+    "pages": {
+     "description": "The pages concerned, where the reason names pages.",
+     "type": [
+      "array",
+      "null"
+     ],
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "expected_item_id",
+    "type",
+    "reason",
+    "count",
+    "pages"
+   ],
+   "additionalProperties": false
+  },
+  "accepted": {
+   "description": "A page acceptance counted for an expected item (ids and counts only).",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": false,
+     "uniqueItems": true
+    },
+    "expected_item_id": {
+     "description": "The expected item id (the parent key).",
+     "type": "integer",
+     "minimum": 1
+    },
+    "type": {
+     "description": "The content type accepted.",
+     "type": "string"
+    },
+    "acceptance_id": {
+     "description": "The page acceptance id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "count": {
+     "description": "How many pages it covers.",
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "expected_item_id",
+    "type",
+    "acceptance_id",
+    "count"
+   ],
+   "additionalProperties": false
+  },
+  "declared": {
+   "description": "A document declared for an expected item.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": false,
+     "uniqueItems": true
+    },
+    "expected_item_id": {
+     "description": "The expected item id (the parent key).",
+     "type": "integer",
+     "minimum": 1
+    },
+    "document_id": {
+     "description": "The declared document id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "state": {
+     "description": "The declared document's state.",
+     "type": "string",
+     "enum": [
+      "registered",
+      "restored",
+      "archived"
+     ]
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "expected_item_id",
+    "document_id",
+    "state"
+   ],
+   "additionalProperties": false
+  },
+  "documents_checked": {
+   "description": "A document of the gap report's scope and how much of it was read.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": false,
+     "uniqueItems": true
+    },
+    "document_id": {
+     "description": "The document id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "pages": {
+     "description": "A PDF's page count; null for a spreadsheet.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    },
+    "read": {
+     "description": "A PDF's pages read; null for a spreadsheet.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    },
+    "read_failed": {
+     "description": "A PDF's pages whose newest read failed; null for a spreadsheet.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    },
+    "not_read": {
+     "description": "A PDF's pages never read; null for a spreadsheet.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    },
+    "limit_text": {
+     "description": "A PDF's pages whose text is not ready; null for a spreadsheet.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    },
+    "limit_tables": {
+     "description": "A PDF's pages whose tables are not ready; null for a spreadsheet.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    },
+    "limit_figures": {
+     "description": "A PDF's pages whose figures are not ready; null for a spreadsheet.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    },
+    "sheets_mapped": {
+     "description": "A spreadsheet's mapped sheet positions; null for a PDF.",
+     "type": [
+      "array",
+      "null"
+     ],
+     "items": {
+      "type": "integer",
+      "minimum": 0
+     }
+    },
+    "limit_note": {
+     "description": "A fixed limit sentence from words.fixed, where one applies.",
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "document_id",
+    "pages",
+    "read",
+    "read_failed",
+    "not_read",
+    "limit_text",
+    "limit_tables",
+    "limit_figures",
+    "sheets_mapped",
+    "limit_note"
+   ],
+   "additionalProperties": false
+  },
+  "extraction_limits": {
+   "description": "A kind of content GCT could not read, over the documents checked.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": false,
+     "uniqueItems": true
+    },
+    "type": {
+     "description": "The content type.",
+     "type": "string",
+     "enum": [
+      "text",
+      "tables",
+      "figures"
+     ]
+    },
+    "reason": {
+     "description": "The limit in GCT's words.",
+     "type": "string"
+    },
+    "count": {
+     "description": "How many documents it covers.",
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "type",
+    "reason",
+    "count"
+   ],
+   "additionalProperties": false
+  },
+  "archived": {
+   "description": "An archived document of the selection (complete mode only).",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": false,
+     "uniqueItems": true
+    },
+    "document_id": {
+     "description": "The document id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "name": {
+     "description": "The document's name.",
+     "type": "string"
+    },
+    "archived_at": {
+     "description": "When it was archived.",
+     "$ref": "#/$defs/timestamp"
+    },
+    "claims": {
+     "description": "How many claims it held.",
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "document_id",
+    "name",
+    "archived_at",
+    "claims"
+   ],
+   "additionalProperties": false
+  },
+  "deleted": {
+   "description": "A permanently deleted document, by id and date only (complete mode only).",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The row id: the record, claim, document or item id the row stands for, or its position in its list where it has none of its own.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "data_version": {
+     "description": "The published data version this row comes from; always the top-level data_version.version.",
+     "$ref": "#/$defs/version_number"
+    },
+    "label": {
+     "description": "The row's effective label: private when any document it names is private.",
+     "$ref": "#/$defs/label"
+    },
+    "documents": {
+     "description": "The ids of every document this row names.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "evidence": {
+     "description": "Ids into the top-level evidence list for this row's evidence locations; empty when it has none.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "withheld": {
+     "description": "The keys of this row withheld in this mode (dotted for a part of an object); each such key holds null. Empty in complete mode.",
+     "type": "array",
+     "items": false,
+     "uniqueItems": true
+    },
+    "document_id": {
+     "description": "The document id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "deleted_at": {
+     "description": "When it was deleted.",
+     "$ref": "#/$defs/timestamp"
+    }
+   },
+   "required": [
+    "id",
+    "data_version",
+    "label",
+    "documents",
+    "evidence",
+    "withheld",
+    "document_id",
+    "deleted_at"
+   ],
+   "additionalProperties": false
+  },
+  "evidence_page": {
+   "description": "A page location in a PDF.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The evidence entry id, as rows cite it.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "kind": {
+     "description": "What the location is evidence of.",
+     "type": "string",
+     "enum": [
+      "claim",
+      "basis",
+      "restatement",
+      "review"
+     ]
+    },
+    "document_id": {
+     "description": "The document id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "sha256": {
+     "description": "The SHA-256 of the document's original file.",
+     "$ref": "#/$defs/sha256"
+    },
+    "page": {
+     "description": "The page number.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "boxes": {
+     "description": "Boxes [x0, top, x1, bottom] in PDF points, top-left origin, in pdfplumber's page frame; null for the whole page.",
+     "type": [
+      "array",
+      "null"
+     ],
+     "items": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4
+     }
+    },
+    "sheet": {
+     "description": "Null on a page entry (sheet belongs to a cell entry).",
+     "type": "null"
+    },
+    "cell": {
+     "description": "Null on a page entry (cell belongs to a cell entry).",
+     "type": "null"
+    },
+    "header": {
+     "description": "Null on a page entry (header belongs to a cell entry).",
+     "type": "null"
+    },
+    "row": {
+     "description": "Null on a page entry (row belongs to a cell entry).",
+     "type": "null"
+    },
+    "marked": {
+     "description": "Null on a page entry (marked belongs to a cell entry).",
+     "type": "null"
+    }
+   },
+   "required": [
+    "id",
+    "kind",
+    "document_id",
+    "sha256",
+    "page",
+    "boxes",
+    "sheet",
+    "cell",
+    "header",
+    "row",
+    "marked"
+   ],
+   "additionalProperties": false
+  },
+  "evidence_cell": {
+   "description": "A cell location in a spreadsheet.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The evidence entry id, as rows cite it.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "kind": {
+     "description": "What the location is evidence of.",
+     "type": "string",
+     "enum": [
+      "claim",
+      "basis",
+      "restatement",
+      "review"
+     ]
+    },
+    "document_id": {
+     "description": "The document id.",
+     "type": "integer",
+     "minimum": 1
+    },
+    "sha256": {
+     "description": "The SHA-256 of the document's original file.",
+     "$ref": "#/$defs/sha256"
+    },
+    "page": {
+     "description": "Null on a cell entry.",
+     "type": "null"
+    },
+    "boxes": {
+     "description": "Null on a cell entry.",
+     "type": "null"
+    },
+    "sheet": {
+     "description": "The sheet name.",
+     "type": "string",
+     "minLength": 1
+    },
+    "cell": {
+     "description": "The cell, for example C2.",
+     "type": "string",
+     "minLength": 2
+    },
+    "header": {
+     "description": "The sheet's header row, or null when the sheet could not be read.",
+     "type": [
+      "array",
+      "null"
+     ],
+     "items": {
+      "type": "string"
+     }
+    },
+    "row": {
+     "description": "The cell's row, or null when the sheet could not be read.",
+     "type": [
+      "array",
+      "null"
+     ],
+     "items": {
+      "type": "string"
+     }
+    },
+    "marked": {
+     "description": "The index of the cell in row, or null when the sheet could not be read.",
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    }
+   },
+   "required": [
+    "id",
+    "kind",
+    "document_id",
+    "sha256",
+    "page",
+    "boxes",
+    "sheet",
+    "cell",
+    "header",
+    "row",
+    "marked"
+   ],
+   "additionalProperties": false
+  },
+  "records_table": {
+   "description": "The Review records sub-table.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The sub-table id.",
+     "type": "string",
+     "const": "records"
+    },
+    "title": {
+     "description": "The sub-table title, from words.fixed.titles.",
+     "type": "string",
+     "const": "Review records"
+    },
+    "rows": {
+     "description": "The sub-table's rows.",
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/records"
+     }
+    },
+    "parent_key": {
+     "description": "The key, present in every row, that holds the parent row's id.",
+     "type": "string",
+     "const": "claim_id"
+    },
+    "columns": {
+     "description": "The ordered printed columns of this sub-table.",
+     "$ref": "#/$defs/columns"
+    }
+   },
+   "required": [
+    "id",
+    "title",
+    "rows",
+    "parent_key",
+    "columns"
+   ],
+   "additionalProperties": false
+  },
+  "disagreements_table": {
+   "description": "The Disagreements sub-table.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The sub-table id.",
+     "type": "string",
+     "const": "disagreements"
+    },
+    "title": {
+     "description": "The sub-table title, from words.fixed.titles.",
+     "type": "string",
+     "const": "Disagreements"
+    },
+    "rows": {
+     "description": "The sub-table's rows.",
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/disagreements"
+     }
+    },
+    "parent_key": {
+     "description": "The key, present in every row, that holds the parent row's id.",
+     "type": "string",
+     "const": "claim_id"
+    },
+    "columns": {
+     "description": "The ordered printed columns of this sub-table.",
+     "$ref": "#/$defs/columns"
+    }
+   },
+   "required": [
+    "id",
+    "title",
+    "rows",
+    "parent_key",
+    "columns"
+   ],
+   "additionalProperties": false
+  },
+  "restatements_table": {
+   "description": "The Restatement records sub-table.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The sub-table id.",
+     "type": "string",
+     "const": "restatements"
+    },
+    "title": {
+     "description": "The sub-table title, from words.fixed.titles.",
+     "type": "string",
+     "const": "Restatement records"
+    },
+    "rows": {
+     "description": "The sub-table's rows.",
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/restatements"
+     }
+    },
+    "parent_key": {
+     "description": "The key, present in every row, that holds the parent row's id.",
+     "type": "string",
+     "const": "pair_id"
+    },
+    "columns": {
+     "description": "The ordered printed columns of this sub-table.",
+     "$ref": "#/$defs/columns"
+    }
+   },
+   "required": [
+    "id",
+    "title",
+    "rows",
+    "parent_key",
+    "columns"
+   ],
+   "additionalProperties": false
+  },
+  "adjudications_table": {
+   "description": "The Adjudications sub-table.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The sub-table id.",
+     "type": "string",
+     "const": "adjudications"
+    },
+    "title": {
+     "description": "The sub-table title, from words.fixed.titles.",
+     "type": "string",
+     "const": "Adjudications"
+    },
+    "rows": {
+     "description": "The sub-table's rows.",
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/adjudications"
+     }
+    },
+    "parent_key": {
+     "description": "The key, present in every row, that holds the parent row's id.",
+     "type": "string",
+     "const": "pair_id"
+    },
+    "columns": {
+     "description": "The ordered printed columns of this sub-table.",
+     "$ref": "#/$defs/columns"
+    }
+   },
+   "required": [
+    "id",
+    "title",
+    "rows",
+    "parent_key",
+    "columns"
+   ],
+   "additionalProperties": false
+  },
+  "reasons_table": {
+   "description": "The Missing reasons sub-table.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The sub-table id.",
+     "type": "string",
+     "const": "reasons"
+    },
+    "title": {
+     "description": "The sub-table title, from words.fixed.titles.",
+     "type": "string",
+     "const": "Missing reasons"
+    },
+    "rows": {
+     "description": "The sub-table's rows.",
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/reasons"
+     }
+    },
+    "parent_key": {
+     "description": "The key, present in every row, that holds the parent row's id.",
+     "type": "string",
+     "const": "expected_item_id"
+    },
+    "columns": {
+     "description": "The ordered printed columns of this sub-table.",
+     "$ref": "#/$defs/columns"
+    }
+   },
+   "required": [
+    "id",
+    "title",
+    "rows",
+    "parent_key",
+    "columns"
+   ],
+   "additionalProperties": false
+  },
+  "accepted_table": {
+   "description": "The Accepted pages sub-table.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The sub-table id.",
+     "type": "string",
+     "const": "accepted"
+    },
+    "title": {
+     "description": "The sub-table title, from words.fixed.titles.",
+     "type": "string",
+     "const": "Accepted pages"
+    },
+    "rows": {
+     "description": "The sub-table's rows.",
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/accepted"
+     }
+    },
+    "parent_key": {
+     "description": "The key, present in every row, that holds the parent row's id.",
+     "type": "string",
+     "const": "expected_item_id"
+    },
+    "columns": {
+     "description": "The ordered printed columns of this sub-table.",
+     "$ref": "#/$defs/columns"
+    }
+   },
+   "required": [
+    "id",
+    "title",
+    "rows",
+    "parent_key",
+    "columns"
+   ],
+   "additionalProperties": false
+  },
+  "declared_table": {
+   "description": "The Declared documents sub-table.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The sub-table id.",
+     "type": "string",
+     "const": "declared"
+    },
+    "title": {
+     "description": "The sub-table title, from words.fixed.titles.",
+     "type": "string",
+     "const": "Declared documents"
+    },
+    "rows": {
+     "description": "The sub-table's rows.",
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/declared"
+     }
+    },
+    "parent_key": {
+     "description": "The key, present in every row, that holds the parent row's id.",
+     "type": "string",
+     "const": "expected_item_id"
+    },
+    "columns": {
+     "description": "The ordered printed columns of this sub-table.",
+     "$ref": "#/$defs/columns"
+    }
+   },
+   "required": [
+    "id",
+    "title",
+    "rows",
+    "parent_key",
+    "columns"
+   ],
+   "additionalProperties": false
+  },
+  "unpaired_restatements_table": {
+   "description": "The Unpaired restatements sub-table.",
+   "type": "object",
+   "properties": {
+    "id": {
+     "description": "The sub-table id.",
+     "type": "string",
+     "const": "unpaired_restatements"
+    },
+    "title": {
+     "description": "The sub-table title, from words.fixed.titles.",
+     "type": "string",
+     "const": "Unpaired restatements"
+    },
+    "rows": {
+     "description": "The sub-table's rows.",
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/unpaired_restatements"
+     }
+    },
+    "parent_key": {
+     "description": "Null: these rows belong to no parent row.",
+     "type": "null"
+    },
+    "columns": {
+     "description": "The ordered printed columns of this sub-table.",
+     "$ref": "#/$defs/columns"
+    }
+   },
+   "required": [
+    "id",
+    "title",
+    "rows",
+    "parent_key",
+    "columns"
+   ],
+   "additionalProperties": false
+  },
+  "filter_complete": {
+   "description": "The normalised E6 filter as given; {} for the whole version.",
+   "type": "object",
+   "properties": {
+    "company": {
+     "description": "Companies by id.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "document": {
+     "description": "Documents by id.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "metric": {
+     "description": "Metric keys.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "ghg_scope_1",
+       "ghg_scope_2",
+       "ghg_scope_1_2",
+       "ghg_scope_3",
+       "energy_total",
+       "energy_renewable",
+       "energy_non_renewable",
+       "water_withdrawal_total",
+       "water_consumption_total",
+       "water_discharge_total",
+       "waste_total",
+       "unmapped"
+      ]
+     }
+    },
+    "text": {
+     "description": "Words of the metric wording.",
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 200
+    },
+    "period": {
+     "description": "A period range; either end may be left out.",
+     "type": "object",
+     "properties": {
+      "from": {
+       "description": "The first day.",
+       "$ref": "#/$defs/day"
+      },
+      "to": {
+       "description": "The last day.",
+       "$ref": "#/$defs/day"
+      }
+     },
+     "required": [],
+     "additionalProperties": false,
+     "minProperties": 1
+    },
+    "boundary": {
+     "description": "Reporting boundaries.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "standalone",
+       "subsidiary_set",
+       "consolidated",
+       "unknown"
+      ]
+     }
+    },
+    "claim_state": {
+     "description": "Claim states.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "current",
+       "not-found",
+       "not-extracted"
+      ]
+     }
+    },
+    "evidence": {
+     "description": "Evidence states.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "matched",
+       "cited",
+       "unresolved",
+       "not-checked"
+      ]
+     }
+    },
+    "match": {
+     "description": "Match states.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "series",
+       "reviewed",
+       "uncertain",
+       "not-matchable"
+      ]
+     }
+    },
+    "series": {
+     "description": "Series ids.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "minLength": 1
+     }
+    },
+    "comparison": {
+     "description": "Comparison states.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "same",
+       "restatement",
+       "unresolved",
+       "not-compared"
+      ]
+     }
+    },
+    "review": {
+     "description": "Review conditions.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "company-confirmation",
+       "auditor-review",
+       "disagreement",
+       "flag-raised",
+       "highlight",
+       "needs-re-review",
+       "corrected",
+       "adjudicated"
+      ]
+     }
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  },
+  "filter_sanitised": {
+   "description": "The filter as it shipped: ids reduced to what ships, text withheld.",
+   "type": "object",
+   "properties": {
+    "company": {
+     "description": "Companies by id. Only those with a shipped row.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "document": {
+     "description": "Documents by id. Only those that ship.",
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "metric": {
+     "description": "Metric keys.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "ghg_scope_1",
+       "ghg_scope_2",
+       "ghg_scope_1_2",
+       "ghg_scope_3",
+       "energy_total",
+       "energy_renewable",
+       "energy_non_renewable",
+       "water_withdrawal_total",
+       "water_consumption_total",
+       "water_discharge_total",
+       "waste_total",
+       "unmapped"
+      ]
+     }
+    },
+    "text": {
+     "description": "Withheld: a text filter was given.",
+     "type": "null"
+    },
+    "period": {
+     "description": "A period range; either end may be left out.",
+     "type": "object",
+     "properties": {
+      "from": {
+       "description": "The first day.",
+       "$ref": "#/$defs/day"
+      },
+      "to": {
+       "description": "The last day.",
+       "$ref": "#/$defs/day"
+      }
+     },
+     "required": [],
+     "additionalProperties": false,
+     "minProperties": 1
+    },
+    "boundary": {
+     "description": "Reporting boundaries.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "standalone",
+       "subsidiary_set",
+       "consolidated",
+       "unknown"
+      ]
+     }
+    },
+    "claim_state": {
+     "description": "Claim states.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "current",
+       "not-found",
+       "not-extracted"
+      ]
+     }
+    },
+    "evidence": {
+     "description": "Evidence states.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "matched",
+       "cited",
+       "unresolved",
+       "not-checked"
+      ]
+     }
+    },
+    "match": {
+     "description": "Match states.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "series",
+       "reviewed",
+       "uncertain",
+       "not-matchable"
+      ]
+     }
+    },
+    "series": {
+     "description": "Series ids. Only those with a shipped point.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "minLength": 1
+     }
+    },
+    "comparison": {
+     "description": "Comparison states.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "same",
+       "restatement",
+       "unresolved",
+       "not-compared"
+      ]
+     }
+    },
+    "review": {
+     "description": "Review conditions.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "company-confirmation",
+       "auditor-review",
+       "disagreement",
+       "flag-raised",
+       "highlight",
+       "needs-re-review",
+       "corrected",
+       "adjudicated"
+      ]
+     }
+    },
+    "withheld": {
+     "description": "Present only when a text filter was given: [\"text\"].",
+     "type": "array",
+     "prefixItems": [
+      {
+       "const": "text"
+      }
+     ],
+     "items": false,
+     "minItems": 1
+    }
+   },
+   "required": [],
+   "additionalProperties": false,
+   "dependentRequired": {
+    "text": [
+     "withheld"
+    ],
+    "withheld": [
+     "text"
+    ]
+   }
+  },
+  "data_version_sanitised": {
+   "description": "The published version this output was built from.",
+   "type": "object",
+   "properties": {
+    "version": {
+     "description": "The current published data version number.",
+     "$ref": "#/$defs/version_number"
+    },
+    "built_at": {
+     "description": "When that version was built.",
+     "$ref": "#/$defs/timestamp"
+    },
+    "sha256": {
+     "description": "The SHA-256 of the version file read (a deletion rewrites a version in place under the same number, so this tells two files of one number apart).",
+     "$ref": "#/$defs/sha256"
+    },
+    "projection_schema": {
+     "description": "The projection schema of the version file.",
+     "type": "integer",
+     "minimum": 15
+    }
+   },
+   "required": [
+    "version",
+    "built_at",
+    "sha256",
+    "projection_schema"
+   ],
+   "additionalProperties": false
+  },
+  "data_version_complete": {
+   "description": "The published version this output was built from, with its marks.",
+   "type": "object",
+   "properties": {
+    "version": {
+     "description": "The current published data version number.",
+     "$ref": "#/$defs/version_number"
+    },
+    "built_at": {
+     "description": "When that version was built.",
+     "$ref": "#/$defs/timestamp"
+    },
+    "sha256": {
+     "description": "The SHA-256 of the version file read (a deletion rewrites a version in place under the same number, so this tells two files of one number apart).",
+     "$ref": "#/$defs/sha256"
+    },
+    "projection_schema": {
+     "description": "The projection schema of the version file.",
+     "type": "integer",
+     "minimum": 15
+    },
+    "history_mark": {
+     "description": "The version's history mark: workspace-wide record counts, dot-separated.",
+     "type": "string",
+     "pattern": "^[0-9]+(\\.[0-9]+)*$"
+    },
+    "labels_mark": {
+     "description": "The newest document label change id when built.",
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "required": [
+    "version",
+    "built_at",
+    "sha256",
+    "projection_schema",
+    "history_mark",
+    "labels_mark"
+   ],
+   "additionalProperties": false
+  },
+  "words": {
+   "description": "GCT's fixed wording: the only text a renderer adds to the rows.",
+   "type": "object",
+   "properties": {
+    "self_declared": {
+     "description": "The words for self_declared.",
+     "type": "string",
+     "minLength": 1
+    },
+    "privacy_notice": {
+     "description": "The words for privacy_notice.",
+     "type": "string",
+     "minLength": 1
+    },
+    "archive_notice": {
+     "description": "The words for archive_notice.",
+     "type": "string",
+     "minLength": 1
+    },
+    "earlier_version": {
+     "description": "The words for earlier_version.",
+     "type": "string",
+     "minLength": 1
+    },
+    "earlier_position": {
+     "description": "The words for earlier_position.",
+     "type": "string",
+     "minLength": 1
+    },
+    "outside_selection": {
+     "description": "The words for outside_selection.",
+     "type": "string",
+     "minLength": 1
+    },
+    "withheld": {
+     "description": "The words for withheld.",
+     "type": "string",
+     "minLength": 1
+    },
+    "needs_renewed_review": {
+     "description": "The words for needs_renewed_review.",
+     "type": "string",
+     "minLength": 1
+    },
+    "fixed": {
+     "description": "The words for fixed.",
+     "type": "object",
+     "properties": {
+      "titles": {
+       "description": "The words for titles.",
+       "type": "object",
+       "properties": {
+        "evidence_index": {
+         "description": "The title of evidence_index.",
+         "type": "string",
+         "minLength": 1
+        },
+        "related_claims": {
+         "description": "The title of related_claims.",
+         "type": "string",
+         "minLength": 1
+        },
+        "pair_sides": {
+         "description": "The title of pair_sides.",
+         "type": "string",
+         "minLength": 1
+        },
+        "restatement_log": {
+         "description": "The title of restatement_log.",
+         "type": "string",
+         "minLength": 1
+        },
+        "gap_report": {
+         "description": "The title of gap_report.",
+         "type": "string",
+         "minLength": 1
+        },
+        "records": {
+         "description": "The title of records.",
+         "type": "string",
+         "minLength": 1
+        },
+        "disagreements": {
+         "description": "The title of disagreements.",
+         "type": "string",
+         "minLength": 1
+        },
+        "restatements": {
+         "description": "The title of restatements.",
+         "type": "string",
+         "minLength": 1
+        },
+        "unpaired_restatements": {
+         "description": "The title of unpaired_restatements.",
+         "type": "string",
+         "minLength": 1
+        },
+        "adjudications": {
+         "description": "The title of adjudications.",
+         "type": "string",
+         "minLength": 1
+        },
+        "documents": {
+         "description": "The title of documents.",
+         "type": "string",
+         "minLength": 1
+        },
+        "candidates": {
+         "description": "The title of candidates.",
+         "type": "string",
+         "minLength": 1
+        },
+        "expectations": {
+         "description": "The title of expectations.",
+         "type": "string",
+         "minLength": 1
+        },
+        "reasons": {
+         "description": "The title of reasons.",
+         "type": "string",
+         "minLength": 1
+        },
+        "accepted": {
+         "description": "The title of accepted.",
+         "type": "string",
+         "minLength": 1
+        },
+        "declared": {
+         "description": "The title of declared.",
+         "type": "string",
+         "minLength": 1
+        },
+        "documents_checked": {
+         "description": "The title of documents_checked.",
+         "type": "string",
+         "minLength": 1
+        },
+        "extraction_limits": {
+         "description": "The title of extraction_limits.",
+         "type": "string",
+         "minLength": 1
+        },
+        "archived": {
+         "description": "The title of archived.",
+         "type": "string",
+         "minLength": 1
+        },
+        "deleted": {
+         "description": "The title of deleted.",
+         "type": "string",
+         "minLength": 1
+        },
+        "about": {
+         "description": "The title of about.",
+         "type": "string",
+         "minLength": 1
+        }
+       },
+       "required": [
+        "evidence_index",
+        "related_claims",
+        "pair_sides",
+        "restatement_log",
+        "gap_report",
+        "records",
+        "disagreements",
+        "restatements",
+        "unpaired_restatements",
+        "adjudications",
+        "documents",
+        "candidates",
+        "expectations",
+        "reasons",
+        "accepted",
+        "declared",
+        "documents_checked",
+        "extraction_limits",
+        "archived",
+        "deleted",
+        "about"
+       ],
+       "additionalProperties": false
+      },
+      "headings": {
+       "description": "The words for headings.",
+       "type": "object",
+       "properties": {
+        "data_version": {
+         "description": "The heading of the column data_version.",
+         "type": "string",
+         "minLength": 1
+        },
+        "label": {
+         "description": "The heading of the column label.",
+         "type": "string",
+         "minLength": 1
+        },
+        "id": {
+         "description": "The heading of the column id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "claim_id": {
+         "description": "The heading of the column claim_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "version_id": {
+         "description": "The heading of the column version_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "company": {
+         "description": "The heading of the column company.",
+         "type": "string",
+         "minLength": 1
+        },
+        "document_id": {
+         "description": "The heading of the column document_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "document_name": {
+         "description": "The heading of the column document_name.",
+         "type": "string",
+         "minLength": 1
+        },
+        "document_version": {
+         "description": "The heading of the column document_version.",
+         "type": "string",
+         "minLength": 1
+        },
+        "page": {
+         "description": "The heading of the column page.",
+         "type": "string",
+         "minLength": 1
+        },
+        "sheet": {
+         "description": "The heading of the column sheet.",
+         "type": "string",
+         "minLength": 1
+        },
+        "cell": {
+         "description": "The heading of the column cell.",
+         "type": "string",
+         "minLength": 1
+        },
+        "metric_text": {
+         "description": "The heading of the column metric_text.",
+         "type": "string",
+         "minLength": 1
+        },
+        "value_text": {
+         "description": "The heading of the column value_text.",
+         "type": "string",
+         "minLength": 1
+        },
+        "value": {
+         "description": "The heading of the column value.",
+         "type": "string",
+         "minLength": 1
+        },
+        "unit_text": {
+         "description": "The heading of the column unit_text.",
+         "type": "string",
+         "minLength": 1
+        },
+        "period_label": {
+         "description": "The heading of the column period_label.",
+         "type": "string",
+         "minLength": 1
+        },
+        "period_start": {
+         "description": "The heading of the column period_start.",
+         "type": "string",
+         "minLength": 1
+        },
+        "period_end": {
+         "description": "The heading of the column period_end.",
+         "type": "string",
+         "minLength": 1
+        },
+        "period_state": {
+         "description": "The heading of the column period_state.",
+         "type": "string",
+         "minLength": 1
+        },
+        "boundary": {
+         "description": "The heading of the column boundary.",
+         "type": "string",
+         "minLength": 1
+        },
+        "boundary_detail": {
+         "description": "The heading of the column boundary_detail.",
+         "type": "string",
+         "minLength": 1
+        },
+        "boundary_state": {
+         "description": "The heading of the column boundary_state.",
+         "type": "string",
+         "minLength": 1
+        },
+        "claim_state": {
+         "description": "The heading of the column claim_state.",
+         "type": "string",
+         "minLength": 1
+        },
+        "match_state": {
+         "description": "The heading of the column match_state.",
+         "type": "string",
+         "minLength": 1
+        },
+        "match_reason": {
+         "description": "The heading of the column match_reason.",
+         "type": "string",
+         "minLength": 1
+        },
+        "evidence_text": {
+         "description": "The heading of the column evidence_text.",
+         "type": "string",
+         "minLength": 1
+        },
+        "review_text": {
+         "description": "The heading of the column review_text.",
+         "type": "string",
+         "minLength": 1
+        },
+        "needs_renewed_review": {
+         "description": "The heading of the column needs_renewed_review.",
+         "type": "string",
+         "minLength": 1
+        },
+        "correction.id": {
+         "description": "The heading of the column correction.id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "correction.corrects_version": {
+         "description": "The heading of the column correction.corrects_version.",
+         "type": "string",
+         "minLength": 1
+        },
+        "correction.fields": {
+         "description": "The heading of the column correction.fields.",
+         "type": "string",
+         "minLength": 1
+        },
+        "correction.replaced.value_text": {
+         "description": "The heading of the column correction.replaced.value_text.",
+         "type": "string",
+         "minLength": 1
+        },
+        "correction.replaced.unit_text": {
+         "description": "The heading of the column correction.replaced.unit_text.",
+         "type": "string",
+         "minLength": 1
+        },
+        "correction.replaced.metric_text": {
+         "description": "The heading of the column correction.replaced.metric_text.",
+         "type": "string",
+         "minLength": 1
+        },
+        "correction.replaced.period_label": {
+         "description": "The heading of the column correction.replaced.period_label.",
+         "type": "string",
+         "minLength": 1
+        },
+        "correction.created_at": {
+         "description": "The heading of the column correction.created_at.",
+         "type": "string",
+         "minLength": 1
+        },
+        "correction.contributor": {
+         "description": "The heading of the column correction.contributor.",
+         "type": "string",
+         "minLength": 1
+        },
+        "correction.organisation": {
+         "description": "The heading of the column correction.organisation.",
+         "type": "string",
+         "minLength": 1
+        },
+        "correction.capacity": {
+         "description": "The heading of the column correction.capacity.",
+         "type": "string",
+         "minLength": 1
+        },
+        "correction.rationale": {
+         "description": "The heading of the column correction.rationale.",
+         "type": "string",
+         "minLength": 1
+        },
+        "kind": {
+         "description": "The heading of the column kind.",
+         "type": "string",
+         "minLength": 1
+        },
+        "claim_version_id": {
+         "description": "The heading of the column claim_version_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "binds": {
+         "description": "The heading of the column binds.",
+         "type": "string",
+         "minLength": 1
+        },
+        "latest": {
+         "description": "The heading of the column latest.",
+         "type": "string",
+         "minLength": 1
+        },
+        "earlier": {
+         "description": "The heading of the column earlier.",
+         "type": "string",
+         "minLength": 1
+        },
+        "outcome": {
+         "description": "The heading of the column outcome.",
+         "type": "string",
+         "minLength": 1
+        },
+        "decision": {
+         "description": "The heading of the column decision.",
+         "type": "string",
+         "minLength": 1
+        },
+        "reviewed_on": {
+         "description": "The heading of the column reviewed_on.",
+         "type": "string",
+         "minLength": 1
+        },
+        "created_at": {
+         "description": "The heading of the column created_at.",
+         "type": "string",
+         "minLength": 1
+        },
+        "contributor": {
+         "description": "The heading of the column contributor.",
+         "type": "string",
+         "minLength": 1
+        },
+        "organisation": {
+         "description": "The heading of the column organisation.",
+         "type": "string",
+         "minLength": 1
+        },
+        "capacity": {
+         "description": "The heading of the column capacity.",
+         "type": "string",
+         "minLength": 1
+        },
+        "scope": {
+         "description": "The heading of the column scope.",
+         "type": "string",
+         "minLength": 1
+        },
+        "conclusion": {
+         "description": "The heading of the column conclusion.",
+         "type": "string",
+         "minLength": 1
+        },
+        "evidence_document_id": {
+         "description": "The heading of the column evidence_document_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "evidence_page": {
+         "description": "The heading of the column evidence_page.",
+         "type": "string",
+         "minLength": 1
+        },
+        "evidence_note": {
+         "description": "The heading of the column evidence_note.",
+         "type": "string",
+         "minLength": 1
+        },
+        "evidence_state": {
+         "description": "The heading of the column evidence_state.",
+         "type": "string",
+         "minLength": 1
+        },
+        "note": {
+         "description": "The heading of the column note.",
+         "type": "string",
+         "minLength": 1
+        },
+        "rationale": {
+         "description": "The heading of the column rationale.",
+         "type": "string",
+         "minLength": 1
+        },
+        "text": {
+         "description": "The heading of the column text.",
+         "type": "string",
+         "minLength": 1
+        },
+        "pair_id": {
+         "description": "The heading of the column pair_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "series_id": {
+         "description": "The heading of the column series_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "metric_key": {
+         "description": "The heading of the column metric_key.",
+         "type": "string",
+         "minLength": 1
+        },
+        "reporting_boundary": {
+         "description": "The heading of the column reporting_boundary.",
+         "type": "string",
+         "minLength": 1
+        },
+        "unit_family": {
+         "description": "The heading of the column unit_family.",
+         "type": "string",
+         "minLength": 1
+        },
+        "claim_a": {
+         "description": "The heading of the column claim_a.",
+         "type": "string",
+         "minLength": 1
+        },
+        "claim_b": {
+         "description": "The heading of the column claim_b.",
+         "type": "string",
+         "minLength": 1
+        },
+        "outside_selection.a": {
+         "description": "The heading of the column outside_selection.a.",
+         "type": "string",
+         "minLength": 1
+        },
+        "outside_selection.b": {
+         "description": "The heading of the column outside_selection.b.",
+         "type": "string",
+         "minLength": 1
+        },
+        "state": {
+         "description": "The heading of the column state.",
+         "type": "string",
+         "minLength": 1
+        },
+        "reason": {
+         "description": "The heading of the column reason.",
+         "type": "string",
+         "minLength": 1
+        },
+        "shown_state": {
+         "description": "The heading of the column shown_state.",
+         "type": "string",
+         "minLength": 1
+        },
+        "restatement_id": {
+         "description": "The heading of the column restatement_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "original_version_id": {
+         "description": "The heading of the column original_version_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "restated_version_id": {
+         "description": "The heading of the column restated_version_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "original_claim_id": {
+         "description": "The heading of the column original_claim_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "restated_claim_id": {
+         "description": "The heading of the column restated_claim_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "evidence_quote": {
+         "description": "The heading of the column evidence_quote.",
+         "type": "string",
+         "minLength": 1
+        },
+        "adjudication_id": {
+         "description": "The heading of the column adjudication_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "low_version_id": {
+         "description": "The heading of the column low_version_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "high_version_id": {
+         "description": "The heading of the column high_version_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "state_text": {
+         "description": "The heading of the column state_text.",
+         "type": "string",
+         "minLength": 1
+        },
+        "counter_document_id": {
+         "description": "The heading of the column counter_document_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "counter_page": {
+         "description": "The heading of the column counter_page.",
+         "type": "string",
+         "minLength": 1
+        },
+        "counter_note": {
+         "description": "The heading of the column counter_note.",
+         "type": "string",
+         "minLength": 1
+        },
+        "procedure": {
+         "description": "The heading of the column procedure.",
+         "type": "string",
+         "minLength": 1
+        },
+        "follow_up": {
+         "description": "The heading of the column follow_up.",
+         "type": "string",
+         "minLength": 1
+        },
+        "closure_reason": {
+         "description": "The heading of the column closure_reason.",
+         "type": "string",
+         "minLength": 1
+        },
+        "name": {
+         "description": "The heading of the column name.",
+         "type": "string",
+         "minLength": 1
+        },
+        "version": {
+         "description": "The heading of the column version.",
+         "type": "string",
+         "minLength": 1
+        },
+        "file_type": {
+         "description": "The heading of the column file_type.",
+         "type": "string",
+         "minLength": 1
+        },
+        "availability": {
+         "description": "The heading of the column availability.",
+         "type": "string",
+         "minLength": 1
+        },
+        "expected_item_id": {
+         "description": "The heading of the column expected_item_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "found": {
+         "description": "The heading of the column found.",
+         "type": "string",
+         "minLength": 1
+        },
+        "claims": {
+         "description": "The heading of the column claims.",
+         "type": "string",
+         "minLength": 1
+        },
+        "confirmation.gap_confirmation_id": {
+         "description": "The heading of the column confirmation.gap_confirmation_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "confirmation.current": {
+         "description": "The heading of the column confirmation.current.",
+         "type": "string",
+         "minLength": 1
+        },
+        "confirmation.created_at": {
+         "description": "The heading of the column confirmation.created_at.",
+         "type": "string",
+         "minLength": 1
+        },
+        "confirmation.contributor": {
+         "description": "The heading of the column confirmation.contributor.",
+         "type": "string",
+         "minLength": 1
+        },
+        "confirmation.organisation": {
+         "description": "The heading of the column confirmation.organisation.",
+         "type": "string",
+         "minLength": 1
+        },
+        "confirmation.capacity": {
+         "description": "The heading of the column confirmation.capacity.",
+         "type": "string",
+         "minLength": 1
+        },
+        "confirmation.rationale": {
+         "description": "The heading of the column confirmation.rationale.",
+         "type": "string",
+         "minLength": 1
+        },
+        "type": {
+         "description": "The heading of the column type.",
+         "type": "string",
+         "minLength": 1
+        },
+        "count": {
+         "description": "The heading of the column count.",
+         "type": "string",
+         "minLength": 1
+        },
+        "pages": {
+         "description": "The heading of the column pages.",
+         "type": "string",
+         "minLength": 1
+        },
+        "acceptance_id": {
+         "description": "The heading of the column acceptance_id.",
+         "type": "string",
+         "minLength": 1
+        },
+        "read": {
+         "description": "The heading of the column read.",
+         "type": "string",
+         "minLength": 1
+        },
+        "read_failed": {
+         "description": "The heading of the column read_failed.",
+         "type": "string",
+         "minLength": 1
+        },
+        "not_read": {
+         "description": "The heading of the column not_read.",
+         "type": "string",
+         "minLength": 1
+        },
+        "limit_text": {
+         "description": "The heading of the column limit_text.",
+         "type": "string",
+         "minLength": 1
+        },
+        "limit_tables": {
+         "description": "The heading of the column limit_tables.",
+         "type": "string",
+         "minLength": 1
+        },
+        "limit_figures": {
+         "description": "The heading of the column limit_figures.",
+         "type": "string",
+         "minLength": 1
+        },
+        "sheets_mapped": {
+         "description": "The heading of the column sheets_mapped.",
+         "type": "string",
+         "minLength": 1
+        },
+        "limit_note": {
+         "description": "The heading of the column limit_note.",
+         "type": "string",
+         "minLength": 1
+        },
+        "archived_at": {
+         "description": "The heading of the column archived_at.",
+         "type": "string",
+         "minLength": 1
+        },
+        "deleted_at": {
+         "description": "The heading of the column deleted_at.",
+         "type": "string",
+         "minLength": 1
+        }
+       },
+       "required": [
+        "data_version",
+        "label",
+        "id",
+        "claim_id",
+        "version_id",
+        "company",
+        "document_id",
+        "document_name",
+        "document_version",
+        "page",
+        "sheet",
+        "cell",
+        "metric_text",
+        "value_text",
+        "value",
+        "unit_text",
+        "period_label",
+        "period_start",
+        "period_end",
+        "period_state",
+        "boundary",
+        "boundary_detail",
+        "boundary_state",
+        "claim_state",
+        "match_state",
+        "match_reason",
+        "evidence_text",
+        "review_text",
+        "needs_renewed_review",
+        "correction.id",
+        "correction.corrects_version",
+        "correction.fields",
+        "correction.replaced.value_text",
+        "correction.replaced.unit_text",
+        "correction.replaced.metric_text",
+        "correction.replaced.period_label",
+        "correction.created_at",
+        "correction.contributor",
+        "correction.organisation",
+        "correction.capacity",
+        "correction.rationale",
+        "kind",
+        "claim_version_id",
+        "binds",
+        "latest",
+        "earlier",
+        "outcome",
+        "decision",
+        "reviewed_on",
+        "created_at",
+        "contributor",
+        "organisation",
+        "capacity",
+        "scope",
+        "conclusion",
+        "evidence_document_id",
+        "evidence_page",
+        "evidence_note",
+        "evidence_state",
+        "note",
+        "rationale",
+        "text",
+        "pair_id",
+        "series_id",
+        "metric_key",
+        "reporting_boundary",
+        "unit_family",
+        "claim_a",
+        "claim_b",
+        "outside_selection.a",
+        "outside_selection.b",
+        "state",
+        "reason",
+        "shown_state",
+        "restatement_id",
+        "original_version_id",
+        "restated_version_id",
+        "original_claim_id",
+        "restated_claim_id",
+        "evidence_quote",
+        "adjudication_id",
+        "low_version_id",
+        "high_version_id",
+        "state_text",
+        "counter_document_id",
+        "counter_page",
+        "counter_note",
+        "procedure",
+        "follow_up",
+        "closure_reason",
+        "name",
+        "version",
+        "file_type",
+        "availability",
+        "expected_item_id",
+        "found",
+        "claims",
+        "confirmation.gap_confirmation_id",
+        "confirmation.current",
+        "confirmation.created_at",
+        "confirmation.contributor",
+        "confirmation.organisation",
+        "confirmation.capacity",
+        "confirmation.rationale",
+        "type",
+        "count",
+        "pages",
+        "acceptance_id",
+        "read",
+        "read_failed",
+        "not_read",
+        "limit_text",
+        "limit_tables",
+        "limit_figures",
+        "sheets_mapped",
+        "limit_note",
+        "archived_at",
+        "deleted_at"
+       ],
+       "additionalProperties": false
+      },
+      "about_csv": {
+       "description": "The words for about_csv.",
+       "type": "array",
+       "items": {
+        "type": "string",
+        "minLength": 1
+       },
+       "minItems": 2,
+       "maxItems": 2
+      },
+      "separator": {
+       "description": "The words for separator.",
+       "type": "string",
+       "minLength": 1
+      },
+      "identity": {
+       "description": "The words for identity.",
+       "type": "object",
+       "properties": {
+        "version": {
+         "description": "The words for version.",
+         "type": "string",
+         "minLength": 1
+        },
+        "built_at": {
+         "description": "The words for built_at.",
+         "type": "string",
+         "minLength": 1
+        },
+        "sha256": {
+         "description": "The words for sha256.",
+         "type": "string",
+         "minLength": 1
+        },
+        "projection_schema": {
+         "description": "The words for projection_schema.",
+         "type": "string",
+         "minLength": 1
+        },
+        "history_mark": {
+         "description": "The words for history_mark.",
+         "type": "string",
+         "minLength": 1
+        },
+        "labels_mark": {
+         "description": "The words for labels_mark.",
+         "type": "string",
+         "minLength": 1
+        }
+       },
+       "required": [
+        "version",
+        "built_at",
+        "sha256",
+        "projection_schema",
+        "history_mark",
+        "labels_mark"
+       ],
+       "additionalProperties": false
+      },
+      "dataset": {
+       "description": "The words for dataset.",
+       "type": "object",
+       "properties": {
+        "gct_version": {
+         "description": "The words for gct_version.",
+         "type": "string",
+         "minLength": 1
+        },
+        "built_at": {
+         "description": "The words for built_at.",
+         "type": "string",
+         "minLength": 1
+        },
+        "dataset_schema": {
+         "description": "The words for dataset_schema.",
+         "type": "string",
+         "minLength": 1
+        },
+        "filter": {
+         "description": "The words for filter.",
+         "type": "string",
+         "minLength": 1
+        },
+        "include": {
+         "description": "The words for include.",
+         "type": "string",
+         "minLength": 1
+        }
+       },
+       "required": [
+        "gct_version",
+        "built_at",
+        "dataset_schema",
+        "filter",
+        "include"
+       ],
+       "additionalProperties": false
+      },
+      "mode": {
+       "description": "The words for mode.",
+       "type": "object",
+       "properties": {
+        "sanitised": {
+         "description": "The words for sanitised.",
+         "type": "string",
+         "minLength": 1
+        },
+        "complete": {
+         "description": "The words for complete.",
+         "type": "string",
+         "minLength": 1
+        }
+       },
+       "required": [
+        "sanitised",
+        "complete"
+       ],
+       "additionalProperties": false
+      },
+      "data_version": {
+       "description": "The words for data_version.",
+       "type": "string",
+       "minLength": 1
+      },
+      "label": {
+       "description": "The words for label.",
+       "type": "string",
+       "minLength": 1
+      },
+      "image_alt": {
+       "description": "The words for image_alt.",
+       "type": "string",
+       "minLength": 1
+      },
+      "image_cap": {
+       "description": "The words for image_cap.",
+       "type": "string",
+       "minLength": 1
+      },
+      "booleans": {
+       "description": "The words for booleans.",
+       "type": "object",
+       "properties": {
+        "true": {
+         "description": "The words for true.",
+         "type": "string",
+         "minLength": 1
+        },
+        "false": {
+         "description": "The words for false.",
+         "type": "string",
+         "minLength": 1
+        }
+       },
+       "required": [
+        "true",
+        "false"
+       ],
+       "additionalProperties": false
+      },
+      "sheets_limit": {
+       "description": "The words for sheets_limit.",
+       "type": "string",
+       "minLength": 1
+      },
+      "not_opened": {
+       "description": "The words for not_opened.",
+       "type": "string",
+       "minLength": 1
+      },
+      "expectations_scope": {
+       "description": "The words for expectations_scope.",
+       "type": "string",
+       "minLength": 1
+      },
+      "pdf": {
+       "description": "The words for pdf.",
+       "type": "object",
+       "properties": {
+        "appendix": {
+         "description": "The words for appendix.",
+         "type": "string",
+         "minLength": 1
+        },
+        "page": {
+         "description": "The words for page.",
+         "type": "string",
+         "minLength": 1
+        },
+        "of": {
+         "description": "The words for of.",
+         "type": "string",
+         "minLength": 1
+        },
+        "font_note": {
+         "description": "The words for font_note.",
+         "type": "string",
+         "minLength": 1
+        }
+       },
+       "required": [
+        "appendix",
+        "page",
+        "of",
+        "font_note"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "required": [
+      "titles",
+      "headings",
+      "about_csv",
+      "separator",
+      "identity",
+      "dataset",
+      "mode",
+      "data_version",
+      "label",
+      "image_alt",
+      "image_cap",
+      "booleans",
+      "sheets_limit",
+      "not_opened",
+      "expectations_scope",
+      "pdf"
+     ],
+     "additionalProperties": false
+    }
+   },
+   "required": [
+    "self_declared",
+    "privacy_notice",
+    "archive_notice",
+    "earlier_version",
+    "earlier_position",
+    "outside_selection",
+    "withheld",
+    "needs_renewed_review",
+    "fixed"
+   ],
+   "additionalProperties": false
+  }
+ }
+}

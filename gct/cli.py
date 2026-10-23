@@ -11,7 +11,7 @@ from collections import Counter
 from gct import __version__
 from gct.measure import g2
 from gct.models import adapters, policy
-from gct.reports import dataset
+from gct.reports import dataset, export
 from gct.stages import (adjudicate, archive, correct, deletion, extract, highlight, infer, link, match, missing, read,
                         restate, review, saved_view, sheet, view)
 from gct.workspace import intake, labels, layout, lock, published, registry, runs, store
@@ -1573,12 +1573,15 @@ def report_dataset(args) -> tuple[dict, dict]:
                            "Run a command that writes, for example gct publish build: it upgrades the workspace first"
                            " and records the upgrade in the run log.")
         store.migrate(conn)  # nothing to apply here; refuses a workspace made by a newer gct
-        return dataset.build(conn, args.root, filter=_filter_arg(args.filter),
-                             mode="complete" if args.complete else "sanitised",
-                             include=[x.strip() for x in args.include.split(",") if x.strip()],
-                             data_version=args.data_version)
+        return dataset.build(conn, args.root, **report_options(args))
     finally:
         conn.close()
+
+
+def report_options(args) -> dict:
+    """dataset.build's keyword arguments from the shared report options."""
+    return {"filter": _filter_arg(args.filter), "mode": "complete" if args.complete else "sanitised",
+            "include": [x.strip() for x in args.include.split(",") if x.strip()], "data_version": args.data_version}
 
 
 def report_lines(d: dict, p: dict) -> list[str]:
@@ -1609,6 +1612,39 @@ def cmd_report_preview(args) -> None:
     v = {k: d["data_version"][k] for k in ("version", "built_at", "sha256", "projection_schema")}
     _print(args, {"status": "ok", "mode": d["mode"], "include": d["include"], "data_version": v, "preview": p},
            "\n".join(report_lines(d, p)))
+
+
+def cmd_report(args) -> None:
+    """gct report NAME --format F[,F...] (story 7.2): build once under the lock, then open the run and write the
+    folder. A refused build writes nothing, not even a run."""
+    formats = list(dict.fromkeys(x.strip() for x in args.format.split(",")))
+    if bad := [x for x in formats if x not in export.FORMATS]:
+        raise GctError(layout.USAGE, f"Unknown format {bad[0]}. Available: {', '.join(sorted(export.FORMATS))}.",
+                       "Give one of them, for example: gct report all --format json")
+    opts = report_options(args)
+    view.normalise(opts["filter"])
+    conn = _open(args)
+    d, p = dataset.build(conn, args.root, **opts)
+    stale = published.status(conn, args.root)["stale"]
+    with runs.run(conn, "report") as run_id:
+        runs.event(conn, run_id, "note", stage="report", item=f"{args.name} {','.join(formats)}")
+        out = export.write(args.root, d, export.REPORTS[args.name], formats, args.name)
+        for f in out["files"]:
+            runs.event(conn, run_id, "output", stage="report", item=f"exports/{out['folder'].name}/{f}")
+    v = d["data_version"]["version"]
+    lines = [f"Wrote {d['mode']} report data for data version {v} to {out['folder']}:",
+             *(f"  {f}" for f in out["files"]), *d["notices"]]
+    if d["mode"] == "complete":
+        lines.append("This export includes private content. Check it before you share it.")
+    if stale:
+        lines.append(f"The workspace has changed since data version {v} was built; this export shows version {v}."
+                     " To include the changes: gct publish build, then export again.")
+    lines += [n for o in out["outputs"] for n in o["notes"]]
+    _print(args, {"status": "ok", "run_id": run_id, "folder": str(out["folder"]), "files": out["files"],
+                  "outputs": out["outputs"], "data_version": {**d["data_version"], "history_mark": p["history_mark"],
+                                                              "labels_mark": p["labels_mark"]},
+                  "mode": d["mode"], "include": d["include"], "stale": stale, "preview": p},
+           "\n".join(lines + report_lines(d, p)))
 
 
 def cmd_serve(args) -> None:
@@ -2001,6 +2037,14 @@ def build_parser() -> argparse.ArgumentParser:
                                                               " leave out; writes nothing")
     report_arguments(pre)
     pre.set_defaults(func=cmd_report_preview)
+    for name, about in (("evidence-index", "the evidence index"), ("restatement-log", "the restatement log"),
+                        ("gap-report", "the gap report"), ("all", "the three reports")):
+        rp = reports.add_parser(name, parents=[common], help=f"export {about} into exports/ (a JSON export holds the"
+                                                             " whole report dataset)")
+        rp.add_argument("--format", required=True, metavar="F[,F...]",
+                        help=f"comma separated: {', '.join(sorted(export.FORMATS))}")
+        report_arguments(rp)
+        rp.set_defaults(func=cmd_report, name=name)
 
     run = group("run", "the run log")
     run.add_parser("list", parents=[common], help="list runs, newest first").set_defaults(func=cmd_run_list)
