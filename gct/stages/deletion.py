@@ -206,7 +206,7 @@ PROJECTION = {
                    **dict.fromkeys(("series_id", "state", "reason", "restatement_id"), "kept"),
                    **dict.fromkeys(("period_start", "period_end"), "content")},
     "restatement": {"original_version_id": "version", "restated_version_id": "version",
-                    "evidence_document_id": "document",
+                    "evidence_document_id": "document", "original_claim_id": "claim", "restated_claim_id": "claim",
                     **dict.fromkeys(("id", "decision", "evidence_page", "contributor_name", "contributor_organisation",
                                      "created_at", "binds"), "kept"),
                     **dict.fromkeys(("series_key", "evidence_quote", "capacity", "rationale"), "content")},
@@ -254,6 +254,10 @@ PROJECTION = {
                   **dict.fromkeys(("id", "contributor_name", "contributor_organisation", "latest", "binds", "created_at"),
                                   "kept"),
                   **dict.fromkeys(("capacity", "note"), "content")},
+    # Story 7.1 part C (projection schema 16): the key of a document-scoped series holds that document's text; a row
+    # whose series loses its last rule point goes too (published.purge and the file's triggers).
+    "match_candidate": {"claim_id": "claim", "claim_version_id": "version", "series_id": "kept", "series_key": "content",
+                        "decision": "kept"},
 }
 
 

@@ -334,7 +334,7 @@ def test_retained_versions_lose_the_document_and_restore_cannot_bring_it_back(ws
     v4 = published.open_version(ws / "published" / "v4.db")
     try:
         meta = dict(v4.execute("SELECT key, value FROM meta").fetchall())
-        assert meta["projection_schema"] == "15" and meta["deleted_documents"] == "1"
+        assert meta["projection_schema"] == "16" and meta["deleted_documents"] == "1"
         assert [tuple(r) for r in v4.execute("SELECT * FROM deleted_document")] == [
             (d, db.execute("SELECT at FROM document_state WHERE state = 'deleted'").fetchone()[0])]
         assert {"hidden_by_archive", "comparison", "restatement", "series", "page_acceptance"} <= {

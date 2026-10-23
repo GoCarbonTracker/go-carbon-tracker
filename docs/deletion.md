@@ -150,12 +150,15 @@ infer, link or match attempt are the cache key and the result of another documen
 matched in every stage. The `sheet` stage (story 4.3) keys its attempts and lines on ids, so the deleted document's
 are found by that key, never by text: another spreadsheet's sheet attempts stay as they were.
 
-In a published version (`projection_schema` 15) a row whose `document_id`, `evidence_document_id`,
-`counter_document_id`, `claim_id`, `low_claim_id`, `high_claim_id`, `claim_a`, `claim_b`, `id` of `claim` or
-`document`, `claim_version_id`, `original_version_id`, `restated_version_id`, `low_version_id`, `high_version_id`,
-`version_a` or `version_b` names the document, one of its claims or one of its claim versions is removed, in
+In a published version (`projection_schema` 16) a row whose `document_id`, `evidence_document_id`,
+`counter_document_id`, `claim_id`, `low_claim_id`, `high_claim_id`, `claim_a`, `claim_b`, `original_claim_id`,
+`restated_claim_id`, `id` of `claim` or `document`, `claim_version_id`, `original_version_id`, `restated_version_id`,
+`low_version_id`, `high_version_id`, `version_a` or `version_b` names the document, one of its claims or one of its
+claim versions is removed, in
 `document`, `claim` (with its `note`, the spreadsheet row's note cell), `series`, `series_point`, `comparison`,
-`restatement`, `evidence_ref` (with its `sheet` and `cell`), `expected_item_document` (with its `state`), the
+`restatement` (a row on an earlier version of the document's claim included), `match_candidate` (a candidate series
+of a claim that waits for review, with its `series_key` and the newest match review `decision`; see below),
+`evidence_ref` (with its `sheet` and `cell`), `expected_item_document` (with its `state`), the
 projected `page` table (one row per page of an active PDF: `read_state`, the newest reading's measurements and
 `flags`, and `limit_text`, `limit_tables` and `limit_figures`, the readiness reason per type or `accepted #ID`),
 `page_acceptance`, `hidden_by_archive`, `sheet_mapping` (every column mapping of a spreadsheet), `review_company` and
@@ -168,6 +171,18 @@ entries of the document's acceptances in a file of projection schema 15 or later
 older file; `gap_confirmation.documents_checked`, document and reading ids only, is kept; the gap confirmation's
 `capacity` and `rationale` are rewritten as above; and `meta.hidden_by_archive` is counted again from
 the `hidden_by_archive` rows left, so an archived document deleted since leaves the counts too).
+
+A `match_candidate` row also goes when its series goes, or when its series keeps no point with `link` `rule`, a series
+kept only by reviewed points included; a series that still has a rule point keeps its candidates. A series key can
+hold document-derived text: an unmapped key holds its document id, page, row and printed label, a unit as printed key
+a document id and the printed unit, a subsidiary-set key the boundary detail. So a surviving claim's candidate naming
+the deleted document's series is removed with that series. A file of projection 16 carries three triggers that do this
+inside the file, so a purge that does not know the table leaves no candidate behind: `match_candidate_claim` (after a
+`claim` row is deleted), `match_candidate_series` (after a `series` row is deleted) and `match_candidate_rule` (after a
+`series_point` row is deleted and its series has no rule point left). What the triggers do not cover: under that older
+purge a mapped series whose rule points are all gone keeps its own row, with its key fields. Retained files are purged
+by the gct that wrote them or a newer one. A retained file of projection 15 has no `match_candidate` table and no
+restatement claim ids and is purged in the tables and columns it has.
 
 ## Markers
 
