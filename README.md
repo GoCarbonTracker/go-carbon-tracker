@@ -201,7 +201,7 @@ Both refuse a data version that is out of date (build a fresh one with `gct publ
 
 ## What does not exist yet
 
-OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, review in the viewer of page acceptance, gap confirmation, infer review and restatement (those stay CLI commands), report files other than the JSON and PDF exports (XLSX, CSV and viewer pages).
+OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, review in the viewer of page acceptance, gap confirmation, infer review and restatement (those stay CLI commands), report files other than the JSON, XLSX, CSV and PDF exports (viewer pages).
 
 ## Setup
 

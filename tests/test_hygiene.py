@@ -61,7 +61,7 @@ def test_company_list_does_not_import_pdfplumber(tmp_path):
 
 def test_no_runtime_dependencies():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
-    assert project["dependencies"] == ["fastapi>=0.115", "uvicorn>=0.30", "pdfplumber>=0.11", "pypdfium2>=5.9", "reportlab>=5.1", "pillow>=10"]
+    assert project["dependencies"] == ["fastapi>=0.115", "uvicorn>=0.30", "pdfplumber>=0.11", "pypdfium2>=5.9", "openpyxl>=3.1.5", "reportlab>=5.1", "pillow>=10"]
     assert project["requires-python"] == ">=3.11"
     assert project["optional-dependencies"]["dev"] == ["pytest", "jsonschema>=4.26"]
 
