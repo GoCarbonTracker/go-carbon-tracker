@@ -5,6 +5,7 @@ import os
 import shlex
 import sqlite3
 import sys
+import tempfile
 import webbrowser
 from collections import Counter
 
@@ -22,11 +23,26 @@ def _print(args, payload: dict, text: str) -> None:
     print(json.dumps(payload) if args.json else text)
 
 
+def _writable(folder) -> bool:
+    """A write probe (create and remove a file), not os.access: permissions are not the only way a folder refuses."""
+    try:
+        with tempfile.TemporaryFile(dir=folder):
+            return True
+    except OSError:
+        return False
+
+
 def _open(args, write=True):
     """Locate and upgrade the workspace. A writing command holds the workspace lock until main() returns;
     a read-only one takes it only for an upgrade."""
     args.root = layout.locate(args.workspace)
-    conn = store.connect(args.root / layout.DB_NAME)
+    try:
+        conn = store.connect(args.root / layout.DB_NAME)
+    except sqlite3.OperationalError:  # WAL mode writes -wal and -shm beside the database, even to read it
+        if _writable(args.root):
+            raise
+        raise GctError(layout.REFUSED, f"The workspace folder {args.root} is read-only, so gct cannot open it.",
+                       "Make the folder writable, or copy the workspace to a writable folder.") from None
     if write or store.pending(conn):
         args.lock = lock.hold(args.root)
     applied = store.migrate(conn)
@@ -2150,8 +2166,10 @@ def main(argv: list[str] | None = None) -> int:
         _fail(args, e.cause, e.next_action)
         return e.code
     except Exception:
-        log = layout.write_error_log(getattr(args, "root", None))
-        where = f"Details were written to {log}." if log else "Run it again with --workspace PATH so a log file can be written."
+        root = getattr(args, "root", None)
+        log = layout.write_error_log(root)
+        where = (f"Details were written to {log}." if log else layout.NO_LOG if root
+                 else "Run it again with --workspace PATH so a log file can be written.")
         _fail(args, "Something unexpected went wrong.", where)
         return 1
     finally:

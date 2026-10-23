@@ -24,14 +24,21 @@ class GctError(Exception):
         self.next_action = next_action
 
 
+NO_LOG = "No log file could be written in the workspace's logs folder."
+
+
 def write_error_log(root: Path | None) -> Path | None:
-    """Write the current exception's traceback to logs/error-*.log. Used by the CLI and the API."""
+    """Write the current exception's traceback to logs/error-*.log. Used by the CLI and the API. None when there is no
+    workspace or logs/ cannot be written (NO_LOG is the sentence for that)."""
     if root is None:
         return None
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     path = Path(root) / "logs" / f"error-{stamp}.log"
-    path.parent.mkdir(exist_ok=True)
-    path.write_text(scrub(traceback.format_exc()), encoding="utf-8")
+    try:
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(scrub(traceback.format_exc()), encoding="utf-8")
+    except OSError:
+        return None
     return path
 
 

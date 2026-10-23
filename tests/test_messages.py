@@ -766,3 +766,60 @@ def test_unexpected_exception_prints_short_message_and_log_path(ws, gct, monkeyp
     assert "secret detail" in logs[0].read_text()
     j = gct("company", "list", "--workspace", ws, "--json")
     assert json.loads(j.out)["status"] == "error"
+
+
+@pytest.fixture
+def unwritable(gct):
+    """chmod(0o555) on a folder for the test, as tests/test_measure.py does; skipped where that is a no-op."""
+    import gc
+
+    made = []
+
+    def make(folder):
+        gc.collect()  # close the in-process CLI's connections, so SQLite removes -wal and -shm as when gct exits
+        folder.chmod(0o555)
+        made.append(folder)
+        try:
+            (folder / "probe").touch()
+        except PermissionError:
+            return
+        (folder / "probe").unlink()
+        pytest.skip("this user can write into a read-only folder")
+
+    yield make
+    for folder in made:
+        folder.chmod(0o755)
+
+
+def test_a_read_only_workspace_folder_is_refused_for_reading_and_writing_commands(ws, gct, unwritable):
+    gct("company", "add", "Acme")
+    unwritable(ws)
+    for argv in (["company", "list"], ["run", "list"], ["workspace", "status"], ["company", "add", "Beta"]):
+        data = assert_refusal(gct, argv, 4)
+        assert data == {"status": "error", "cause": f"The workspace folder {ws.resolve()} is read-only, so gct cannot"
+                                                     " open it.",
+                        "next_action": "Make the folder writable, or copy the workspace to a writable folder."}, argv
+
+
+def test_an_unwritable_logs_folder_gives_the_short_message_and_no_traceback(ws, gct, monkeypatch, unwritable):
+    monkeypatch.setattr(registry, "list_companies", lambda *a, **k: 1 / 0)
+    unwritable(ws / "logs")
+    r = gct("company", "list")
+    assert (r.code, r.out) == (1, "")
+    assert r.err == "error: Something unexpected went wrong.\nnext: No log file could be written in the workspace's" \
+                    " logs folder.\n"
+    j = gct("company", "list", "--json")
+    assert j.code == 1 and j.data["next_action"] == "No log file could be written in the workspace's logs folder."
+    assert not list((ws / "logs").iterdir())
+
+
+def test_two_failures_in_one_second_leave_two_logs(ws):
+    from gct.workspace import layout
+
+    paths = []
+    for _ in range(2):
+        try:
+            raise RuntimeError("boom")
+        except RuntimeError:
+            paths.append(layout.write_error_log(ws))
+    assert len(set(paths)) == 2 and all(p.is_file() for p in paths)
