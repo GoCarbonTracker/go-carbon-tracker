@@ -357,6 +357,31 @@ def test_labels_effective_applies_each_p3_rule(acme, gct, db, make_file):
     assert labels.effective(db)[1] == {"label": "private", "availability": "unknown"}
 
 
+# AC 5, review fix I1: rule 1 spreads through rule 3. A same-file twin absent from the version (archived, or
+# registered after the build) is private, so the active shareable document is private too and does not ship. The
+# workspace-only form has no rule 1 (story P3, "an archived document keeps its own label"), so both keep theirs.
+@pytest.mark.parametrize("absent", ["archived", "registered after the build"])
+def test_a_twin_absent_from_the_version_makes_the_active_document_private(acme, gct, db, make_file, absent):
+    gct("company", "add", "Beta")
+    gct("doc", "add", make_file("a.pdf"), "--company", "Acme", "--privacy", "shareable")  # 1, active
+    if absent == "archived":
+        gct("doc", "add", make_file("a.pdf"), "--company", "Beta", "--privacy", "shareable")  # 2
+        assert gct("doc", "archive", 2, *WHO).code == 0
+        assert gct("publish", "build").code == 0
+    else:
+        assert gct("publish", "build").code == 0
+        gct("doc", "add", make_file("a.pdf"), "--company", "Beta", "--privacy", "shareable")  # 2
+    v = published.open_version(acme / "published" / "v1.db")
+    try:
+        assert [r[0] for r in v.execute("SELECT id FROM document")] == [1]
+        assert {d: x["label"] for d, x in labels.effective(db, v).items()} == {1: "private", 2: "private"}
+        assert not labels.ships(db, v, "claim", [1], "sanitised")
+    finally:
+        v.close()
+    assert {d: x["label"] for d, x in labels.effective(db).items()} == {1: "shareable", 2: "shareable"}
+    assert labels.ships(db, None, "claim", [1], "sanitised")
+
+
 # AC 5 (P6): the record kind and its table give the same decision; the flag, P8 and attempt rules
 def test_labels_ships_takes_the_kind_or_its_table(acme, gct, db, make_file):
     gct("doc", "add", make_file("a.pdf"), "--company", "Acme", "--privacy", "shareable")

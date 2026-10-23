@@ -156,15 +156,15 @@ def effective(conn, version_conn=None) -> dict:
     """P3, {document id: {"label", "availability"}} for every document of the workspace, the most restrictive rule
     winning. With a version connection: (1) a document absent from the version is private; (2) a document is private
     when the version projected it private or its stored label is private now. In both forms (3) a document is private
-    when a document not deleted with the same file has a private label (its own label, rule 2 applied), and a deleted
+    when a document not deleted with the same file is private by rule 1 or 2 (or its stored label), and a deleted
     document is private. availability is the stored one."""
     rows = conn.execute(f"SELECT d.id, d.sha256, {STORED_PRIVACY} AS privacy, {STORED_AVAILABILITY} AS availability,"
                         f" {_DELETED} AS deleted FROM document d ORDER BY d.id").fetchall()
     projected = None if version_conn is None else dict(version_conn.execute("SELECT id, privacy FROM document"))
-    own = {r["id"]: "private" if projected and projected.get(r["id"]) == "private" else r["privacy"] for r in rows}
+    own = {r["id"]: "private" if projected is not None and projected.get(r["id"], "private") == "private"
+           else r["privacy"] for r in rows}  # rules 1 and 2 first, so rule 3 spreads them across the sha
     private = {r["sha256"] for r in rows if not r["deleted"] and own[r["id"]] == "private"}
-    return {r["id"]: {"label": "private" if r["deleted"] or r["sha256"] in private
-                      or (projected is not None and r["id"] not in projected) else own[r["id"]],
+    return {r["id"]: {"label": "private" if r["deleted"] or r["sha256"] in private else own[r["id"]],
                       "availability": r["availability"]} for r in rows}
 
 
