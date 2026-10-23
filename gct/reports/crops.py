@@ -27,15 +27,14 @@ def _credential(text):
 
 
 def credential_documents(conn, root, documents) -> set:
-    """PDF ids with credentials in any reading or unreadable page text. No pixels are inspected."""
+    """PDF ids with credentials in cached or source text, or unreadable source text. No pixels are inspected."""
     import pdfplumber
 
     held = set()
     for d in documents:
         if d["file_type"] != "pdf":
             continue
-        readings = {}
-        for r in conn.execute("SELECT p.page_number, a.path FROM page p JOIN artifact a ON a.id = p.artifact_id"
+        for r in conn.execute("SELECT a.path FROM page p JOIN artifact a ON a.id = p.artifact_id"
                               " WHERE p.document_id = ? ORDER BY p.id", (d["id"],)):
             try:
                 text = json.loads((Path(root) / r["path"]).read_text(encoding="utf-8"))["text"]
@@ -43,18 +42,14 @@ def credential_documents(conn, root, documents) -> set:
                     continue
                 if _credential(text):
                     held.add(d["id"])
-                readings[r["page_number"]] = text
             except (OSError, ValueError, KeyError, TypeError):
                 continue  # The stored PDF supplies text when the reading cannot.
-        if d["id"] in held:
-            continue
         try:
             with pdfplumber.open(registry.stored_path(Path(root), d["sha256"])) as pdf:
-                for number, page in enumerate(pdf.pages, 1):
-                    text = readings.get(number) or page.extract_text() or ""
+                for page in pdf.pages:
+                    text = page.extract_text() or ""
                     if _credential(text):
                         held.add(d["id"])
-                        break
                     page.close()
         except Exception:  # Any PDF text-layer read failure must withhold the whole document.
             held.add(d["id"])

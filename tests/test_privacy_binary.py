@@ -17,11 +17,13 @@ KEY = "sk-EPIC7BinaryCredential872900000"
 
 
 @pytest.mark.parametrize("mode", dataset.MODES)
-def test_credential_document_supplies_no_files_or_images(small, make_file, mode, monkeypatch):
+@pytest.mark.parametrize("cache_case", ["normal", "edited-cache", "extraction-error"])
+def test_credential_document_supplies_no_files_or_images(small, make_file, mode, monkeypatch, cache_case):
     root, safe = small
     at = ("--workspace", root)
     source = make_file("credential.pdf", make_pdf([
-        page([[SCOPE_1, "tCO2e", "22"]], ["FY 2024-25"]), {"text": [(40, 80, KEY)]}]))
+        page([[SCOPE_1, "tCO2e", "22"]], ["FY 2024-25"]),
+        {"text": [(40, 80, "Clean second page" if cache_case == "extraction-error" else KEY)]}]))
     doc = gct("doc", "add", source, "--company", "Acme", "--privacy", "shareable",
               *at)["items"][0]["document"]["id"]
     ready(at)
@@ -29,9 +31,29 @@ def test_credential_document_supplies_no_files_or_images(small, make_file, mode,
     monkeypatch.setattr(store, "now", lambda: "2026-10-23T00:00:00+00:00")
     conn = store.connect(root / layout.DB_NAME)
     try:
-        d, _ = dataset.build(conn, root, mode=mode)
         secret = registry.show_document(conn, doc)
         original = registry.stored_path(root, secret["sha256"])
+        if cache_case != "normal":
+            for row in conn.execute("SELECT path FROM artifact WHERE document_id = ?", (doc,)):
+                path = root / row[0]
+                reading = json.loads(path.read_text())
+                if cache_case == "edited-cache" and KEY in reading["text"]:
+                    assert KEY in json.dumps(reading["words"])
+                reading["text"] = reading["text"].replace(KEY, "Cached text is incomplete")
+                assert reading["text"] and KEY not in reading["text"]
+                path.write_text(json.dumps(reading))
+        if cache_case == "extraction-error":
+            import pdfplumber
+
+            extract_text = pdfplumber.page.Page.extract_text
+
+            def source_text(page, *args, **kwargs):
+                if page.page_number == 2 and Path(page.pdf.stream.name) == original:
+                    raise ValueError("cannot read this page text")
+                return extract_text(page, *args, **kwargs)
+
+            monkeypatch.setattr(pdfplumber.page.Page, "extract_text", source_text)
+        d, _ = dataset.build(conn, root, mode=mode)
         readings = {r[0] for r in conn.execute("SELECT path FROM artifact WHERE document_id = ?", (doc,))}
         render = crops._render
 
