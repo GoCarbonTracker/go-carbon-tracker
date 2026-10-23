@@ -631,7 +631,7 @@ def test_the_self_declared_line_follows_the_one_rule(made, tmp_path):
     check_folder(one, c, folder, ["evidence_index"])
     top = body(parse(folder / FILES["evidence_index"]))
     assert line in [collapse(p.text()) for p in top.children("header")[0].children("p")]
-    assert (folder / FILES["evidence_index"]).read_text(encoding="utf-8").count(line) == 2  # the head and the table
+    assert [collapse(p.text()) for p in top.all("p")].count(line) == 2  # the head and the table
     seen = [heading(s) for s in top.all("section") if line in [collapse(p.text()) for p in s.children("p")]]
     assert seen == [d["words"]["fixed"]["titles"]["evidence_index"]]
 
@@ -643,12 +643,12 @@ def test_spreadsheet_evidence_is_a_text_table_with_the_cited_cell_marked(made):
     cells_ = [e for e in d["evidence"] if e["header"] is not None]
     assert cells_ and not [e for e in cells_ if e["id"] in c]
     page = parse(folder / FILES["evidence_index"])
-    marked = [collapse(x.text()) for x in page.root.all() if x.attrs.get("class") == "marked"]
-    cited = {i for r in d["evidence_index"] for i in r["evidence"]}
-    assert marked == [collapse(e[part][e["marked"]]) for i in (i for r in d["evidence_index"] for i in r["evidence"])
-                      for e in [next(x for x in d["evidence"] if x["id"] == i)] if e["header"] is not None
-                      for part in ("header", "row")]
-    assert {e["id"] for e in cells_} & cited
+    marked = sorted(collapse(x.text()) for x in page.root.all() if x.attrs.get("class") == "marked")
+    evidence = {e["id"]: e for e in d["evidence"]}
+    cited = [evidence[i] for r in walk("evidence_index", d["evidence_index"]) for i in r["evidence"]]
+    assert [e for e in cited if e["header"] is not None]  # every printed row's citations, sub-tables included
+    assert marked == sorted(collapse(e[part][e["marked"]]) for e in cited if e["header"] is not None
+                            for part in ("header", "row"))  # each cell table in check_folder marks its own cell
 
 
 def test_the_cap_writes_no_image_and_says_so_once_per_page(made, tmp_path):
@@ -656,11 +656,10 @@ def test_the_cap_writes_no_image_and_says_so_once_per_page(made, tmp_path):
     out = render_page.write(d, list(REPORTS), tmp_path, {})
     assert not (tmp_path / "crops").exists() and out["notes"] == [d["words"]["fixed"]["image_limit"]]
     assert out["files"] == sorted(FILES.values())
-    check_folder(d, {}, tmp_path, REPORTS)
+    check_folder(d, {}, tmp_path, REPORTS)  # the sentence is the one paragraph under each header, and no img
     for report in REPORTS:
-        text = (tmp_path / FILES[report]).read_text(encoding="utf-8")
-        assert text.count(d["words"]["fixed"]["image_limit"]) == 1 and "<img" not in text
-        assert not re.search(r"\d", d["words"]["fixed"]["image_limit"])
+        assert "<img" not in (tmp_path / FILES[report]).read_text(encoding="utf-8")  # nowhere in the file
+    assert not re.search(r"\d", d["words"]["fixed"]["image_limit"])
     cells_only = copy.deepcopy(d)  # no page entry: no images and no sentence
     cells_only["evidence"] = [e for e in d["evidence"] if e["page"] is None]
     keep = {e["id"] for e in cells_only["evidence"]}
@@ -690,9 +689,9 @@ def test_pair_sides_are_printed_once_and_link_only_to_written_pages(w, env, tmp_
     both = tmp_path / "both"
     both.mkdir()
     render_page.write(d, list(REPORTS), both, c)
-    check_folder(d, c, both, REPORTS)
-    text = (both / FILES["restatement_log"]).read_text(encoding="utf-8")
-    assert "evidence-index.html#claim-" in text
+    check_folder(d, c, both, REPORTS)  # each pair cell holds exactly its expected links
+    also = [a for a in parse(both / FILES["restatement_log"]).root.all("a") if a.attrs.get("class") == "also"]
+    assert also and all(a.attrs["href"].startswith("evidence-index.html#claim-") for a in also)
 
 
 # AC 8: HTML safety

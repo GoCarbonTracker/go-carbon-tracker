@@ -2,6 +2,8 @@
 // packages), one after another in one tab, and prints one JSON object: per page its innerText with every <details>
 // open, title, script count, images and the table cells holding a GCT-INJECT plant; then every URL any page requested
 // and every console log entry (a blocked request shows there as a Content Security Policy violation).
+// The inject field serves story 7.5's plant test: the text and element count of each row cell (tr.row > td) and
+// spreadsheet cell (table.cell th, td) whose text holds GCT-INJECT; other callers can ignore it.
 // usage: node report_page_browser.mjs <chrome debugging port> <page url> [<page url> ...]
 const [port, ...urls] = process.argv.slice(2);
 
