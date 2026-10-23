@@ -182,8 +182,8 @@ def test_id_text_entries_parse_the_stored_values(src):
 def test_package_py_has_no_map_of_its_own_and_no_label_sql():
     tree_ = ast.parse((GCT / "reports" / "package.py").read_text(encoding="utf-8"))
     dicts = {t.id for n in tree_.body if isinstance(n, (ast.Assign, ast.AnnAssign))
-             and (isinstance(n.value, (ast.Dict, ast.DictComp)) or isinstance(n.value, ast.Call) and getattr(
-                 n.value.func, "id", None) in ("dict", "_c"))
+             and (isinstance(n.value, (ast.Dict, ast.DictComp)) or isinstance(n.value, ast.Call) and (getattr(
+                 n.value.func, "id", None) in ("dict", "_c") or getattr(n.value.func, "attr", None) == "fromkeys"))
              for t in (n.targets if isinstance(n, ast.Assign) else [n.target]) if isinstance(t, ast.Name)}
     assert dicts == {"COLUMNS", "ID_TEXT"}
     sql = re.compile(r"\b(SELECT|WHERE|JOIN|FROM|INSERT|UPDATE)\b")
