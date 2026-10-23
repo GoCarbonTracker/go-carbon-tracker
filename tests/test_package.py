@@ -1027,8 +1027,9 @@ def keys(ws, table) -> list:
 
 # Fix round 1 (Codex review of 9e421e2): the reviewer's synthetic workspaces. One company; an optional private PDF
 # added first; one shareable PDF; read, extract, infer, every boundary statement scoped to its page, every proposed
-# group of the given fields accepted, match.
-def small(root, shared, private=None, fields=("period", "boundary")):
+# group of the given fields accepted, match (match_first: match right after extract, so each metric assignment's run
+# comes before the runs of the inferences its claim's reviews name).
+def small(root, shared, private=None, fields=("period", "boundary"), match_first=False):
     gate_fixture.gct("workspace", "init", root)
 
     def g(*argv):
@@ -1041,7 +1042,7 @@ def small(root, shared, private=None, fields=("period", "boundary")):
             path = root.parent / name
             path.write_bytes(gate_fixture.make_pdf([page]))
             doc = g("doc", "add", path, "--company", "Acme", *share)["items"][0]["document"]["id"]
-    for step in ("read", "extract", "infer"):
+    for step in ("read", "extract", *(("match",) if match_first else ()), "infer"):
         g(step)
     for b in g("infer", "bases")["bases"]:
         if b["kind"] == "reporting_boundary":
@@ -1051,7 +1052,8 @@ def small(root, shared, private=None, fields=("period", "boundary")):
                         key=lambda x: (x["document"], x["field"], str(x["start"]))):
         if group["field"] in fields:
             g("infer", "accept", group["id"], *gate_fixture.WHO)
-    g("match")
+    if not match_first:
+        g("match")
     return g, doc, [c["id"] for c in g("claims", "list", "--doc", doc)["claims"]]
 
 
@@ -1160,28 +1162,36 @@ def parity(out) -> None:
     assert p["withheld"]["selection_recomputed"] == 0
 
 
-# Round 2, F3: history. A review and a restatement recorded against the standalone series stay after both rule claims
-# are resolved to consolidated (the key is no longer formed), in the sanitised package as in the complete one (W').
-# W adds an unrelated private document first (another metric, its groups accepted, a series of its own): its sanitised
-# package keeps the same public history, key for key once renumbered.
+HISTORY_SHARED = gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", v] for v in ("100", "110", "120")],
+                                   ["FY 2024-25"], lines=[(40, 150, gate_fixture.NOTE)])
+UNRELATED = gate_fixture.page([[gate_fixture.ENERGY, "GJ", "5", "6"]], ["FY 2024-25", "FY 2023-24"])
+
+
+def history_case(root, private=None, match_first=True, then=()):
+    """The reviewer's fix-history workspace: a restatement and a link review recorded against the standalone series,
+    then both rule claims resolved to consolidated (the key is no longer formed), the commands then, and the document
+    archived."""
+    root.parent.mkdir()
+    g, doc, claims = small(root, HISTORY_SHARED, private, match_first=match_first)
+    g("restate", "record", "--original", claims[0], "--restated", claims[1], "--page", 1, "--quote",
+      gate_fixture.QUOTE, *gate_fixture.WHO)
+    g("infer", "reject", "--claim", claims[2], "--field", "boundary", *gate_fixture.WHO)
+    sid = next(s["id"] for s in g("series", "list")["series"] if s["metric_key"] == "ghg_scope_1")
+    g("match", "link", claims[2], "--series", sid, *gate_fixture.WHO)
+    for c in claims[:2]:
+        g("infer", "resolve", c, "--field", "boundary", "--boundary", "consolidated", *gate_fixture.WHO)
+    for step in then:
+        step(root, claims)
+    g("doc", "archive", doc, *gate_fixture.WHO)
+    return packages(g, root)
+
+
+# Round 3, F3, unambiguous history: match runs before infer, so each claim version's one metric assignment provably
+# came before the reviews that made the standalone series; the review and the restatement stay in the sanitised
+# package as in the complete one (W'). W adds an unrelated private document first (another metric, its groups
+# accepted, a series of its own): its sanitised package keeps the same public history, key for key once renumbered.
 def test_rows_naming_a_series_their_claims_formed_earlier_ship_in_an_all_shareable_package(tmp_path):
-    shared = gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", v] for v in ("100", "110", "120")], ["FY 2024-25"],
-                               lines=[(40, 150, gate_fixture.NOTE)])
-    unrelated = gate_fixture.page([[gate_fixture.ENERGY, "GJ", "5", "6"]], ["FY 2024-25", "FY 2023-24"])
-    got = {}
-    for name, private in (("w2", None), ("w", unrelated)):
-        root = tmp_path / name / "ws"
-        root.parent.mkdir()
-        g, doc, claims = small(root, shared, private)
-        g("restate", "record", "--original", claims[0], "--restated", claims[1], "--page", 1, "--quote",
-          gate_fixture.QUOTE, *gate_fixture.WHO)
-        g("infer", "reject", "--claim", claims[2], "--field", "boundary", *gate_fixture.WHO)
-        sid = next(s["id"] for s in g("series", "list")["series"] if s["metric_key"] == "ghg_scope_1")
-        g("match", "link", claims[2], "--series", sid, *gate_fixture.WHO)
-        for c in claims[:2]:
-            g("infer", "resolve", c, "--field", "boundary", "--boundary", "consolidated", *gate_fixture.WHO)
-        g("doc", "archive", doc, *gate_fixture.WHO)
-        got[name] = packages(g, root)
+    got = {name: history_case(tmp_path / name / "ws", private) for name, private in (("w2", None), ("w", UNRELATED))}
     parity(got["w2"])
     ws = got["w2"]["sanitised"][0]["workspace"]
     assert len(ws["match_review"]) == len(ws["restatement"]) == 1 and '"standalone"' in ws["restatement"][0]["series_key"]
@@ -1189,6 +1199,70 @@ def test_rows_naming_a_series_their_claims_formed_earlier_ship_in_an_all_shareab
     for t in package.SERIES_NAMED:
         assert keys(other["workspace"], t) == keys(ws, t), t
     assert p["withheld"]["selection_recomputed"] == 0
+
+
+# Round 3, F3, ambiguous history. "match last" is the reviewer's fix-history order: match runs after the reviews'
+# inferences, so nothing recorded shows the metric assignment existed while the standalone states held. The others
+# start unambiguous and then add a second metric assignment, or a re-proposal that ends the acceptances at a moment no
+# row records. Each time the sanitised package withholds both rows (selection_recomputed 2), the complete package
+# keeps them, and W with an unrelated private document withholds the same.
+def reassign(root, claims) -> None:
+    """A second metric assignment on the newest version of each claim, in the first one's run (so only the count
+    makes it ambiguous: which of the two held at a moment is not recorded)."""
+    conn = store.connect(root / layout.DB_NAME)
+    with store.transaction(conn):
+        conn.execute("INSERT INTO metric_assignment (claim_version_id, metric_key, rule, unit_key, unit_factor,"
+                     " unit_source, run_id, config_version, created_at) SELECT claim_version_id, metric_key, rule,"
+                     " unit_key, unit_factor, unit_source, run_id, config_version, created_at FROM metric_assignment"
+                     " WHERE claim_version_id IN (SELECT MAX(id) FROM claim_version WHERE claim_id IN (?, ?, ?)"
+                     " GROUP BY claim_id)", claims)
+    conn.close()
+
+
+def repropose(root, claims) -> None:
+    """A newer period inference with the same values on the newest version of each claim (what a later gct infer
+    writes when its inputs change), so their period acceptances no longer apply."""
+    conn = store.connect(root / layout.DB_NAME)
+    run = conn.execute("SELECT MAX(id) FROM run WHERE command = 'infer'").fetchone()[0]
+    for c in claims:
+        version, = conn.execute("SELECT MAX(id) FROM claim_version WHERE claim_id = ?", (c,)).fetchone()
+        old = dict(conn.execute("SELECT * FROM inference WHERE claim_version_id = ? AND field = 'period'"
+                                " ORDER BY id DESC LIMIT 1", (version,)).fetchone())
+        row = {"state": old["state"], "period_kind": old["period_kind"], "period_start": old["period_start"],
+               "period_end": old["period_end"], "basis_id": old["basis_id"], "reason": old["reason"],
+               "group_key": old["group_key"]}
+        with store.transaction(conn):
+            conn.execute("INSERT INTO inference (claim_version_id, field, state, period_kind, period_start,"
+                         " period_end, basis_id, reason, group_key, run_id, config_version, created_at)"
+                         " VALUES (?, 'period', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                         (version, *row.values(), run, old["config_version"], store.now()))
+    conn.close()
+
+
+def recorrect(root, claims) -> None:
+    """A correction of each claim's value: a newer version, made at a moment no review records."""
+    for c in claims:
+        gate_fixture.gct("correct", c, "--value", "1", *gate_fixture.WHO, "--workspace", root)
+
+
+@pytest.mark.parametrize("how", ["match last", "a second assignment", "a re-proposal", "a correction"])
+def test_rows_naming_a_series_only_ambiguous_history_formed_are_withheld(tmp_path, how):
+    later = {"match last": {"match_first": False}, "a second assignment": {"then": [reassign]},
+             "a re-proposal": {"then": [repropose]}, "a correction": {"then": [recorrect]}}[how]
+    got = {name: history_case(tmp_path / name / "ws", private, **later)
+           for name, private in (("w2", None), ("w", UNRELATED))}
+    src = sqlite3.connect(tmp_path / "w2" / "ws" / layout.DB_NAME)
+    counts = src.execute("SELECT (SELECT COUNT(*) FROM metric_assignment), (SELECT COUNT(*) FROM inference),"
+                         " (SELECT COUNT(*) FROM claim_version)").fetchone()
+    src.close()
+    assert counts == {"match last": (3, 9, 3), "a second assignment": (6, 9, 3), "a re-proposal": (3, 12, 3),
+                      "a correction": (3, 9, 6)}[how], counts
+    for name, out in got.items():
+        san, p = out["sanitised"]
+        assert san["workspace"]["match_review"] == san["workspace"]["restatement"] == [], name
+        assert p["withheld"]["selection_recomputed"] == 2, name
+    com = got["w2"]["complete"][0]["workspace"]
+    assert len(com["match_review"]) == len(com["restatement"]) == 1
 
 
 # Round 2: history that rests on a withheld basis stays withheld, and a proposal never accepted is no state. The
@@ -1201,7 +1275,7 @@ def test_history_formed_only_through_a_withheld_basis_is_withheld(tmp_path):
     private = gate_fixture.page([[gate_fixture.ENERGY, "GJ", "5"]], ["FY 2024-25"])
     shared = gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "100"], [gate_fixture.SCOPE_1, "tCO2e", "110"]],
                                ["FY 2024-25"], lines=[(40, 150, gate_fixture.NOTE)])
-    g, doc, claims = small(root, shared, private, fields=("period",))
+    g, doc, claims = small(root, shared, private, fields=("period",), match_first=True)
     for c in claims:
         borrow(root, c, f"document_id != {doc}")
     g("restate", "record", "--original", claims[0], "--restated", claims[1], "--page", 1, "--quote",
@@ -1336,11 +1410,17 @@ def test_ordinary_bearer_prose_stays_and_a_token_after_it_does_not(tmp_path):
         assert leakage.found(folder, seeds) == {}, flags
 
 
-# The replay in package.series_keys reaches every key match.compute forms, on the source and on both packages (the
-# current state is the replay's last step): the check that ties its copy of the key shape to match.py
-def test_series_keys_cover_what_match_compute_forms(rw, tmp_path, monkeypatch, gct):
+# In an unambiguous workspace (match first; mapped, unmapped and unit as printed series) the replay of
+# package.history_keys reaches every key match.compute forms now, on the source and on both packages: the check that
+# ties its copy of the key shape to match.py
+def test_history_keys_reach_what_match_compute_forms(tmp_path):
     from gct.stages import match
-    src = copy(rw, tmp_path / "w", monkeypatch)
+    root = tmp_path / "w" / "ws"
+    root.parent.mkdir()
+    shared = gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "100", "110"], ["Mystery water recycled", "kL", "1", "2"],
+                                [gate_fixture.SCOPE_1, "A+B+C", "7", "8"]], ["FY 2024-25", "FY 2023-24"])
+    g, doc, claims = small(root, shared, match_first=True)
+    out = packages(g, root)
 
     def rows(db) -> dict:
         conn = store.connect(db)
@@ -1350,12 +1430,12 @@ def test_series_keys_cover_what_match_compute_forms(rw, tmp_path, monkeypatch, g
         finally:
             conn.close()
 
-    for db in (src / layout.DB_NAME, src / create(gct).data["folder"] / layout.DB_NAME,
-               src / create(gct, "--complete", "--include-private").data["folder"] / layout.DB_NAME):
+    for db in (root / layout.DB_NAME, *(root / "exports" / n / layout.DB_NAME for n in made(root))):
         conn = store.connect(db)
         formed = {s["key"] for s in match.compute(conn)["series"].values()}
         conn.close()
-        assert formed and formed <= package.series_keys(rows(db)), db
+        assert len(formed) == 3 and formed <= package.history_keys(rows(db)), (db, formed)
+    assert len(out) == 2
 
 
 # The shared scrubber (gct/models/redact.py; its own tests are in tests/test_models.py, outside this round's grant).

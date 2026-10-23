@@ -207,8 +207,8 @@ def _decide(conn, root, mode: str, include: tuple):
     if mode == "sanitised":
         ship.update(dict.fromkeys(COMPLETE_ONLY, []))
         # A decision or restatement names a series by its key, which holds the boundary text and ids its claims and
-        # inferences give; it ships only when the shipped rows formed that series, now or earlier, compared as written
-        formed = series_keys(ship)
+        # inferences give; it ships only when the shipped rows form that series now, or provably formed it earlier
+        formed = _formed(conn, ship) | history_keys(ship)
         for t in SERIES_NAMED:
             kept = [r for r in ship[t] if scrub_key(r["series_key"]) in formed]
             withheld["selection_recomputed"] += len(ship[t]) - len(kept)
@@ -224,42 +224,87 @@ def _decide(conn, root, mode: str, include: tuple):
     return ship, withheld, docs, eff
 
 
-def series_keys(ship: dict) -> set:
-    """The keys, as the package writes them (redact.scrub_key), of every series the given rows formed at some point.
-    A claim's period and boundary become known only by an inference review (infer._field): resolved gives the
-    review's values, accepted the values of the inference it names, if that inference is given; rejected makes the
-    field unknown. Replaying the reviews in id order (one sequence over both fields and every claim) gives each
-    claim's states as they followed one another; after each review the claim's key is built as match.compute builds
-    it, with its version's newest metric assignment. A unit as printed key counts while two claims hold it.
-    ponytail: inference rows and metric_assignment, claim_version and correction rows have no recorded order relative
-    to inference_review rows (created_at is to the second), so a re-proposal, a new assignment or a correction is not
-    seen ending a state until the claim's next review: a key can count a little longer than it held, never one built
-    from a row that is not given. A shared sequence column would close it."""
+def _formed(conn, ship: dict) -> set:
+    """The keys of the series the shipped rows form now: match.compute on an in-memory copy of them (the source's
+    tables, no triggers, foreign keys off). Archive is a lifecycle state, so an archived document's claims count here:
+    its archived document_state rows are left out of the copy (P3)."""
+    mem = sqlite3.connect(":memory:")
+    mem.row_factory = sqlite3.Row
+    try:
+        for (sql,) in conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"):
+            mem.execute(sql)
+        for t, rows in ship.items():
+            rows = [r for r in rows if t != "document_state" or r["state"] != "archived"]
+            if rows:
+                cols = rows[0].keys()
+                mem.executemany(f"INSERT INTO {t} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                                [tuple(r) for r in rows])
+        return {s["key"] for s in match.compute(mem)["series"].values()}
+    finally:
+        mem.close()
+
+
+def history_keys(ship: dict) -> set:
+    """The keys (as match.compute builds them, through redact.scrub_key) of the series the given rows provably formed
+    at some moment. The only recorded order across tables: inference_review ids, one sequence over both fields and
+    every claim; and a review comes after the start of the run of the inference it names (run ids are global). So the
+    reviews are replayed in id order and, at each, a claim version's key counts only when nothing about it is
+    ambiguous:
+    - it is its claim's newest version (a later version or correction may have come before the moment);
+    - it has exactly one metric assignment, and that assignment's run is earlier than the run of an inference some
+      review at or before the moment names (so the assignment existed then);
+    - each field is known by its newest review so far: resolved gives the review's values, accepted the values of the
+      inference it names, if that inference is given and no newer inference of the field exists (a re-proposal ends
+      an acceptance at a moment no row records); rejected or anything else leaves it unknown.
+    A unit as printed key counts while two claims hold it at once.
+    ponytail: everything else is withheld (sanitised) as ambiguous, since nothing orders metric_assignment,
+    inference re-proposals, claim_version and correction rows against inference_review rows; runs are taken not to
+    overlap; whether a claim was current (its page's reading and extraction) at the moment is not checked. A shared
+    sequence column would close it (post-M1)."""
     claims = {c["id"]: c for c in ship["claim"]}
     versions = {v["id"]: v for v in ship["claim_version"] if v["claim_id"] in claims}
+    newest_version = {}
+    for v in versions.values():
+        newest_version[v["claim_id"]] = max(newest_version.get(v["claim_id"], 0), v["id"])
+    count = Counter(a["claim_version_id"] for a in ship["metric_assignment"])
+    single = {a["claim_version_id"]: a for a in ship["metric_assignment"] if count[a["claim_version_id"]] == 1}
     inferences = {i["id"]: i for i in ship["inference"]}
-    assigned = {}
-    for a in ship["metric_assignment"]:  # in id order, so the newest stays
-        assigned[a["claim_version_id"]] = a
-    state, held, holders, out = {}, {}, Counter(), set()
-    for r in ship["inference_review"]:  # in id order
-        v = versions.get(r["claim_version_id"])
-        if v is None:
-            continue
-        given = r if r["decision"] == "resolved" else inferences.get(r["inference_id"]) if r["decision"] == "accepted" \
-            else None
-        s = state.setdefault(v["id"], {})
-        s[r["field"]] = given and ((given["boundary"], given["boundary_detail"]) if r["field"] == "boundary"
-                                   else given["period_kind"])
-        key, printed = _key(claims[v["claim_id"]], v, assigned.get(v["id"]), s.get("boundary"), s.get("period"))
-        if key:
-            out.add(key)
-        holders[held.pop(v["claim_id"], None)] -= 1
+    newest_inference = {}
+    for i in inferences.values():
+        k = i["claim_version_id"], i["field"]
+        newest_inference[k] = max(newest_inference.get(k, 0), i["id"])
+    state, held, holders, out, elapsed = {}, {}, Counter(), set(), 0
+
+    def update(vid):
+        v, a, s = versions[vid], single.get(vid), state[vid]
+        ordinary = printed = None
+        if newest_version[v["claim_id"]] == vid and a is not None and a["run_id"] < elapsed:
+            ordinary, printed = _key(claims[v["claim_id"]], v, a, s.get("boundary"), s.get("period"))
+        if ordinary:
+            out.add(ordinary)
+        holders[held.pop(vid, None)] -= 1
         if printed:
-            held[v["claim_id"]] = printed
+            held[vid] = printed
             holders[printed] += 1
             if holders[printed] > 1:
                 out.add(printed)
+
+    for r in ship["inference_review"]:  # in id order
+        if r["claim_version_id"] not in versions:
+            continue
+        inf = inferences.get(r["inference_id"])
+        later = inf is not None and inf["run_id"] > elapsed
+        elapsed = max(elapsed, inf["run_id"]) if inf else elapsed
+        if r["decision"] == "resolved":
+            given = r
+        elif r["decision"] == "accepted" and inf and newest_inference[inf["claim_version_id"], r["field"]] == inf["id"]:
+            given = inf
+        else:
+            given = None
+        state.setdefault(r["claim_version_id"], {})[r["field"]] = given and (
+            (given["boundary"], given["boundary_detail"]) if r["field"] == "boundary" else given["period_kind"])
+        for vid in (list(state) if later else [r["claim_version_id"]]):  # a later run can prove an assignment
+            update(vid)
     return out
 
 
