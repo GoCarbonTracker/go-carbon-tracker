@@ -582,8 +582,9 @@ def _mode(cs):
 def _indexed(cs, bits, size, data, decode=None):
     """An Indexed image ([/Indexed base hival lookup], 1, 2, 4 or 8 bits) as the image of its base colour space whose
     pixels are the palette entries its indices pick, so it hashes as that direct image would; a Decode array maps
-    each sample to its index first. An index above hival (after Decode), an unsupported Decode or a lookup shorter
-    than its entries raises."""
+    each sample to its index first, accepted only when every possible sample maps to a whole index in 0 to hival
+    (the default and its reverse, for example). An index above hival, any other Decode or a lookup shorter than its
+    entries raises."""
     from pdfminer.pdftypes import PDFStream, resolve1
 
     base, hival, lookup = _mode(cs[1]), resolve1(cs[2]), resolve1(cs[3])
@@ -596,9 +597,13 @@ def _indexed(cs, bits, size, data, decode=None):
         raise ValueError(f"Indexed lookup holds {len(lookup)} bytes, fewer than {(hival + 1) * n}")
     indices = Image.frombytes("P", size, data, "raw", "P" if bits == 8 else f"P;{bits}").tobytes()
     if decode is not None:  # each sample to its index, before the palette
-        index = [round(v) for v in _decode(decode, bits, 1)[0]]
-        if any(not 0 <= index[s] <= hival for s in set(indices)):
-            raise ValueError(f"Indexed image Decode {decode!r} gives an index outside 0 to hival {hival}")
+        decoded = _decode(decode, bits, 1)[0]
+        # Fail closed: readers round a fractional index differently (Codex fix check 1: Poppler and PDFium disagree
+        # on [0.5 0.5]), so every possible sample must decode to a whole index in 0 to hival.
+        if not all(float(v).is_integer() and 0 <= v <= hival for v in decoded):
+            raise ValueError(f"Indexed image Decode {decode!r} does not map every sample to a whole index in 0 to"
+                             f" hival {hival}")
+        index = [int(v) for v in decoded]
         indices = indices.translate(bytes(i if 0 <= i <= hival else 0 for i in index + [0] * (256 - len(index))))
     if max(indices, default=0) > hival:
         raise ValueError(f"Indexed image index {max(indices)} above hival {hival}")

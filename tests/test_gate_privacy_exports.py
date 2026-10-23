@@ -366,22 +366,38 @@ def has(paths, literal: str) -> bool:
 
 def say(*argv) -> str:
     """One command's terminal text (no --json)."""
-    out = io.StringIO()
-    with contextlib.redirect_stdout(out):
-        assert cli.main([str(a) for a in argv]) == 0
-    return out.getvalue()
+    return answered(*argv)[0]
+
+
+def answered(*argv) -> tuple[str, str]:
+    """(stdout, stderr) of one command that must succeed; stderr caught both as sys.stderr and as file descriptor 2,
+    so a print to either is kept (Codex fix check 1, R2-1)."""
+    out, err = io.StringIO(), io.StringIO()
+    with tempfile.TemporaryFile() as fd2:
+        saved = os.dup(2)
+        os.dup2(fd2.fileno(), 2)
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = cli.main([str(a) for a in argv])
+        finally:
+            os.dup2(saved, 2)
+            os.close(saved)
+        fd2.seek(0)
+        errors = err.getvalue() + fd2.read().decode("utf-8", "replace")
+    assert code == 0, (argv, out.getvalue(), errors)
+    return out.getvalue(), errors
 
 
 def made(root) -> dict:
     """Every report format in both modes through gct report all, and both packages through gct package create (the
     complete one with --include-private): {mode: export folder, package column: package folder, "responses": [(the
-    command, its --json answer as text)] (renderer notes, report lines, package preview and creation lines)}."""
+    command, its --json answer, its stderr)] (renderer notes, report lines, package preview and creation lines)}."""
     at, out, responses = ("--workspace", root), {}, []
 
     def run(*argv):
-        answer = gct(*argv, *at)
-        responses.append((" ".join(argv[:2]) + (" --complete" if "--complete" in argv else ""),
-                          json.dumps(answer, ensure_ascii=False)))
+        text, errors = answered(*argv, *at, "--json")
+        answer = json.loads(text)
+        responses.append((" ".join(argv[:2]) + (" --complete" if "--complete" in argv else ""), answer, errors))
         return answer
 
     for mode, flag in (("sanitised", ()), ("complete", ("--complete",))):
@@ -573,37 +589,60 @@ def test_no_local_path_in_any_report_output_or_the_sanitised_package(lw, tmp_pat
     assert not [p.pattern for p in patterns if p.search(t)]
 
 
-def test_no_credential_or_path_seed_in_any_command_response(lw, tmp_path):
-    """Codex review F1: every never seed of kind credential or path is in no answer the report and package commands
-    give, as --json (made()'s: renderer notes, report lines, package preview and creation lines) and as terminal
-    text (the same commands on a copy of W), in both modes. The workspace's own path, where a report names the
-    folder it wrote (packages name theirs relative to it), is taken out first; the local preview may name private documents, so other seeds are not
-    looked for here (the matrix covers the files)."""
-    seeds = [s for s in lw["seeds"] if s["expect"] == "never" and s["kind"] in ("credential", "path")]
+WROTE = re.compile(r"Wrote (?:sanitised|complete) report data for data version \d+ to (.+):")  # cli.cmd_report
+
+
+def test_no_credential_or_path_seed_in_any_command_response(lw, tmp_path, tmp_path_factory):
+    """Codex review F1 and fix check 1 (R2-1, R2-2): the answers the report and package commands give, as --json
+    (made()'s) and as terminal text (the same commands on a copy of W), in both modes. A report names the folder it
+    wrote in exactly two places, the --json "folder" field and the "Wrote ... to FOLDER:" heading line; those two are
+    checked to be that folder and taken out by field. Everything else (renderer notes, report lines, package preview
+    and creation lines) is scanned as it is: no never seed of kind credential or path, no local path (anyone_home,
+    the workspace, the temporary folder) and, in a sanitised command's answer, no original's file hash as text (they
+    are complete_only seeds: a complete answer names them); the local preview may name private
+    documents, so other seeds are not looked for there (the matrix covers the files). Every command's stderr, caught
+    apart, holds no never seed at all."""
+    never = [s for s in lw["seeds"] if s["expect"] == "never"]
+    seeds = [s for s in never if s["kind"] in ("credential", "path")]
     assert {"credential", "path"} == {s["kind"] for s in seeds}
+    hashes = [s["value"] for s in lw["seeds"] if s["kind"] == "file_hash"]
     copy = Path(shutil.copytree(lw["root"], tmp_path / "ws"))
     at, text = ("--workspace", copy), []
     for flag in ((), ("--complete",)):
-        text.append((f"report all{' '.join(('', *flag))}", say("report", "all", "--format", ",".join(FORMATS),
-                                                             *flag, *at)))
-    text.append(("package preview", say("package", "preview", *at)))
-    text.append(("package preview --complete", say("package", "preview", "--complete", *at)))
-    text.append(("package create", say("package", "create", "--confirm", gct("package", "preview", *at)["token"],
-                                       *at)))
+        text.append((f"report all{' '.join(('', *flag))}",
+                     *answered("report", "all", "--format", ",".join(FORMATS), *flag, *at)))
+    text.append(("package preview", *answered("package", "preview", *at)))
+    text.append(("package preview --complete", *answered("package", "preview", "--complete", *at)))
+    text.append(("package create", *answered("package", "create", "--confirm",
+                                             gct("package", "preview", *at)["token"], *at)))
     token = gct("package", "preview", "--complete", *at)["token"]
     text.append(("package create --complete",
-                 say("package", "create", "--complete", "--include-private", "--confirm", token, *at)))
-    folder = tmp_path / "responses"
-    folder.mkdir()
-    for n, (root, (command, answer)) in enumerate([*((lw["root"], x) for x in lw["responses"]),
-                                                   *((copy, x) for x in text)]):
-        places = {str(root), os.path.realpath(root)}
-        assert not command.startswith("report") or any(p in answer for p in places), command  # its folder named
-        for p in sorted(places, key=len, reverse=True):
-            answer = answer.replace(p, "<workspace>")
-        (folder / f"{n:02d} {command}.txt").write_text(answer, encoding="utf-8")
-    assert len(list(folder.iterdir())) == 12
-    assert leakage.found(folder, seeds) == {}
+                 *answered("package", "create", "--complete", "--include-private", "--confirm", token, *at)))
+    answers, errors = tmp_path / "answers", tmp_path / "stderr"
+    answers.mkdir()
+    errors.mkdir()
+    for n, (root, (command, answer, stderr)) in enumerate([*((lw["root"], x) for x in lw["responses"]),
+                                                           *((copy, x) for x in text)]):
+        def written(folder):  # the folder a report wrote: under its own workspace's exports/
+            return Path(os.path.realpath(folder)).parent == Path(os.path.realpath(root)) / "exports"
+
+        if isinstance(answer, dict):  # --json
+            answer = dict(answer)
+            assert not command.startswith("report") or written(answer.pop("folder")), command
+            answer = json.dumps(answer, ensure_ascii=False)
+        elif command.startswith("report"):
+            heading = [m for line in answer.splitlines() if (m := WROTE.fullmatch(line))]
+            assert len(heading) == 1 and written(heading[0][1]), command
+            answer = answer.replace(heading[0][0], "")
+        (answers / f"{n:02d} {command}.txt").write_text(answer, encoding="utf-8")
+        (errors / f"{n:02d} {command}.txt").write_text(stderr, encoding="utf-8")
+        local = local_paths(tmp_path_factory.getbasetemp()) + [re.compile(re.escape(str(root))),
+                                                        re.compile(re.escape(os.path.realpath(root)))]
+        assert not [p.pattern for p in local if p.search(answer)], command
+        assert "--complete" in command or not [h for h in hashes if h in answer], command  # complete_only seeds
+    assert len(list(answers.iterdir())) == 12 == len(list(errors.iterdir()))
+    assert leakage.found(answers, seeds) == {}
+    assert leakage.found(errors, never) == {}
 
 
 MARKS = ("history_mark", "labels_mark", "hidden_by_archive", "History mark", "Labels mark")
@@ -1468,22 +1507,23 @@ MARKED = [{"name": "MARK", "kind": "image", "expect": "never", "value": None},
 BLACK = {"name": "BLACK", "kind": "image", "expect": "never",
          "value": hashlib.sha256(Image.new("RGB", (10, 10), (0, 0, 0)).tobytes()).hexdigest()}
 PALETTE = b"[/Indexed /DeviceRGB 1 <000000%s>]" % bytes(leakage.MARKER).hex().encode()
+PALETTE4 = b"[/Indexed /DeviceRGB 3 <000000000000000000%s>]" % bytes(leakage.MARKER).hex().encode()  # entry 3 marks
 
 
-@pytest.mark.parametrize("bits, samples, decode, seen", [
-    (1, b"\0" * 20, b"[1 0]", "marker"),  # Codex F2: zero samples decode to index 1, the marker
-    (1, b"\0" * 20, b"[0 1]", "black"),  # the default Decode, given: zero samples are index 0
-    (1, b"\0" * 20, None, "black"),  # no Decode
-    (2, b"\0" * 30, b"[1 0]", "marker"),  # 2 bits: sample 0 to 1 - 0 * 1 / 3 = 1
-    (8, b"\0" * 100, b"[1 1]", "marker")],  # every sample to index 1
-    ids=["1bit-inverted", "1bit-default-given", "1bit-no-decode", "2bit-inverted", "8bit-constant"])
-def test_an_indexed_images_decode_array_maps_samples_to_indices_before_the_palette(tmp_path, bits, samples, decode,
-                                                                                   seen):
+@pytest.mark.parametrize("colour_space, bits, samples, decode, seen", [
+    (PALETTE, 1, b"\0" * 20, b"[1 0]", "marker"),  # Codex F2: zero samples decode to index 1, the marker
+    (PALETTE, 1, b"\0" * 20, b"[0 1]", "black"),  # the default Decode, given: zero samples are index 0
+    (PALETTE, 1, b"\0" * 20, None, "black"),  # no Decode
+    (PALETTE4, 2, b"\0" * 30, b"[3 0]", "marker"),  # reversed, 2 bits: sample s to index 3 - s, 0 to 3
+    (PALETTE, 8, b"\0" * 100, b"[1 1]", "marker")],  # every sample to index 1
+    ids=["1bit-inverted", "1bit-default-given", "1bit-no-decode", "2bit-reversed", "8bit-constant"])
+def test_an_indexed_images_decode_array_maps_samples_to_indices_before_the_palette(tmp_path, colour_space, bits,
+                                                                                   samples, decode, seen):
     """Codex review F2: an Indexed image's /Decode maps each sample to its index (Dmin + s (Dmax - Dmin) / (2^bits -
     1)) before the palette lookup, so a [1 0] Decode over zero samples draws palette entry 1, the marker, and is
     found under the marker seed and by its pixel hash; the default Decode, given or not, draws entry 0 (black)."""
     p = tmp_path / "decode.pdf"
-    p.write_bytes(decode_pdf(PALETTE, bits, samples, decode))
+    p.write_bytes(decode_pdf(colour_space, bits, samples, decode))
     hit = leakage.found(p, [*MARKED, BLACK])
     where = "decode.pdf: object 4 image"
     assert hit == ({"MARK": [f"{where}: marker colour"], "SOLID": [f"{where}: pixel hash"]} if seen == "marker"
@@ -1516,13 +1556,17 @@ def test_a_jpeg_images_decode_array_is_read_only_when_it_is_the_default(tmp_path
             assert leakage.found(p, MARKED) == {}
 
 
-@pytest.mark.parametrize("colour_space, decode", [(PALETTE, b"[0 1 0]"), (PALETTE, b"[0 2]"), (PALETTE, b"[/a /b]"),
-                                                  (b"/DeviceRGB", b"[1 0]")],
-                         ids=["indexed-three-numbers", "indexed-above-hival", "indexed-names", "rgb-one-pair"])
-def test_an_unsupported_decode_array_is_unreadable(tmp_path, colour_space, decode):
-    """A Decode of the wrong length, of names, or mapping a sample to an index above hival: Unreadable naming the
-    image, never a scan that passes."""
-    bits, samples = (1, b"\xff" * 20) if colour_space == PALETTE else (8, b"\0" * 300)
+@pytest.mark.parametrize("colour_space, decode, bits", [
+    (PALETTE, b"[0 1 0]", 1), (PALETTE, b"[0 2]", 1), (PALETTE, b"[/a /b]", 1), (b"/DeviceRGB", b"[1 0]", 8),
+    (PALETTE, b"[0.5 0.5]", 1), (PALETTE, b"[1 0]", 2)],
+    ids=["indexed-three-numbers", "indexed-above-hival", "indexed-names", "rgb-one-pair", "indexed-half-index",
+         "indexed-fractional-2bit"])
+def test_an_unsupported_decode_array_is_unreadable(tmp_path, colour_space, decode, bits):
+    """A Decode of the wrong length, of names, or one that maps some sample to an index that is not whole or not in
+    0 to hival (Codex fix check 1: [0.5 0.5] over zero samples, which Poppler draws as the marker and PDFium as
+    black; [1 0] at 2 bits, whose samples 1 and 2 fall between indices): Unreadable naming the image, never a scan
+    that passes."""
+    samples = b"\0" * (20 if bits == 1 else 30) if colour_space == PALETTE else b"\0" * 300
     p = tmp_path / "bad.pdf"
     p.write_bytes(decode_pdf(colour_space, bits, samples, decode))
     with pytest.raises(leakage.Unreadable) as e:
