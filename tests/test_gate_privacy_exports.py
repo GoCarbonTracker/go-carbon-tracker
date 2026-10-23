@@ -2,16 +2,48 @@
 sanitised dataset holds no seed, the complete dataset holds exactly the seeds its fields can reach, credentials and
 paths are in neither, the preview's counts add up, and sanitised(W) equals sanitised(W') once ids are renumbered in
 first-appearance order (K12). The fixture's environment (GCT_MODELS and the api_key_env variable holding CRED-ENV-01)
-is set for every build and every output, and store.now is fixed so W and W' write the same times."""
+is set for every build and every output, and store.now is fixed so W and W' write the same times.
+
+Part B (story 7.7): on tests/leakage_fixture.py, every report format in both modes through gct report all and both
+packages through gct package create, scanned from the files alone by tests/leakage.py: the seed matrix with the
+never-list and its source proof (AC 7, 8), crop and marker hits per file, the pages in a browser (AC 11), the
+injected row per renderer (AC 9), the packages' files (AC 10), the differential on every rendered format with its
+named clock parts (AC 7a), section 4's behaviour (AC 12) and the coverage map (AC 13). Cited, not repeated (the gate
+run includes them): tests/test_export_json.py::test_every_export_validates (schema validation, 7.2);
+tests/test_render_pdf.py::test_found_recovers_a_planted_crop and
+::test_a_no_box_ref_is_a_whole_page_entry_and_every_page_entry_is_the_viewer_render (readable, same-version crops,
+7.4); tests/test_package.py::test_a_sanitised_package_holds_what_its_preview_says_and_reopens,
+::test_a_complete_package_needs_include_private_and_carries_every_row, ::test_only_package_py_holds_the_phrase,
+::test_no_command_calls_a_copied_or_changed_folder_sanitised (FR72),
+::test_an_archived_shareable_document_ships_still_archived (7.6-P3), ::test_an_empty_sanitised_plan_previews_the_relabel_line_and_create_refuses (7.6-P8) and
+::test_version_1_equals_the_source_version_for_shipped_rows (the package's own meta, 7.6)."""
+import contextlib
+import copy
+import datetime
+import gc
+import hashlib
+import io
 import json
+import os
 import re
+import shutil
 import sqlite3
+import tempfile
+import time
+import types
+import zipfile
+from collections import Counter
+from pathlib import Path
 
 import pytest
 
+import leakage
+import leakage_fixture as lf
 import report_fixture as f
+from gate_fixture import gct
+from gct import cli
 from gct.models import redact
-from gct.reports import dataset
+from gct.reports import crops, dataset, export
 from gct.workspace import layout, store
 
 NOW = "2026-10-23T00:00:00+00:00"
@@ -279,3 +311,891 @@ def test_restatement_rows_attach_through_their_claims_in_both_modes(w, w2, env):
         assert len(unpaired) == (2 if mode == "complete" else 1), mode
     a, b = (renumber(build(r)[0])["unpaired_restatements"] for r in (w, w2))
     assert a == b
+
+
+# Part B (story 7.7): every output and both packages of tests/leakage_fixture.py, scanned from the files alone
+
+FORMATS = ("json", "xlsx", "csv", "pdf", "page")
+PACKAGES = ("complete package", "sanitised package")
+TABLES = ["evidence_index", "restatement_log", "gap_report"]  # what gct report all renders
+GLOBS = {"json": ("dataset.json", "*.schema.json"), "xlsx": ("*.xlsx",), "csv": ("*/*.csv",), "pdf": ("*.pdf",),
+         "page": ("*.html", "crops/*.png")}
+
+
+def rgb(png: bytes) -> str:
+    from PIL import Image
+
+    return hashlib.sha256(Image.open(io.BytesIO(png)).convert("RGB").tobytes()).hexdigest()
+
+
+def with_crops(d, c) -> list:
+    """leakage_fixture.SEEDS plus one image seed per private page entry's crop (7.1 G: the crop hashes are computed at
+    test time from crops.cut); a crop whose pixels equal a seed's value (IMG-PAGE-01) is kept once."""
+    seeds = copy.deepcopy(lf.SEEDS)
+    private = {x["id"] for x in d["documents"] if x["label"] == "private"}
+    for e in d["evidence"]:
+        if e["page"] is not None and e["document_id"] in private and e["id"] in c and rgb(c[e["id"]]) not in {
+                s["value"] for s in seeds}:
+            seeds.append({"name": f"LEAK-CROP-E{e['id']:04d}", "kind": "image", "expect": "complete_only",
+                          "value": rgb(c[e["id"]])})
+    return seeds
+
+
+def files_of(folder, fmt) -> list[Path]:
+    return sorted({p for g in GLOBS[fmt] for p in Path(folder).glob(g) if p.is_file()})
+
+
+def scan(paths, seeds) -> dict:
+    """found over several files: {name: ["<file>: <place>"]}."""
+    out = {}
+    for p in paths:
+        for name, places in leakage.found(p, seeds).items():
+            out.setdefault(name, []).extend(f"{p.name}: {x}" for x in places)
+    return out
+
+
+def texts(paths) -> str:
+    """Every text part of the files, one per line, white space squeezed out (a PDF may break a long token)."""
+    return "\n".join("".join(v.split()) for p in paths for k, _, v in leakage.parts(p) if k == "text")
+
+
+def has(paths, literal: str) -> bool:
+    return "".join(literal.split()) in texts(paths)
+
+
+def say(*argv) -> str:
+    """One command's terminal text (no --json)."""
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        assert cli.main([str(a) for a in argv]) == 0
+    return out.getvalue()
+
+
+def made(root) -> dict:
+    """Every report format in both modes through gct report all, and both packages through gct package create (the
+    complete one with --include-private): {mode: export folder, package column: package folder}."""
+    at, out = ("--workspace", root), {}
+    for mode, flag in (("sanitised", ()), ("complete", ("--complete",))):
+        out[mode] = Path(gct("report", "all", "--format", ",".join(FORMATS), *flag, *at)["folder"])
+    token = gct("package", "preview", *at)["token"]
+    out["sanitised package"] = root / gct("package", "create", "--confirm", token, *at)["folder"]
+    token = gct("package", "preview", "--complete", *at)["token"]
+    out["complete package"] = root / gct("package", "create", "--complete", "--include-private", "--confirm", token,
+                                         *at)["folder"]
+    return out
+
+
+@pytest.fixture(scope="module")
+def lwm(env, tmp_path_factory):
+    """W of 7.7: the workspace scanned before any output exists (AC 8's source proof), then made(); with the complete
+    dataset as exported, its crops and the seeds."""
+    root = lf.build(tmp_path_factory.mktemp("lw"))
+    gc.collect()  # closes in-process SQLite connections: their -shm and -wal files settle before found lists them
+    out = {"root": root, "source": leakage.found(root, lf.SEEDS), **made(root)}
+    d = json.loads((out["complete"] / "dataset.json").read_text(encoding="utf-8"))
+    c = crops.cut(root, d)
+    return {**out, "dataset": d, "crops": c, "seeds": with_crops(d, c)}
+
+
+@pytest.fixture(scope="module")
+def lw(lwm):
+    """lwm and every output's found result ("hits")."""
+    hits = {(fmt, mode): scan(files_of(lwm[mode], fmt), lwm["seeds"]) for fmt in FORMATS for mode in dataset.MODES}
+    hits.update({p: leakage.found(lwm[p], lwm["seeds"]) for p in PACKAGES})
+    return {**lwm, "hits": hits}
+
+
+@pytest.fixture(scope="module")
+def lw2(env, tmp_path_factory):
+    return {"root": lf.build(tmp_path_factory.mktemp("lw2"), without_private=True)}
+
+
+# AC 7, 8: the seed matrix (section 5), as delivered. A cell is C (found in the complete output, absent from the
+# sanitised one), N (absent from both), n/c with its reason (absent from both: a format that starts carrying the seed
+# fails, and the matrix is updated on purpose); a package cell is found or absent, 7.6's rule cited where it decides.
+NO_IMAGE = "n/c: the format holds no images"
+NO_EVIDENCE = "n/c: cell content and sha256 sit in dataset.evidence, which 7.3 does not print"
+NO_SHA = "n/c: an evidence entry is printed by its document, version and page, never its sha256"
+IMAGE = {**dict.fromkeys(("json", "xlsx", "csv"), NO_IMAGE),
+         "complete package": "absent: 7.6 ships no page images, and the original draws the marker as a vector"
+                             " rectangle, which found does not render"}
+CELLS = {
+    "CON-ACCEPT-01": dict.fromkeys(FORMATS, "n/c: C3c accepted carries acceptance ids only (K7)"),
+    "DOC-BASIS-01": dict.fromkeys(FORMATS, "n/c: no dataset field carries a basis wording (7.1 G (a))"),
+    "FILE-PDF-02": dict.fromkeys(FORMATS, "n/c: an archived document has no evidence entry, so no sha256"),
+    **{n: {"xlsx": NO_EVIDENCE, "csv": NO_EVIDENCE, "pdf": NO_SHA, "page": NO_SHA}
+       for n in ("FILE-PDF-01", "FILE-CSV-01", "FILE-PDF-03", "FILE-PDF-04")},
+    **{n: {"xlsx": NO_EVIDENCE, "csv": NO_EVIDENCE} for n in ("DOC-CELL-02", "LEAK-11")},  # K5, and L13's heading
+    "LEAK-31": {"complete package": "found: a complete package ships a document's source (P5)"},
+    "LEAK-38": {"complete package": "found: a complete package ships contributor identity"},
+    **{n: {"complete package": "7.6 found: a complete package may hold the run log's path lines (7.6 D6)"}
+       for n in ("LEAK-37", "PATH-01")},
+    "LEAK-35": {"complete package": "7.6 absent: a package holds no logs/ folder"},
+    "LEAK-36": {"complete package": "7.6 absent: a package holds no files/.incoming-* file"},
+}
+
+
+def cell(seed, column) -> str:
+    over = {**(IMAGE if seed["kind"] == "image" else {}), **CELLS.get(seed["name"], {})}
+    if column in over:
+        return over[column]
+    if column in PACKAGES:
+        return "found" if column == "complete package" and seed["expect"] == "complete_only" else "absent"
+    return "C" if seed["expect"] == "complete_only" else "N"
+
+
+def test_every_stored_never_seed_is_in_the_source_workspace(lw):
+    """AC 8: each never seed of leakage_fixture.STORED_RAW is found in the workspace before any output is built, so
+    its absence from the outputs is meaningful; CRED-RUN-01 (scrubbed when written) and CRED-ENV-01 (environment only)
+    are never stored. The scan raised no Unreadable (found raises on any part it cannot read)."""
+    assert lf.STORED_RAW <= set(lw["source"]), sorted(lf.STORED_RAW - set(lw["source"]))
+    assert not {"CRED-RUN-01", "CRED-ENV-01"} & set(lw["source"])
+
+
+@pytest.mark.parametrize("column", FORMATS + PACKAGES)
+def test_every_cell_of_the_seed_matrix(lw, column):
+    """AC 7, 8 (and 10's marker cell): every seed, crop seeds included, against its cell; a C cell is a find in the
+    complete output, so the scan could have failed."""
+    hits, wrong = lw["hits"], []
+    for s in lw["seeds"]:
+        want = cell(s, column)
+        if column in PACKAGES:
+            got = "found" if s["name"] in hits[column] else "absent"
+            if want.split(":")[0].split()[-1] != got:
+                wrong.append((s["name"], want, hits[column].get(s["name"])))
+        else:
+            got = (s["name"] in hits[column, "complete"], s["name"] in hits[column, "sanitised"])
+            if got != ((True, False) if want == "C" else (False, False)):
+                wrong.append((s["name"], want, hits[column, "complete"].get(s["name"]),
+                              hits[column, "sanitised"].get(s["name"])))
+    assert wrong == []
+
+
+@pytest.mark.parametrize("fmt", ("pdf", "page"))
+def test_each_crop_seed_and_the_marker_only_where_that_crop_is_drawn(lw, fmt):
+    """AC 6, 7: in each complete PDF and in the complete page folder, the image seeds found are exactly those of the
+    crops it must draw and the marker seed only where the private page's crop or whole page is drawn (7.4's and
+    7.5's expected_hits, read only)."""
+    d, c, seeds = lw["dataset"], lw["crops"], lw["seeds"]
+    images = {s["name"] for s in seeds if s["kind"] == "image"}
+    if fmt == "pdf":
+        import test_render_pdf as m
+
+        wants = {m.FILES[r]: m.expected_hits(d, c, r, seeds) for r in m.REPORTS}
+    else:
+        import test_render_page as m
+
+        wants = {None: m.expected_hits(d, c, seeds)}
+    seen = set()
+    for name, want in wants.items():
+        paths = [lw["complete"] / name] if name else files_of(lw["complete"], fmt)
+        got = set(scan(paths, seeds)) & images
+        assert got == {n for n in want if n in images}, (name, sorted(got ^ {n for n in want if n in images}))
+        seen |= got
+    assert "IMG-MARKER-01" in seen and len(seen) > 2  # the check can fail: crops and the marker are drawn
+
+
+def test_the_pages_in_a_browser_show_and_request_nothing_private_or_outside(lw, tmp_path):
+    """AC 11: the complete and sanitised pages opened from file:// in headless Chrome (7.5's
+    tests/report_page_browser.mjs): the complete innerText holds exactly the text seeds the pages print (7.5's
+    expected_hits), the sanitised one none, and no page requests a URL outside its own folder (K22)."""
+    import test_render_page as m
+
+    urls = {mode: [(lw[mode] / m.FILES[r]).as_uri() for r in m.REPORTS] for mode in dataset.MODES}
+    out = m.browse(tmp_path, *urls["complete"], *urls["sanitised"])
+    assert [p["url"] for p in out["pages"]] == urls["complete"] + urls["sanitised"]
+    assert out["requests"] and all(any(u.startswith(lw[mode].as_uri() + "/") for mode in dataset.MODES)
+                                   for u in out["requests"]), out["requests"]
+    for mode in dataset.MODES:
+        n = len(m.REPORTS)
+        pages = out["pages"][:n] if mode == "complete" else out["pages"][n:]
+        (tmp_path / f"{mode}.txt").write_text("\n".join(p["text"] for p in pages), encoding="utf-8")
+    want = {k for k, how in m.expected_hits(lw["dataset"], lw["crops"], lw["seeds"]).items() if how == "text"}
+    assert set(leakage.found(tmp_path / "complete.txt", lw["seeds"])) == want and want
+    assert leakage.found(tmp_path / "sanitised.txt", lw["seeds"]) == {}
+
+
+def test_the_positive_literals_ship_where_the_matrix_says(lw):
+    """L14's shareable neighbour cell ships in both modes wherever a format prints cell content (n/c in XLSX and CSV,
+    as K5) and in both packages; the pseudonym is in every sanitised output and in no complete one. Neither is passed
+    to found."""
+    for fmt in FORMATS:
+        both = (has(files_of(lw["complete"], fmt), lf.NEIGHBOUR), has(files_of(lw["sanitised"], fmt), lf.NEIGHBOUR))
+        assert both == ((False, False) if fmt in ("xlsx", "csv") else (True, True)), fmt
+        named = tuple(has(files_of(lw[m], fmt), lf.PSEUDONYM) for m in ("complete", "sanitised"))
+        assert named == (False, True), fmt
+    for p in PACKAGES:  # the shareable workbook's original
+        assert any(lf.NEIGHBOUR.encode() in x.read_bytes() for x in (lw[p] / "files").rglob("*") if x.is_file()), p
+
+
+def test_the_preview_texts_are_in_no_output(lw):
+    """AC 8: the preview sentence and the relabel command are in no output and no package, and they are in the
+    gct report preview text of a selection of private documents only (they never sit in the workspace)."""
+    private = next(x["id"] for x in lw["dataset"]["documents"] if x["name"] == f.NAME)
+    shown = say("report", "preview", "--filter", json.dumps({"document": [private]}), "--workspace", lw["root"])
+    for line in (dataset.ALL_PRIVATE, dataset.RELABEL):
+        assert line in shown
+        for fmt in FORMATS:
+            for mode in dataset.MODES:
+                assert not has(files_of(lw[mode], fmt), line), (fmt, mode, line)
+        for p in PACKAGES:
+            assert not has([lw[p]], line), (p, line)
+
+
+def local_paths(base) -> list:
+    return [re.compile(r"/(?:Users|home)/[A-Za-z0-9._-]+/"),  # anyone_home, test_hygiene.py:88
+            re.compile(re.escape("".join(str(base).split()))),
+            re.compile(re.escape("".join(os.path.realpath(tempfile.gettempdir()).split())))]
+
+
+def test_no_local_path_in_any_report_output_or_the_sanitised_package(lw, tmp_path_factory):
+    """Section 3's non-seed path checks: anyone_home, the test's temporary root and the realpath of the temporary
+    folder in no text part of any report output (both modes) or the sanitised package; each is first found in the
+    source workspace's logs and run lines (the L8 error log's traceback names GCT's own files). The complete
+    package may hold the run log's path lines (7.6 D6)."""
+    source = texts([lw["root"] / "logs", lw["root"] / layout.DB_NAME])
+    patterns = local_paths(tmp_path_factory.getbasetemp())
+    assert all(p.search(source) for p in patterns), [p.pattern for p in patterns if not p.search(source)]
+    for fmt in FORMATS:
+        for mode in dataset.MODES:
+            t = texts(files_of(lw[mode], fmt))
+            assert not [p.pattern for p in patterns if p.search(t)], (fmt, mode)
+    t = texts([lw["sanitised package"]])
+    assert not [p.pattern for p in patterns if p.search(t)]
+
+
+MARKS = ("history_mark", "labels_mark", "hidden_by_archive", "History mark", "Labels mark")
+
+
+def test_the_history_and_labels_marks_are_in_complete_report_outputs_only(lw):
+    """L18 (K2, K10, K13): the complete dataset's dotted history_mark and the identity labels are in every complete
+    report output, and neither they nor the key names are in a sanitised one; in JSON the key names and labels are
+    looked for outside words and columns (ruling 4), in printed formats everywhere."""
+    mark = lw["dataset"]["data_version"]["history_mark"]
+    assert mark.count(".") > 5
+    for fmt in FORMATS:
+        if fmt == "json":
+            d = json.loads((lw["sanitised"] / "dataset.json").read_text(encoding="utf-8"))
+            t = json.dumps({k: v for k, v in d.items() if k not in ("words", "columns")}, ensure_ascii=False)
+        else:
+            t = texts(files_of(lw["sanitised"], fmt))
+        assert not [x for x in (mark, *MARKS) if "".join(x.split()) in "".join(t.split())], fmt
+        assert has(files_of(lw["complete"], fmt), mark), fmt
+        assert fmt == "json" or all(has(files_of(lw["complete"], fmt), x) for x in MARKS[3:]), fmt
+
+
+@pytest.mark.parametrize("fmt", FORMATS)
+def test_a_private_row_put_back_into_a_sanitised_dataset_is_found(lw, fmt, tmp_path):
+    """AC 9: a builder bug simulated: one private evidence-index row, its evidence entries and its document's entry put
+    back into the sanitised dataset, rendered with the format's write; its seeds are found, and for the crop formats
+    (crops cut from the injected dataset) the private crop's pixel hash and the marker too."""
+    s, _ = build(lw["root"])
+    c = lw["dataset"]
+    row = next(r for r in c["evidence_index"] if r["metric_text"].startswith(f.METRIC))
+    entries = {e["id"]: e for e in c["evidence"]}
+    new = {i: max((e["id"] for e in s["evidence"]), default=0) + n for n, i in enumerate(row["evidence"], 1)}
+    s["evidence"] += [{**entries[i], "id": new[i]} for i in row["evidence"]]
+    s["evidence_index"].append({**copy.deepcopy(row), "evidence": [new[i] for i in row["evidence"]]})
+    s["documents"].append(next(x for x in c["documents"] if x["id"] == row["document_id"]))
+    k = crops.cut(lw["root"], s) if export.FORMATS[fmt]["crops"] else {}
+    export.FORMATS[fmt]["write"](s, TABLES, tmp_path, k)
+    got = leakage.found(tmp_path, lw["seeds"])
+    want = {"DOC-METRIC-01", "DOC-NAME-01"}
+    if k:
+        want |= {"IMG-MARKER-01"} | {x["name"] for x in lw["seeds"] if x["kind"] == "image"
+                                     and x["value"] in {rgb(k[i]) for i in new.values() if i in k}}
+        assert len(want) > 3
+    assert want <= set(got), sorted(want - set(got))
+
+
+def test_the_packages_hold_no_wal_shm_incoming_or_exports_file_and_no_private_original_ships_sanitised(lw):
+    """AC 10: neither package holds a -wal, -shm, .incoming-* or exports/ file; no file of the sanitised package has
+    the sha256 of a private original (the L2 twin shares FILE-PDF-01's bytes); the complete package holds them, made
+    with 7.6's authorisation (--include-private). The marker cells are in the matrix. Cited, not repeated:
+    tests/test_package.py::test_a_sanitised_package_holds_what_its_preview_says_and_reopens,
+    ::test_a_complete_package_needs_include_private_and_carries_every_row, ::test_only_package_py_holds_the_phrase and
+    ::test_no_command_calls_a_copied_or_changed_folder_sanitised (FR72)."""
+    private = {x["sha256"] for x in gct("doc", "list", "--workspace", lw["root"])["documents"]
+               if x["privacy"] == "private" and x["sha256"]}
+    held = {}
+    for p in PACKAGES:
+        names = [x.relative_to(lw[p]).as_posix() for x in lw[p].rglob("*") if x.is_file()]
+        assert not [n for n in names if n.endswith(("-wal", "-shm")) or ".incoming-" in n or "exports/" in n], p
+        held[p] = {hashlib.sha256((lw[p] / n).read_bytes()).hexdigest() for n in names}
+    assert not held["sanitised package"] & private
+    assert next(s["value"] for s in f.SEEDS if s["name"] == "FILE-PDF-01") in held["complete package"] & private
+
+
+# AC 7a: the differential check (K12) on every rendered format, beside the seed scan. Clock parts, named up front:
+# an XLSX file's raw bytes and file hash (every zip member's date_time) and every part of its docProps/core.xml
+# (openpyxl stamps dcterms:created and dcterms:modified with the current time).
+CLOCK = re.compile(r"^[^>]*\.xlsx(?:: raw bytes| > docProps/core\.xml(?:: (?:raw bytes|text|XML|HTML text))?)?$")
+
+
+def normalised(root, mode="sanitised") -> dict:
+    """renumber's dataset, keeping data_version (sha256 a placeholder) and built_at, which the renderers print."""
+    d, _ = build(root, mode=mode)
+    return {**renumber(d), "data_version": {**d["data_version"], "sha256": "0" * 64}, "built_at": d["built_at"]}
+
+
+def render(root, d, fmt, name) -> Path:
+    """write into a folder inside the workspace, crops cut from that workspace's own originals."""
+    folder = Path(root) / "k12" / name / fmt
+    folder.mkdir(parents=True)
+    export.FORMATS[fmt]["write"](d, TABLES, folder, crops.cut(root, d) if export.FORMATS[fmt]["crops"] else {})
+    return folder
+
+
+def compared(folder) -> list:
+    return sorted(p for p in leakage.parts(folder) if not CLOCK.match(p[1]))
+
+
+@pytest.fixture(scope="module")
+def k12(lw, lw2):
+    """{(mode, workspace): normalised dataset} of W and W', with their version numbers equal."""
+    out = {(m, x): normalised(ws["root"], m) for m in dataset.MODES for x, ws in (("W", lw), ("W'", lw2))}
+    assert out["sanitised", "W"]["data_version"]["version"] == out["sanitised", "W'"]["data_version"]["version"]
+    return out
+
+
+@pytest.mark.parametrize("fmt", FORMATS)
+def test_sanitised_w_and_w_prime_render_equal_parts_and_complete_ones_differ(lw, lw2, k12, fmt):
+    """AC 7a: each format rendered from the normalised sanitised(W) and sanitised(W') has equal text parts and image
+    pixel hashes, the named clock parts excluded (and seed-scanned); the same comparison of complete(W) and
+    complete(W') differs (the check can fail). The K1 claim is in the comparison with no exemption."""
+    a, b = (render(ws["root"], k12["sanitised", x], fmt, "sanitised") for x, ws in (("W", lw), ("W'", lw2)))
+    pa, pb = compared(a), compared(b)
+    assert pa == pb, (sorted(set(pa) - set(pb))[:5], sorted(set(pb) - set(pa))[:5])
+    assert leakage.found(a, lw["seeds"]) == {} == leakage.found(b, lw["seeds"])
+    ca, cb = (render(ws["root"], k12["complete", x], fmt, "complete") for x, ws in (("W", lw), ("W'", lw2)))
+    assert compared(ca) != compared(cb)
+
+
+def test_the_named_clock_parts_differ_when_the_clock_moves_and_no_other_part_does(lw, k12, tmp_path, monkeypatch):
+    """AC 7a: two renders of one normalised dataset, the clock moved 400 days between them (time.time for zipfile's
+    member date_time, openpyxl.packaging.core's datetime for core.xml): every XLSX part CLOCK names differs and
+    nothing else does; every zip member's date_time differs; JSON, CSV, PDF and page have no clock part."""
+    d = k12["sanitised", "W"]
+
+    def write(name):
+        for fmt in FORMATS:
+            (tmp_path / name / fmt).mkdir(parents=True)
+            export.FORMATS[fmt]["write"](d, TABLES, tmp_path / name / fmt,
+                                         crops.cut(lw["root"], d) if export.FORMATS[fmt]["crops"] else {})
+        return {fmt: leakage.parts(tmp_path / name / fmt) for fmt in FORMATS}
+
+    first = write("first")
+    later = time.time() + 400 * 86400
+
+    class Later(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.datetime.fromtimestamp(later, tz)
+
+    import openpyxl.packaging.core as core
+
+    monkeypatch.setattr(core, "datetime", types.SimpleNamespace(datetime=Later, timezone=datetime.timezone))
+    monkeypatch.setattr(time, "time", lambda: later)
+    second = write("second")
+    monkeypatch.undo()
+    for fmt in FORMATS:
+        moved = {(k, p) for k, p, _ in set(first[fmt]) ^ set(second[fmt])}
+        clock = {(k, p) for k, p, _ in first[fmt] if CLOCK.match(p)}
+        assert moved == clock, (fmt, sorted(moved ^ clock)[:5])
+        assert bool(clock) == (fmt == "xlsx"), fmt
+    for x in files_of(tmp_path / "first" / "xlsx", "xlsx"):
+        with zipfile.ZipFile(x) as a, zipfile.ZipFile(tmp_path / "second" / "xlsx" / x.name) as b:
+            assert all(i.date_time != j.date_time for i, j in zip(a.infolist(), b.infolist())), x.name
+        names = {p for _, p, _ in first["xlsx"] if CLOCK.match(p) and p.startswith(x.name)}
+        assert {f"{x.name}", f"{x.name}: raw bytes", f"{x.name} > docProps/core.xml"} <= names, names
+
+
+# AC 12: behaviour (section 4) across the five report outputs; packages by 7.6's tests and the matrix
+
+def module(fmt):
+    """The format's own test module, which holds its read_back and printed (imported late: each imports this one)."""
+    import importlib
+
+    return importlib.import_module({"json": "test_export_json", "xlsx": "test_render_sheets",
+                                    "csv": "test_render_sheets", "pdf": "test_render_pdf",
+                                    "page": "test_render_page"}[fmt])
+
+
+def back(fmt, folder) -> dict:
+    """read_back of an export folder through the format's module: {"data_version": [identity of each file read],
+    "rows": {table: rows}}; XLSX, CSV and PDF are read file by file, JSON and the page folder whole."""
+    m = module(fmt)
+    if fmt in ("json", "page"):
+        b = m.read_back(folder)
+        return {"data_version": [b["data_version"]], "rows": b["rows"]}
+    out = {"data_version": [], "rows": {}}
+    for r in TABLES:
+        stem = r.replace("_", "-")
+        b = m.read_back(folder / {"xlsx": f"{stem}.xlsx", "csv": stem, "pdf": f"{stem}.pdf"}[fmt])
+        out["data_version"].append(b["data_version"])
+        out["rows"].update(b["rows"])
+    return out
+
+
+def exported(lw, mode) -> dict:
+    return json.loads((lw[mode] / "dataset.json").read_text(encoding="utf-8"))
+
+
+def keys_of(x) -> set:
+    if isinstance(x, dict):
+        return set(x) | {k for v in x.values() for k in keys_of(v)}
+    return {k for v in x for k in keys_of(v)} if isinstance(x, list) else set()
+
+
+COUNTS = ("hidden_by_archive", "deleted_in_filter", "matched", "total", "excluded", "history_mark", "labels_mark")
+
+
+def test_archive_counts_and_notices_in_every_report_output(lw):
+    """Archive and counts (K10, K2, P8): every notice of each mode's dataset prints in that mode's output of every
+    format, the sanitised ones with the privacy and archive notices; the sanitised dataset carries none of the count
+    or mark keys outside words and columns; a review on a shareable claim citing the archived private document is
+    in the complete dataset with its evidence archived and in no sanitised one (the archived name is the matrix's
+    DOC-NAME-02 row)."""
+    for mode in dataset.MODES:
+        d = exported(lw, mode)
+        for fmt in FORMATS:
+            assert [n for n in d["notices"] if not has(files_of(lw[mode], fmt), n)] == [], (mode, fmt)
+        records = [r for x in d["evidence_index"] for r in x["records"]["rows"]]
+        assert any(r["evidence_state"] == "archived" for r in records) == (mode == "complete")
+    s = exported(lw, "sanitised")
+    assert {dataset.PRIVACY_NOTICE, dataset.ARCHIVE_NOTICE} <= set(s["notices"])
+    assert not keys_of({k: v for k, v in s.items() if k not in ("words", "columns")}) & set(COUNTS)
+    assert {"history_mark", "labels_mark"} <= keys_of(exported(lw, "complete")["data_version"])
+
+
+def test_a_deleted_documents_seeds_are_in_the_workspace_before_the_deletion(env, tmp_path):
+    """Permanent deletion (L6): with the deletion left out, L6's seeds are found in the workspace, so their N cells
+    in the matrix (every output and package built after the deletion) can fail. The L7 file in exports/ is in no
+    package (the packages test)."""
+    root = lf.build(tmp_path, delete=False)
+    gc.collect()  # as in lw
+    assert {"LEAK-32", "LEAK-33"} <= set(leakage.found(root, lf.SEEDS))
+
+
+def test_an_unfinished_deletion_refuses_every_report_and_writes_nothing_until_it_is_finished(lw, tmp_path,
+                                                                                          monkeypatch):
+    """Archived, then deleted with its purge pending (K3): gct report refuses every format with "Document N was
+    deleted but its removal did not finish." and exports/ is unchanged (names and hashes); after the finishing
+    confirm the next report is written and its sanitised outputs hold no seed."""
+    from gct.stages import deletion
+
+    root = Path(shutil.copytree(lw["root"], tmp_path / "ws"))
+    at, who = ("--workspace", root), ("--as", "kim", "--capacity", f.CAPACITY, "--rationale", "the client asked")
+    doc = next(x["id"] for x in gct("doc", "list", *at)["documents"] if x["state"] == "archived"
+               and x["privacy"] == "private")
+
+    def boom(*a):
+        raise OSError("held open")
+
+    monkeypatch.setitem(deletion.WORK, "published", boom)
+    token = gct("doc", "delete", doc, *at, ok=4)["token"]
+    gct("doc", "delete", doc, "--confirm", token, *who, *at, ok=4)
+    monkeypatch.undo()
+
+    def listing():
+        return {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in (root / "exports").rglob("*") if p.is_file()}
+
+    before = listing()
+    for mode in ((), ("--complete",)):
+        r = gct("report", "all", "--format", ",".join(FORMATS), *mode, *at, ok=4)
+        assert r["cause"] == f"Document {doc} was deleted but its removal did not finish.", r
+    assert listing() == before
+    gct("doc", "delete", doc, "--confirm", token, *at)
+    folder = Path(gct("report", "all", "--format", ",".join(FORMATS), *at)["folder"])
+    assert leakage.found(folder, lw["seeds"]) == {}
+
+
+def test_missing_evidence_in_both_modes_of_every_report_output(lw):
+    """Missing evidence (K8, K9): a private document's documents-checked entry is in the complete gap report only,
+    and the sanitised one says private documents are not listed in the privacy notice's words, with no count; an
+    expected item declaring a private document is withheld in sanitised mode (its seeds are the matrix's LEAK-12 and
+    LEAK-13); the three missing states print verbatim in both modes of every format's gap report."""
+    from gct.stages import missing
+
+    c, s = exported(lw, "complete"), exported(lw, "sanitised")
+    private = {x["id"] for x in c["documents"] if x["label"] == "private"}
+    assert [x for x in c["gap_report"]["documents_checked"] if x["id"] in private]
+    assert {x["id"] for x in s["gap_report"]["documents_checked"]} <= {x["id"] for x in s["documents"]}
+    assert dataset.PRIVACY_NOTICE in s["notices"] and not [n for n in s["notices"] if re.search(r"\d", n)]
+    assert len(s["gap_report"]["expectations"]) < len(c["gap_report"]["expectations"])
+    for mode in dataset.MODES:
+        d = exported(lw, mode)
+        assert {missing.INCOMPLETE, missing.NOT_FOUND_IN, missing.CONFIRMED} <= {
+            x["state"] for x in d["gap_report"]["expectations"]}, mode
+        for fmt in FORMATS:
+            stem = "gap-report"
+            paths = [p for p in files_of(lw[mode], fmt) if fmt == "json" or stem in p.as_posix()]
+            for state in (missing.INCOMPLETE, missing.NOT_FOUND_IN, missing.CONFIRMED):
+                assert has(paths, state), (mode, fmt, state)
+
+
+def test_the_k1_claim_shows_its_recomputed_review_state_in_every_sanitised_output(lw):
+    """Review state of a shareable claim (K1, recompute): the claim 7.1's disagreement and raised flag sit on shows,
+    in sanitised mode, a review text computed from shipped records only (no withheld marker), printed in every
+    format; that it equals sanitised(W') is the differential's (test_sanitised_w_and_w_prime_render_...)."""
+    c, s = exported(lw, "complete"), exported(lw, "sanitised")
+    k1 = next(r for r in c["evidence_index"] if r["label"] == "shareable" and "disagreement" in r["review_text"]
+              and "flags raised" in r["review_text"])
+    row = next(r for r in s["evidence_index"] if r["claim_id"] == k1["claim_id"])
+    assert row["review_text"] != k1["review_text"] and "review_text" not in row["withheld"]
+    for fmt in FORMATS:
+        shown = module(fmt).printed(row["review_text"], row, "review_text", fmt)
+        assert has(files_of(lw["sanitised"], fmt), str(shown)), fmt
+
+
+def test_renewed_review_and_corrections_follow_their_labels(lw):
+    """Renewed review (K6, C7, L4): a needs-re-review entry whose target is withheld is not in sanitised mode; L4's
+    replaced values of a private claim are complete only (the matrix's LEAK-01 to LEAK-03); a shareable claim's
+    correction keeps its values in sanitised mode with its contributor, organisation, capacity and rationale
+    withheld (dataset.WITHHELD), printed as withheld in every printed format."""
+    c, s = exported(lw, "complete"), exported(lw, "sanitised")
+    kinds = set(dataset.LEDGER_KINDS.values())
+
+    def named(d):  # the review records the entries name: "kind #id on version V( with claim C version W)"
+        return {(m[1], int(m[2])) for r in d["evidence_index"] for e in r["needs_renewed_review"]
+                if (m := ENTRY.match(e))[1] in kinds}
+
+    def shipped(d):
+        return {(x["kind"], x["id"]) for r in d["evidence_index"] for x in r["records"]["rows"]}
+
+    assert named(c) - shipped(s)  # the check can fail: the review citing co3-leak.pdf (leakage_fixture, K6)
+    assert named(s) and named(s) <= shipped(s)
+    corrected = [r for r in s["evidence_index"] if r["correction"]]
+    who = [f"correction.{k}" for k in ("contributor", "organisation", "capacity", "rationale")]
+    assert corrected and all(set(who) <= set(r["withheld"]) and not any(r["correction"][k[11:]] for k in who)
+                             for r in corrected)
+    for fmt in FORMATS[1:]:  # the JSON export is the dataset read above (null and the withheld list)
+        assert has(files_of(lw["sanitised"], fmt), module(fmt).printed(None, corrected[0], who[0], fmt)), fmt
+
+
+def test_every_document_private_leaves_empty_sanitised_outputs(lw, tmp_path):
+    """Empty results (P10): with every document private, every sanitised output holds no row, no document or company
+    name and no count of withheld rows; it shows the data version, the empty-result line and the privacy notice; the
+    preview sentence and the relabel command are in no output."""
+    root = Path(shutil.copytree(lw["root"], tmp_path / "ws"))
+    at = ("--workspace", root)
+    docs = gct("doc", "list", *at)["documents"]
+    for x in docs:
+        if x["state"] != "deleted" and x["privacy"] == "shareable":
+            gct("doc", "label", x["id"], "--privacy", "private", "--as", "kim", "--capacity", f.CAPACITY,
+                "--rationale", "not for the client", *at)
+    gct("publish", "build", *at)
+    folder = Path(gct("report", "all", "--format", ",".join(FORMATS), *at)["folder"])
+    d = json.loads((folder / "dataset.json").read_text(encoding="utf-8"))
+    names = {x["logical_name"] for x in docs if x["logical_name"]} | {x["company"] for x in docs}
+    assert dataset.sanitised_empty(d["data_version"]["version"]) in d["notices"]
+    for fmt in FORMATS:
+        paths = files_of(folder, fmt)
+        assert not [t for t, rows in back(fmt, folder)["rows"].items() if rows], fmt
+        assert not [n for n in names if has(paths, n)], fmt
+        assert all(has(paths, n) for n in d["notices"]) and has(paths, dataset.PRIVACY_NOTICE), fmt
+        assert not has(paths, dataset.ALL_PRIVATE) and not has(paths, dataset.RELABEL), fmt
+    assert leakage.found(folder, lw["seeds"]) == {}
+
+
+# AC 13: coverage. Content types, each mapped to seeds the matrix finds; every string leaf path of the complete
+# dataset pinned to a seed or to "machine" with its reason (words.* and columns.* are GCT's own words and keys).
+CONTENT = {
+    "documents": {"DOC-NAME-01", "DOC-NAME-02", "DOC-COMPANY-01", "FILE-PDF-01", "LEAK-09", "LEAK-14"},
+    "records": {"CON-NAME-01", "CON-CONCLUSION-01", "CON-NOTE-01", "CON-RATIONALE-01", "LEAK-21", "LEAK-22",
+                "LEAK-29"},
+    "graphs": {"DOC-QUOTE-01", "LEAK-08", "LEAK-23", "LEAK-24", "LEAK-25", "LEAK-26", "LEAK-27", "LEAK-28"},
+    "indexes": {"DOC-METRIC-01", "DOC-CELL-01", "DOC-REASON-01", "LEAK-04", "LEAK-05", "LEAK-06", "LEAK-07"},
+    "evidence images": {"IMG-PAGE-01", "IMG-MARKER-01"},
+}
+MACHINE = {"words", "columns"}  # prefixes
+GCT_WORDS = "machine: GCT's own words"
+CODE = "machine: a stored code or GCT's word for it"
+DATE = "machine: a date or time GCT writes"
+ADDRESS = "machine: a cell address or sheet position"
+IDS = "machine: an id or a hash of ids"
+SAME = "related_claims: one builder with evidence_index (test_related_claims_are_evidence_index_rows_of_one_builder)"
+UNIT = ("machine: a unit key, or printed:<the unit text folded to lower-case letters and digits>, which no seed"
+        " survives; the printed unit text itself is evidence_index[].unit_text (LEAK-05)")
+COVERAGE = {
+    "built_at": DATE,
+    "data_version.built_at": DATE,
+    "data_version.history_mark": IDS,
+    "data_version.sha256": IDS,
+    "documents[].availability": CODE,
+    "documents[].company": "DOC-COMPANY-01",
+    "documents[].file_type": CODE,
+    "documents[].kind": CODE,
+    "documents[].label": CODE,
+    "documents[].name": "LEAK-15",
+    "documents[].state": CODE,
+    "evidence[].cell": ADDRESS,
+    "evidence[].header[]": "LEAK-11",
+    "evidence[].kind": CODE,
+    "evidence[].row[]": "DOC-REASON-01",
+    "evidence[].sha256": "FILE-PDF-04",
+    "evidence[].sheet": "LEAK-10",
+    "evidence_index[].boundary": CODE,
+    "evidence_index[].boundary_detail": "LEAK-07",
+    "evidence_index[].boundary_state": CODE,
+    "evidence_index[].cell": ADDRESS,
+    "evidence_index[].claim_state": CODE,
+    "evidence_index[].company": "DOC-COMPANY-01",
+    "evidence_index[].correction.capacity": "CON-CAPACITY-01",
+    "evidence_index[].correction.contributor": "CON-NAME-01",
+    "evidence_index[].correction.created_at": DATE,
+    "evidence_index[].correction.fields[]": CODE,
+    "evidence_index[].correction.organisation": "CON-ORG-02",
+    "evidence_index[].correction.rationale": "CON-CORRECTION-01",
+    "evidence_index[].correction.replaced.metric_text": "DOC-CELL-01",
+    "evidence_index[].correction.replaced.period_label": "LEAK-03",
+    "evidence_index[].correction.replaced.unit_text": "LEAK-02",
+    "evidence_index[].correction.replaced.value_text": "LEAK-01",
+    "evidence_index[].disagreements.rows[].label": CODE,
+    "evidence_index[].disagreements.rows[].text": GCT_WORDS,
+    "evidence_index[].document_name": "LEAK-15",
+    "evidence_index[].evidence_text": "DOC-REASON-01",
+    "evidence_index[].label": CODE,
+    "evidence_index[].match_reason": GCT_WORDS,
+    "evidence_index[].match_state": CODE,
+    "evidence_index[].metric_text": "DOC-METRIC-01",
+    "evidence_index[].needs_renewed_review[]": GCT_WORDS,
+    "evidence_index[].period_end": DATE,
+    "evidence_index[].period_label": "LEAK-06",
+    "evidence_index[].period_start": DATE,
+    "evidence_index[].period_state": CODE,
+    "evidence_index[].records.rows[].capacity": "CON-CAPACITY-01",
+    "evidence_index[].records.rows[].conclusion": "CON-CONCLUSION-01",
+    "evidence_index[].records.rows[].contributor": "CON-NAME-01",
+    "evidence_index[].records.rows[].created_at": DATE,
+    "evidence_index[].records.rows[].decision": CODE,
+    "evidence_index[].records.rows[].earlier": CODE,
+    "evidence_index[].records.rows[].evidence_note": "LEAK-22",
+    "evidence_index[].records.rows[].evidence_state": CODE,
+    "evidence_index[].records.rows[].kind": CODE,
+    "evidence_index[].records.rows[].label": CODE,
+    "evidence_index[].records.rows[].note": "CON-NOTE-01",
+    "evidence_index[].records.rows[].organisation": "CON-ORG-02",
+    "evidence_index[].records.rows[].outcome": CODE,
+    "evidence_index[].records.rows[].rationale": "CON-RATIONALE-01",
+    "evidence_index[].records.rows[].reviewed_on": DATE,
+    "evidence_index[].records.rows[].scope": "LEAK-21",
+    "evidence_index[].review_text": GCT_WORDS,
+    "evidence_index[].sheet": "LEAK-10",
+    "evidence_index[].unit_text": "LEAK-05",
+    "evidence_index[].value_text": "LEAK-04",
+    "filter.text": "DOC-METRIC-01",
+    "gap_report.archived[].archived_at": DATE,
+    "gap_report.archived[].label": CODE,
+    "gap_report.archived[].name": "DOC-NAME-02",
+    "gap_report.candidates[].adjudications.rows[].capacity": "CON-CAPACITY-01",
+    "gap_report.candidates[].adjudications.rows[].closure_reason": "LEAK-27",
+    "gap_report.candidates[].adjudications.rows[].contributor": "CON-NAME-01",
+    "gap_report.candidates[].adjudications.rows[].counter_note": "LEAK-25",
+    "gap_report.candidates[].adjudications.rows[].created_at": DATE,
+    "gap_report.candidates[].adjudications.rows[].earlier": CODE,
+    "gap_report.candidates[].adjudications.rows[].follow_up": "LEAK-26",
+    "gap_report.candidates[].adjudications.rows[].label": CODE,
+    "gap_report.candidates[].adjudications.rows[].organisation": "CON-ORG-02",
+    "gap_report.candidates[].adjudications.rows[].procedure": "LEAK-24",
+    "gap_report.candidates[].adjudications.rows[].rationale": "LEAK-28",
+    "gap_report.candidates[].adjudications.rows[].state_text": GCT_WORDS,
+    "gap_report.candidates[].label": CODE,
+    "gap_report.candidates[].metric_key": CODE,
+    "gap_report.candidates[].period_end": DATE,
+    "gap_report.candidates[].period_start": DATE,
+    "gap_report.candidates[].reporting_boundary": CODE,
+    "gap_report.candidates[].restatements.rows[].capacity": "CON-CAPACITY-01",
+    "gap_report.candidates[].restatements.rows[].contributor": "CON-NAME-01",
+    "gap_report.candidates[].restatements.rows[].created_at": DATE,
+    "gap_report.candidates[].restatements.rows[].decision": CODE,
+    "gap_report.candidates[].restatements.rows[].earlier": CODE,
+    "gap_report.candidates[].restatements.rows[].evidence_quote": "LEAK-08",
+    "gap_report.candidates[].restatements.rows[].label": CODE,
+    "gap_report.candidates[].restatements.rows[].organisation": "CON-ORG-02",
+    "gap_report.candidates[].restatements.rows[].rationale": "LEAK-23",
+    "gap_report.candidates[].series_id": IDS,
+    "gap_report.candidates[].shown_state": CODE,
+    "gap_report.candidates[].state": CODE,
+    "gap_report.candidates[].unit_family": UNIT,
+    "gap_report.deleted[].deleted_at": DATE,
+    "gap_report.deleted[].label": CODE,
+    "gap_report.documents_checked[].label": CODE,
+    "gap_report.documents_checked[].limit_note": GCT_WORDS,
+    "gap_report.expectations[].accepted.rows[].label": CODE,
+    "gap_report.expectations[].accepted.rows[].type": CODE,
+    "gap_report.expectations[].company": "DOC-COMPANY-01",
+    "gap_report.expectations[].confirmation.capacity": "CON-CAPACITY-01",
+    "gap_report.expectations[].confirmation.contributor": "CON-NAME-01",
+    "gap_report.expectations[].confirmation.created_at": DATE,
+    "gap_report.expectations[].confirmation.organisation": "CON-ORG-02",
+    "gap_report.expectations[].confirmation.rationale": "LEAK-29",
+    "gap_report.expectations[].declared.rows[].label": CODE,
+    "gap_report.expectations[].declared.rows[].state": CODE,
+    "gap_report.expectations[].label": CODE,
+    "gap_report.expectations[].metric_text": "LEAK-12",
+    "gap_report.expectations[].period_label": "LEAK-13",
+    "gap_report.expectations[].reasons.rows[].label": CODE,
+    "gap_report.expectations[].reasons.rows[].reason": GCT_WORDS,
+    "gap_report.expectations[].reasons.rows[].type": CODE,
+    "gap_report.expectations[].state": CODE,
+    "gap_report.extraction_limits[].label": CODE,
+    "gap_report.extraction_limits[].reason": GCT_WORDS,
+    "gap_report.extraction_limits[].type": CODE,
+    "gct_version": GCT_WORDS,
+    "mode": CODE,
+    "notices[]": GCT_WORDS,
+    "related_claims[].boundary": SAME,
+    "related_claims[].boundary_detail": SAME,
+    "related_claims[].boundary_state": SAME,
+    "related_claims[].claim_state": SAME,
+    "related_claims[].company": "DOC-COMPANY-01",
+    "related_claims[].correction.capacity": SAME,
+    "related_claims[].correction.contributor": SAME,
+    "related_claims[].correction.created_at": SAME,
+    "related_claims[].correction.fields[]": SAME,
+    "related_claims[].correction.organisation": SAME,
+    "related_claims[].correction.rationale": SAME,
+    "related_claims[].correction.replaced.metric_text": SAME,
+    "related_claims[].correction.replaced.period_label": SAME,
+    "related_claims[].correction.replaced.unit_text": SAME,
+    "related_claims[].correction.replaced.value_text": SAME,
+    "related_claims[].document_name": "LEAK-09",
+    "related_claims[].evidence_text": SAME,
+    "related_claims[].label": SAME,
+    "related_claims[].match_reason": SAME,
+    "related_claims[].match_state": SAME,
+    "related_claims[].metric_text": SAME,
+    "related_claims[].period_end": SAME,
+    "related_claims[].period_label": SAME,
+    "related_claims[].period_start": SAME,
+    "related_claims[].period_state": SAME,
+    "related_claims[].review_text": SAME,
+    "related_claims[].unit_text": SAME,
+    "related_claims[].value_text": SAME,
+    "restatement_log[].adjudications.rows[].capacity": "CON-CAPACITY-01",
+    "restatement_log[].adjudications.rows[].closure_reason": "LEAK-27",
+    "restatement_log[].adjudications.rows[].contributor": "CON-NAME-01",
+    "restatement_log[].adjudications.rows[].counter_note": "LEAK-25",
+    "restatement_log[].adjudications.rows[].created_at": DATE,
+    "restatement_log[].adjudications.rows[].earlier": CODE,
+    "restatement_log[].adjudications.rows[].follow_up": "LEAK-26",
+    "restatement_log[].adjudications.rows[].label": CODE,
+    "restatement_log[].adjudications.rows[].organisation": "CON-ORG-02",
+    "restatement_log[].adjudications.rows[].procedure": "LEAK-24",
+    "restatement_log[].adjudications.rows[].rationale": "LEAK-28",
+    "restatement_log[].adjudications.rows[].state_text": GCT_WORDS,
+    "restatement_log[].label": CODE,
+    "restatement_log[].metric_key": CODE,
+    "restatement_log[].period_end": DATE,
+    "restatement_log[].period_start": DATE,
+    "restatement_log[].reason": GCT_WORDS,
+    "restatement_log[].reporting_boundary": CODE,
+    "restatement_log[].restatements.rows[].capacity": "CON-CAPACITY-01",
+    "restatement_log[].restatements.rows[].contributor": "CON-NAME-01",
+    "restatement_log[].restatements.rows[].created_at": DATE,
+    "restatement_log[].restatements.rows[].decision": CODE,
+    "restatement_log[].restatements.rows[].earlier": CODE,
+    "restatement_log[].restatements.rows[].evidence_quote": "LEAK-08",
+    "restatement_log[].restatements.rows[].label": CODE,
+    "restatement_log[].restatements.rows[].organisation": "CON-ORG-02",
+    "restatement_log[].restatements.rows[].rationale": "LEAK-23",
+    "restatement_log[].series_id": IDS,
+    "restatement_log[].shown_state": CODE,
+    "restatement_log[].state": CODE,
+    "restatement_log[].unit_family": UNIT,
+    "unpaired_restatements.rows[].capacity": "CON-CAPACITY-01",
+    "unpaired_restatements.rows[].contributor": "CON-NAME-01",
+    "unpaired_restatements.rows[].created_at": DATE,
+    "unpaired_restatements.rows[].decision": CODE,
+    "unpaired_restatements.rows[].earlier": CODE,
+    "unpaired_restatements.rows[].evidence_quote": "LEAK-08",
+    "unpaired_restatements.rows[].label": CODE,
+    "unpaired_restatements.rows[].organisation": "CON-ORG-02",
+    "unpaired_restatements.rows[].rationale": "LEAK-23",
+}
+
+
+def leaves(x, path=""):
+    """(dotted path, string) of every string leaf; a sub-table's rows are "<key>.rows[]"."""
+    if isinstance(x, dict):
+        if set(x) == {"id", "title", "rows", "parent_key", "columns"}:
+            for r in x["rows"]:
+                yield from leaves(r, f"{path}.rows[]")
+            return
+        for k, v in x.items():
+            yield from leaves(v, f"{path}.{k}" if path else k)
+    elif isinstance(x, list):
+        for v in x:
+            yield from leaves(v, f"{path}[]")
+    elif isinstance(x, str):
+        yield path, x
+
+
+def coverage_builds(root) -> list:
+    """The complete dataset of the whole version, of a selection whose pairs have sides outside it (co3-2025.pdf,
+    acme-2025.pdf and the private Acme report: co3-leak.pdf's claims among the related ones) and of a text filter
+    (the filter echo)."""
+    d, _ = build(root, mode="complete")
+    docs = [x["id"] for x in d["documents"] if x["name"] in ("co3-2025.pdf", "acme-2025.pdf", f.NAME)]
+    return [d, build(root, mode="complete", filter={"document": docs})[0],
+            build(root, mode="complete", filter={"text": f.METRIC})[0]]
+
+
+def test_every_content_type_maps_to_seeds_the_outputs_find(lw):
+    """AC 13: documents, records, graphs (restatement-log pairs and comparisons; M1 has no series chart), indexes
+    (evidence index rows, documents checked; SQLite index pages through the packages' raw scan) and evidence images,
+    each to seeds found in a complete output of some format (the matrix); calculated values have no row in M1."""
+    for kind, names in CONTENT.items():
+        for n in names:
+            assert any(n in lw["hits"][fmt, "complete"] for fmt in FORMATS), (kind, n)
+        assert any(n in lw["hits"]["complete package"] for n in names) or kind == "evidence images", kind
+
+
+def test_every_string_leaf_of_the_complete_dataset_is_pinned_to_a_seed_or_machine(lw):
+    """AC 13 (7.7-P3): every string leaf path of the complete dataset is in COVERAGE, so a new field fails until it is
+    mapped; a path mapped to a seed holds that seed's value in some leaf; a machine leaf (words.* and columns.*
+    included) holds no seed. related_claims[] paths are covered through one builder (the next test)."""
+    values = {s["name"]: s["value"] for s in lf.SEEDS if s["value"] and s["kind"] != "image"}
+    at = {}
+    for d in coverage_builds(lw["root"]):
+        for p, v in leaves(d):
+            at.setdefault(p, []).append(v)
+    seen = {p for p in at if p.split(".")[0] not in MACHINE}
+    assert seen == set(COVERAGE), (sorted(seen - set(COVERAGE)), sorted(set(COVERAGE) - seen))
+    for p, vs in at.items():
+        want = COVERAGE.get(p, GCT_WORDS)
+        if want in values:
+            assert any(values[want] in v for v in vs), (p, want)
+        elif want != SAME:
+            assert not [n for n, x in values.items() for v in vs if x in v], p
+
+
+def cites(d, ids) -> list:
+    """The evidence entries ids name, without their ids (evidence ids number each dataset's own entries)."""
+    return [{k: v for k, v in next(e for e in d["evidence"] if e["id"] == i).items() if k != "id"} for i in ids]
+
+
+def test_related_claims_are_evidence_index_rows_of_one_builder(lw):
+    """AC 13, Moka's ruling: related_claims[].X is covered by evidence_index[].X through one builder. In both modes,
+    each related claim of acme-2025.pdf's selection (and of co3-2025.pdf's in complete mode) equals that claim's
+    evidence-index row in its own document's selection on every key, withheld markers included, its evidence
+    compared by the entries it cites; both directions of the key sets come from the dataset, so a field added to
+    one row and not the other fails."""
+    root, checked = lw["root"], 0
+    for mode in dataset.MODES:
+        d, _ = build(root, mode=mode)
+        names = {x["name"]: x["id"] for x in d["documents"]}
+        for doc in ["acme-2025.pdf"] + (["co3-2025.pdf"] if mode == "complete" else []):
+            a, _ = build(root, mode=mode, filter={"document": [names[doc]]})
+            assert a["related_claims"], (mode, doc)
+            for x in a["related_claims"]:
+                b, _ = build(root, mode=mode, filter={"document": [x["document_id"]]})
+                row = next(r for r in b["evidence_index"] if r["claim_id"] == x["claim_id"])
+                assert set(x) == set(row), (mode, sorted(set(x) ^ set(row)))
+                assert cites(a, x["evidence"]) == cites(b, row["evidence"]), (mode, x["claim_id"])
+                assert {k: v for k, v in x.items() if k != "evidence"} == {
+                    k: v for k, v in row.items() if k != "evidence"}, (mode, x["claim_id"])
+                checked += 1
+    assert checked >= 3

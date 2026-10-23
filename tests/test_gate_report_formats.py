@@ -2,15 +2,30 @@
 their rows on the pinned projection field by field after redact.scrub; sanitised rows equal their rows on the reduced
 copy with exactly the C7 replacements and withheld markers, and their derived values follow the recomputation rules;
 data_version names the file read; the evidence index is E6's selection on both connections; every row carries the
-top-level version; coded values are printed words; no GCT-authored string matches the wording guard."""
+top-level version; coded values are printed words; no GCT-authored string matches the wording guard.
+
+Part B (story 7.7 AC 14): on tests/leakage_fixture.py's outputs through gct report all, per format and never one
+format against another, read_back rows and identity against the exported dataset through that format's printed;
+no stored code in a printed format and codes beside their words in JSON; the wording guard on each output's own
+text. Cited, not repeated (the gate run includes them):
+tests/test_export_json.py::test_read_back_has_the_shared_shape;
+tests/test_render_sheets.py::test_read_back_has_the_shared_shape, ::test_each_value_rule_is_exercised and
+::test_printed_words_never_codes_and_the_guard_passes;
+tests/test_render_pdf.py::test_every_row_is_printed_and_read_back and
+::test_printed_words_only_and_the_wording_guard;
+tests/test_render_page.py::test_read_back_gives_the_datasets_rows_through_printed and
+::test_the_wording_guard_on_every_page_with_details_open."""
 import hashlib
 import json
 import re
 
 import pytest
 
-from test_gate_privacy_exports import build, env, w  # noqa: F401 (module fixtures: the fixture and its environment)
+import gate_fixture
+import leakage_fixture as lf
+from test_gate_privacy_exports import FORMATS, back, build, env, exported, files_of, lwm, module, texts, w  # noqa: F401
 from test_gate_tables_graphs import FILTERS
+from gct.reports import render_sheets
 from gct.models import redact
 from gct.reports import dataset, pin
 from gct.stages import adjudicate, correct, match, restate, review, view
@@ -258,3 +273,115 @@ def test_coded_values_are_words_and_no_gct_string_matches_the_wording_guard(w, e
     for p in d["restatement_log"]:
         assert p["state"] in restate.STATES
     assert hits == []
+
+
+# Part B (story 7.7 AC 14): each format's output of tests/leakage_fixture.py read back against its own dataset, never
+# one format against another (lwm: both modes through gct report all, and the dataset each export holds)
+
+def source_rows(d, table) -> list:
+    t = table.split(".")[-1]
+    return d[t] if t in d else d["gap_report"][t]
+
+
+@pytest.mark.parametrize("fmt", FORMATS)
+@pytest.mark.parametrize("mode", dataset.MODES)
+def test_each_format_reads_back_its_datasets_rows_and_identity(lwm, mode, fmt):
+    """Per format: read_back rows equal the dataset's rows mapped through that format's printed (JSON's the
+    identity), every table the format holds (PDF leaves an empty one out); every file's identity is the mode's full
+    identity (V3: sanitised {version, built_at, sha256, projection_schema}, complete adding history_mark and
+    labels_mark, K2, K13) as the format prints it; every row's data version is a column (K15)."""
+    d, m = exported(lwm, mode), module(fmt)
+    dotted = getattr(m, "dotted", render_sheets.dotted)
+    got = back(fmt, lwm[mode])
+    keys = {"version", "built_at", "sha256", "projection_schema"} | (
+        {"history_mark", "labels_mark"} if mode == "complete" else set())
+    assert set(d["data_version"]) == keys
+    for ident in got["data_version"]:
+        assert ident == {k: m.printed(v, {"withheld": []}, k, fmt) for k, v in d["data_version"].items()}, fmt
+    tables = ["evidence_index", "restatement_log", *(f"gap_report.{s}" for s in d["gap_report"])]
+    assert list(got["rows"]) == [t for t in tables if fmt != "pdf" or source_rows(d, t)]
+    for t, rows in got["rows"].items():
+        cols = d["columns"][t.split(".")[-1]]
+        assert "data_version" in {c["key"] for c in cols}
+        assert rows == [{c["key"]: m.printed(dotted(r, c["key"]), r, c["key"], fmt) for c in cols}
+                        for r in source_rows(d, t)], (fmt, t)
+
+
+CODES = {k: v for k, v in {**adjudicate.STATES, **dataset.LEDGER_KINDS}.items() if k != v}  # stored code: words
+
+
+@pytest.mark.parametrize("mode", dataset.MODES)
+def test_printed_formats_show_no_stored_code_and_json_holds_codes_beside_their_words(lwm, mode):
+    """Codes and words (C3): the adjudication and ledger states are held as their words (state_text, kind), never
+    as a stored code, in the JSON export outside words and columns, and in the text of every printed format; their
+    words print in each (the check can fail: the fixture holds an explained-difference adjudication and every
+    ledger kind)."""
+    d = exported(lwm, mode)
+    body = {k: v for k, v in d.items() if k not in ("words", "columns")}
+    values = {v for _, v in walk_items(body) if isinstance(v, str)}
+    assert not values & set(CODES), (mode, values & set(CODES))
+    shown = {v for k, v in walk_items(body) if k in ("state_text", "kind") and v in CODES.values()}
+    assert len(shown) > 2 and (mode == "sanitised" or adjudicate.STATES["explained_difference"] in shown), shown
+    for fmt in FORMATS[1:]:
+        t = texts(files_of(lwm[mode], fmt))
+        assert not [c for c in CODES if c in t], (mode, fmt)
+        assert all("".join(x.split()) in t for x in shown), (mode, fmt)
+
+
+def walk_items(x):
+    if isinstance(x, dict):
+        for k, v in x.items():
+            yield k, v
+            yield from walk_items(v)
+    elif isinstance(x, list):
+        for v in x:
+            yield from walk_items(v)
+
+
+def contributed(d) -> list[str]:
+    """Every string under a labels.DOCUMENT_TEXT, IDENTITY or CONTRIBUTOR_TEXT field (or a contributor name) of a
+    dataset, longest first."""
+    fields = labels.DOCUMENT_TEXT | labels.IDENTITY | labels.CONTRIBUTOR_TEXT | {"contributor"}
+    out = []
+
+    def strings(x):
+        if isinstance(x, str):
+            out.append(x)
+        elif isinstance(x, dict):
+            for v in x.values():
+                strings(v)
+        elif isinstance(x, list):
+            for v in x:
+                strings(v)
+
+    def walk(x, parent=None):
+        if isinstance(x, dict):
+            for k, v in x.items():
+                if k in fields or f"{parent}.{k}" in fields:
+                    strings(v)
+                elif k not in ("words", "columns"):
+                    walk(v, k)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v, parent)
+
+    walk(d)
+    return sorted({"".join(s.split()) for s in out if s.strip()}, key=len, reverse=True)
+
+
+@pytest.mark.parametrize("mode", dataset.MODES)
+def test_the_wording_guard_finds_nothing_in_gcts_own_text_of_any_output(lwm, mode):
+    """The wording guard (test_review.WORDS plus "contradiction") on each output's text once every DOCUMENT_TEXT,
+    IDENTITY and CONTRIBUTOR_TEXT value of its dataset is removed: nothing, in both modes; before removal it finds
+    6.1's gate_fixture.VERIFIED and L11's "verified" in every complete output that prints records."""
+    d = exported(lwm, mode)
+    gone = contributed(d)
+    for fmt in FORMATS:
+        t = texts(files_of(lwm[mode], fmt))
+        if mode == "complete":
+            for x in (gate_fixture.VERIFIED, lf.VERIFIED):
+                assert "".join(x.split()) in t, (fmt, x)
+        for s in gone:
+            t = t.replace(s, "")
+        assert not GUARD.findall(t), (mode, fmt, sorted({t[max(0, i.start() - 30):i.end() + 30]
+                                                         for i in GUARD.finditer(t)})[:5])
