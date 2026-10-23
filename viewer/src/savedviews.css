@@ -1,0 +1,104 @@
+/* The Saved views and Questions buttons at the right under the filter bar, and the Saved views panel (story 6.4 B2):
+   panels open under the filter bar and push the content down, no overlay (note "Look", 6.1 F4). */
+.panel-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.panel-buttons button,
+.views-panel button {
+  padding: 0.25rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.panel-buttons button[aria-expanded="true"] {
+  border-color: var(--accent);
+  background: var(--accent-fill);
+}
+
+.views-panel button:disabled {
+  color: var(--muted);
+  background: #f6f7f8;
+  cursor: default;
+}
+
+.views-panel {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.views-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.views-panel h3 {
+  font-size: 0.85rem;
+  margin: 1rem 0 0.4rem;
+  color: var(--muted);
+}
+
+.saved-list li + li {
+  border-top: 1px solid var(--line);
+}
+
+.saved-view-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.75rem;
+  padding: 0.4rem 0;
+}
+
+.saved-view-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.saved-view-actions {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.saved-view-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.9rem;
+  padding: 0 0 0.5rem;
+}
+
+.saved-view-form.save {
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.saved-view-form h3,
+.saved-view-form .problem,
+.saved-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.saved-view-form.save h3 {
+  margin-top: 0.75rem;
+}
+
+.saved-done {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+}
+
+.saved-done:empty {
+  display: none;
+}

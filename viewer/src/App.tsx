@@ -4,6 +4,10 @@ import { availableText, countText, type EvidenceTarget, type Filter, isCell, isS
 import { FilterBar } from "./FilterBar.tsx";
 import { CellView } from "./CellView.tsx";
 import { Tables } from "./Tables.tsx";
+import { ChipLine, Transfer } from "./Transfer.tsx";
+import { type SavedView, SavedViews } from "./SavedViews.tsx";
+import { type Chosen, Questions } from "./Questions.tsx";
+import type { Chip, Sent, Tab } from "./transfer.ts";
 const Graphs = lazy(() => import("./Graphs.tsx")); // story 6.3; it imports Cytoscape only when the Graphs tab is shown
 
 type Company = { id: number; name: string; documents: Doc[] };
@@ -509,6 +513,8 @@ function Candidates({ company, docs, docName }: { company: Company; docs: DocOpt
   );
 }
 
+const NO_CHIPS: Record<Tab, Chip | null> = { tables: null, graphs: null };
+
 export function App() {
   const [health, setHealth] = useState<{ gct_version: string; data_version: number | null } | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -535,6 +541,17 @@ export function App() {
   const [cellAt, setCellAt] = useState<EvidenceTarget | null>(null);
   const pendingClaim = useRef<number | null>(null); // the claim openEvidence selects once its document's claims load
   const countRequests = useRef(newestOnly()).current;
+  // Story 6.4 part B: what each tab has selected (6.2 T-G, 6.3 S5b), the chip each tab received by a transfer (never
+  // stored; dropped with a filter-bar change or a new version), and the open panel under the filter bar.
+  const [sent, setSent] = useState<Record<Tab, Sent>>({ tables: null, graphs: null });
+  const [chips, setChips] = useState<Record<Tab, Chip | null>>(NO_CHIPS);
+  const [panel, setPanel] = useState<"views" | "questions" | null>(null);
+  const changeFilter = useCallback((f: Filter) => {
+    setFilter(f);
+    setChips(NO_CHIPS);
+  }, []);
+  const sentByTables = useCallback((s: Sent) => setSent((o) => ({ ...o, tables: s })), []);
+  const sentByGraphs = useCallback((s: Sent) => setSent((o) => ({ ...o, graphs: s })), []);
 
   const loadCompanies = async () => {
     const { companies } = await get<{ companies: { id: number; name: string }[] }>("/api/companies");
@@ -569,6 +586,7 @@ export function App() {
     const h = await get<{ gct_version: string; data_version: number | null }>("/api/health");
     setHealth(h);
     setNewer(newerVersion(pinnedNow.current, h.data_version));
+    return h.data_version;
   };
 
   useEffect(() => {
@@ -598,7 +616,34 @@ export function App() {
   const takeVersion = async (version: number) => {
     setNewer(null);
     setPinned(version);
+    setChips(NO_CHIPS);
     await loadCompanies().catch((e) => setCountFailure(failureOf(e)));
+  };
+
+  // B1: a transfer switches tab; the receiving tab shows the selection with its chip, the filter and the pin stay.
+  const transfer = (to: Tab, chip: Chip) => {
+    setChips((c) => ({ ...c, [to]: chip }));
+    setTab(to);
+  };
+
+  const removeChip = () => {
+    setChips((c) => ({ ...c, [tab]: null }));
+    document.getElementById(`tab-${tab}`)?.focus(); // the chip and its button are gone
+  };
+
+  // B2, B3: a saved view or a question replaces the filter and opens its tab; a saved view opens on the current
+  // version, taken here as Reload takes it.
+  const choose = ({ filter: f, section: to, chip }: Chosen) => {
+    setPanel(null);
+    setFilter(f);
+    setChips({ ...NO_CHIPS, ...(chip ? { [to]: chip } : {}) });
+    setTab(to);
+  };
+
+  const openView = async (v: SavedView) => {
+    const now = await checkVersion().catch(() => pinnedNow.current);
+    if (now !== null && now !== pinnedNow.current) await takeVersion(now);
+    choose({ filter: v.filter, section: v.section });
   };
 
   const showRecords = () => {
@@ -742,7 +787,17 @@ export function App() {
           <p className="hint">No published data yet. Run: gct publish build</p>
         ) : (
           <>
-            <FilterBar filter={filter} onChange={setFilter} companies={companies} series={series} />
+            <FilterBar filter={filter} onChange={changeFilter} companies={companies} series={series} />
+            <div className="panel-buttons">
+              <button type="button" aria-expanded={panel === "views"} aria-controls="panel-views"
+                onClick={() => setPanel(panel === "views" ? null : "views")}>Saved views</button>
+              <button type="button" aria-expanded={panel === "questions"} aria-controls="panel-questions"
+                onClick={() => setPanel(panel === "questions" ? null : "questions")}>Questions</button>
+            </div>
+            {panel === "views" && <SavedViews filter={filter} tab={tab} chipShown={chips[tab] !== null}
+              onOpen={(v) => { openView(v).catch((e) => setCountFailure(failureOf(e))); }} onClose={() => setPanel(null)} />}
+            {panel === "questions" && <Questions pinned={pinned} onChoose={choose} onClose={() => setPanel(null)}
+              onStale={() => { checkVersion().catch(() => undefined); }} />}
             <div className="count" aria-live="polite">
               {countFailure && <Problem failure={countFailure} />}
               {!count && !countFailure && <p className="hint">Counting the claims of data version {pinned}.</p>}
@@ -755,6 +810,7 @@ export function App() {
                   {count.deleted_in_filter.map((d) => <p key={d.document_id} className="meta">{d.text}</p>)}
                 </>
               )}
+              {chips[tab] && <ChipLine chip={chips[tab]!} onRemove={removeChip} />}
             </div>
             {cellAt && <CellView key={JSON.stringify(cellAt)} target={cellAt} pinned={pinned} onClose={() => setCellAt(null)} />}
             <div className="tabs" role="tablist" aria-label="Tables or Graphs">
@@ -763,13 +819,16 @@ export function App() {
               <button role="tab" id="tab-graphs" aria-controls="body-graphs" aria-selected={tab === "graphs"}
                 onClick={() => setTab("graphs")}>Graphs</button>
             </div>
+            <Transfer tab={tab} sent={sent[tab]} pinned={pinned} newer={newer} current={checkVersion} onTransfer={transfer} />
             {/* Story 6.2 renders its table here and 6.3 its graphs, each from its own file with filter, dataVersion and
                 openEvidence (F11 f); a hidden body stays mounted, so returning shows it as it was left. */}
             <div role="tabpanel" id="body-tables" aria-labelledby="tab-tables" hidden={tab !== "tables"}>
-              <Tables filter={filter} dataVersion={pinned} openEvidence={openEvidence} onStale={() => { checkVersion().catch(() => undefined); }} />
+              <Tables filter={filter} dataVersion={pinned} openEvidence={openEvidence} onStale={() => { checkVersion().catch(() => undefined); }}
+                selection={chips.tables?.selection ?? null} onSelectionChange={sentByTables} />
             </div>
             <div role="tabpanel" id="body-graphs" aria-labelledby="tab-graphs" hidden={tab !== "graphs"}>
-              <Suspense fallback={null}><Graphs filter={filter} dataVersion={pinned} openEvidence={openEvidence} onStale={() => { checkVersion().catch(() => undefined); }} /></Suspense>
+              <Suspense fallback={null}><Graphs filter={filter} dataVersion={pinned} openEvidence={openEvidence} onStale={() => { checkVersion().catch(() => undefined); }}
+                selection={chips.graphs?.selection ?? null} onSelectionChange={sentByGraphs} /></Suspense>
             </div>
           </>
         )}

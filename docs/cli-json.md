@@ -19,22 +19,23 @@ nested record (or of each record in the nested list) under that key.
 - companies: id, name, sector_ref, sector_version, created_at
 
 ## doc add
-- top: status, items
+- top: status, label, items
+- label: privacy, availability
 - items: source, company, action, document, cause, next_action, cached
 
-`status` is `ok` when every item was registered or a duplicate (and always with `--plan`), else `partial` (exit 4), which adds `cause` and `next_action` at the top; `next_action` names the sources that were not added. `action` is `registered`, `duplicate`, `refused` or `failed`; with `--plan` it is `would register`, `would fetch`, `duplicate` or `refused`. `document` has the keys of `doc show` for `registered` and `duplicate` (null for a duplicate of an earlier item in the same plan), null otherwise. `cause` and `next_action` are set only for `refused` and `failed`, except that a `duplicate` of an archived document has `next_action` `Restore it with: gct doc restore N`. `cached` is true when a URL was already fetched by an earlier command and was not downloaded again.
+`status` is `ok` when every item was registered or a duplicate (and always with `--plan`), else `partial` (exit 4), which adds `cause` and `next_action` at the top; `next_action` names the sources that were not added. `label` is the one label the batch declares: `availability` as given by `--availability` (default `unknown`) and `privacy` as given by `--privacy`, else `shareable` for `--kind report` with `--availability public` and `private` otherwise; a file's name, type, folder or address never sets either. `action` is `registered`, `duplicate`, `refused` or `failed`; with `--plan` it is `would register`, `would fetch`, `duplicate` or `refused`. `document` has the keys of `doc show` for `registered` and `duplicate` (null for a duplicate of an earlier item in the same plan), null otherwise. `cause` and `next_action` are set for `refused` and `failed`. Otherwise both are null, with three exceptions: a `duplicate` of an archived document has `next_action` `Restore it with: gct doc restore N`; a `duplicate` whose label differs from `label` has `cause` saying the requested label was not applied and naming the `gct doc label` command; a `registered` or `would register` item whose file is also held, under another label, by a document of any company that is not deleted has `cause` starting `Warning:` and naming that document. `cached` is true when a URL was already fetched by an earlier command and was not downloaded again.
 
 ## doc list
 - top: status, documents, hidden_by_archive, hidden_deleted
-- documents: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state, deleted_at
+- documents: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state, deleted_at, availability
 
-`state` is `registered`, `archived`, `restored` or `deleted`; `deleted_at` is when a deleted document was deleted, else null (every record with these keys has it). With `--active` archived and deleted documents are left out and `hidden_by_archive` and `hidden_deleted` count them; without it every document is listed and both are 0.
+`privacy` (`private` or `shareable`) and `availability` (`public`, `internal` or `unknown`) are the document's label: its newest `gct doc label` change, else what it was registered with (a document registered before labels had an availability is `unknown`). Reports apply more rules on top of it (a document with the same file as a private one is treated as private). `state` is `registered`, `archived`, `restored` or `deleted`; `deleted_at` is when a deleted document was deleted, else null (every record with these keys has it). With `--active` archived and deleted documents are left out and `hidden_by_archive` and `hidden_deleted` count them; without it every document is listed and both are 0.
 
 ## doc show
 - top: status, document, state_change, deletion
-- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state, deleted_at
+- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state, deleted_at, availability
 
-`state_change` is null for a registered document, else who made its newest state (`archived`, `restored` or `deleted`), when and why: `state`, `at`, `contributor`, `organisation`, `capacity`, `rationale`. `deletion` is null unless the document was deleted, else `at`, `steps` (done, in order: `database`, `files`, `artifacts`, `renders`, `published`, `vacuum`), `pending` (the steps not done yet; finish them with `gct doc delete N --confirm TOKEN`) and `records`: the contributor records on the document itself that stay (`kind` `page acceptance`, `basis scope`, `sheet mapping` or `state change`, `id`, `what`, `contributor`, `organisation`, `capacity`, `rationale` (both read `cleared with document N`), `created_at`, `evidence_deleted`). A deleted document's `logical_name` reads `cleared with document N` and its `source` is null.
+`state_change` is null for a registered document, else who made its newest state (`archived`, `restored` or `deleted`), when and why: `state`, `at`, `contributor`, `organisation`, `capacity`, `rationale`. `deletion` is null unless the document was deleted, else `at`, `steps` (done, in order: `database`, `files`, `artifacts`, `renders`, `published`, `vacuum`), `pending` (the steps not done yet; finish them with `gct doc delete N --confirm TOKEN`) and `records`: the contributor records on the document itself that stay (`kind` `page acceptance`, `basis scope`, `sheet mapping`, `state change` or `label change`, `id`, `what`, `contributor`, `organisation`, `capacity`, `rationale` (both read `cleared with document N`), `created_at`, `evidence_deleted`). A deleted document's `logical_name` reads `cleared with document N` and its `source` is null.
 
 ## doc delete
 - top: status, cause, next_action, document, impact, clears, files, versions, warning, token
@@ -43,16 +44,25 @@ Without `--confirm` nothing is stored: `status` is `plan` and the exit code is 4
 
 ## doc archive
 - top: status, document, impact, state_change
-- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state, deleted_at
+- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state, deleted_at, availability
 - impact: claims, evidence_refs, review_records, series, same_period_sets, uncertain_items, expected_items
 
 `impact` is what leaves the active outputs, computed before the archive is stored, so `--plan` and the archive itself give the same `impact`. `claims` counts the newest version of each of the document's claims and `evidence_refs` their locations. `review_records` counts, per kind, the records that stay stored but leave the active outputs: `inference_review`, `correction`, `match_review` (on any version of the document's claims), `page_acceptance` (on its pages), `restatement` (rows naming any version of its claims as original or restated) and `sheet_mapping` (every column mapping row of a spreadsheet). `series` lists each series the document has points in: `id`, `metric_key`, `label`, `unit_family`, `reporting_boundary`, `points` (the document's) and `points_left`. `same_period_sets` lists each period of a series that holds more than one value and loses one: `series`, `period_start`, `period_end`, `points`, `points_left`. `uncertain_items` counts the document's items in the match review queue, `expected_items` lists the ids of the expectations whose state is computed from it. With `--plan` nothing is stored and `state_change` is null; otherwise it is the record stored (see `doc show`). Archiving an archived document is refused (exit 4), as is archiving without `--as`, `--capacity` and `--rationale` (exit 2).
 
 ## doc restore
 - top: status, document, state_change
-- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state, deleted_at
+- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state, deleted_at, availability
 
 `state_change` is the `restored` record stored (see `doc show`). Restoring a document that is not archived is refused (exit 4).
+
+## doc label
+- top: status, document, old, new, change
+- document: id, company, logical_name, version, sha256, kind, file_type, privacy, size_bytes, source, created_at, state, deleted_at, availability
+- old: privacy, availability
+- new: privacy, availability
+- change: id, contributor, organisation, capacity, rationale, created_at
+
+`gct doc label ID [--privacy private|shareable] [--availability public|internal|unknown] --as KEY --capacity TEXT --rationale TEXT` stores one label change (no run is opened): `old` is the label before, `new` the label stored, `change` who made it, when and why, and `document` (as in `doc show`) carries the new label. A flag left out keeps its value. Refused, with nothing stored: neither flag (exit 2), an empty capacity or rationale (exit 2), an unknown document or contributor (exit 3), a deleted document (exit 4; while its deletion has steps pending, the next step is the command that finishes it) and a label the document already has (exit 4). An archived document can be relabelled.
 
 ## doc pages
 - top: status, document, document_state, pages
@@ -350,7 +360,7 @@ One record per expectation, as for `expect add`, computed when asked.
 ## publish build
 - top: status, version, built_at, history_mark, companies, documents
 
-In the published version (`projection_schema` 4), a claim's `period_kind`, `period_start`, `period_end`, `reporting_boundary` and `boundary_detail` hold only accepted or resolved values, else what was extracted. A proposal is in `proposed_period_kind`, `proposed_period_start`, `proposed_period_end`, `proposed_reporting_boundary` and `proposed_boundary_detail`. `period_state` and `boundary_state` are `resolved`, `accepted`, `proposed`, `unresolved` or `extracted`. `period_basis` and `boundary_basis` (`{"page", "wording"}` as JSON, or null) are filled for a proposal as well as for an accepted value, so read them together with the state: while the state is `proposed` the main values stay empty. From `projection_schema` 6 (story 4.1) a claim also has `metric_key` (the assigned key, null when unmapped), `metric_rule`, `unit_key`, `unit_factor`, `series_id`, `match_state` (`series`, `reviewed`, `uncertain` or `not matchable`) and `match_reason`, and the tables `series` and `series_point` hold the series of `gct series list` and their points (a time series is `series_point` ordered by `period_end`). From `projection_schema` 8 (story 4.4) the table `hidden_by_archive` has one row per archived document (`document_id`, `logical_name`, `archived_at`, `claims`, `evidence_refs`, `review_records`, counted as in `doc archive`), and `meta` key `hidden_by_archive` holds the totals as JSON (`documents`, `claims`, `evidence_refs`, `review_records`). An archived document, its claims, their locations and series points are not in the other tables, and `expected_item_document` lists only active documents.
+In the published version (`projection_schema` 4), a claim's `period_kind`, `period_start`, `period_end`, `reporting_boundary` and `boundary_detail` hold only accepted or resolved values, else what was extracted. A proposal is in `proposed_period_kind`, `proposed_period_start`, `proposed_period_end`, `proposed_reporting_boundary` and `proposed_boundary_detail`. `period_state` and `boundary_state` are `resolved`, `accepted`, `proposed`, `unresolved` or `extracted`. `period_basis` and `boundary_basis` (`{"page", "wording"}` as JSON, or null) are filled for a proposal as well as for an accepted value, so read them together with the state: while the state is `proposed` the main values stay empty. From `projection_schema` 6 (story 4.1) a claim also has `metric_key` (the assigned key, null when unmapped), `metric_rule`, `unit_key`, `unit_factor`, `series_id`, `match_state` (`series`, `reviewed`, `uncertain` or `not matchable`) and `match_reason`, and the tables `series` and `series_point` hold the series of `gct series list` and their points (a time series is `series_point` ordered by `period_end`). From `projection_schema` 8 (story 4.4) the table `hidden_by_archive` has one row per archived document (`document_id`, `logical_name`, `archived_at`, `claims`, `evidence_refs`, `review_records`, counted as in `doc archive`), and `meta` key `hidden_by_archive` holds the totals as JSON (`documents`, `claims`, `evidence_refs`, `review_records`). An archived document, its claims, their locations and series points are not in the other tables. From `projection_schema` 15 (story 7.1 part B) `expected_item_document` links every declared document of an expectation that is not deleted, archived ones included, with its `state` (`registered`, `restored` or `archived`); the table `page` has one row per page of each active PDF that opens: `read_state` (`read`, `read failed` or `not read`), the newest reading's `rung`, `method`, `words`, `tables`, `flags`, `width` and `height` (null when the newest read failed), and `limit_text`, `limit_tables` and `limit_figures`, why the page is not ready for that type (`accepted #ID` for an acceptance, null when ready); `expected_item.accepted` lists `{type, acceptance_id, count}` entries; `gap_confirmation.documents_checked` holds `[{id, artifacts}]`, the documents and readings the confirmation looked in, without file hashes. A document's `privacy` is its label (see `doc list`) when the version was built; a `gct doc label` change makes the current version stale (story 7.1 part A).
 
 ## publish restore
 - top: status, version, built_at, history_mark, companies, documents
@@ -433,7 +443,8 @@ The table shape (the default). `--shape graph`, `series` and `values` answer wit
 `view` is the saved view as `view list` shows it: the name as typed (trimmed), the normalised filter, `section`
 (`tables` or `graphs`), the contributor's name, when it was saved and `earlier`, the number of older saves under the
 same name, which are kept. `data_version` is the current version, or null before the first build; a save builds no
-version. An empty name, one over 80 characters or with a line break, a section other than tables or graphs and a filter
+version. An empty name (or one with no visible character), one over 80 characters or with a line break (U+2028 and
+U+2029 included), a section other than tables or graphs and a filter
 the filter rules refuse (the field named) are refused with exit 2; an unknown contributor with exit 3; a locked
 workspace with exit 4. Nothing is written on a refusal. `POST /api/views` (`name`, `filter`, optional `section`,
 `contributor`) answers the same.
