@@ -380,6 +380,20 @@ def test_the_schema_refuses_each_planted_mutation(exports_, name):
     assert errors(d), name
 
 
+def test_the_gap_confirmation_rule_on_a_built_confirmation(exports_):
+    """report_fixture holds no gap confirmation (worker.md, not done), so the confirmation.* rule is checked on one
+    built here: a NOT NULL W field is null only with its key in withheld."""
+    d = copy.deepcopy(exports_["complete"])
+    row = next(r for t, r in rows_of(d) if t == "expectations")
+    row["confirmation"] = {"gap_confirmation_id": 1, "current": True, "created_at": "2026-10-23T00:00:00+00:00",
+                           "contributor": "ana", "organisation": None, "capacity": "analyst", "rationale": "checked"}
+    assert errors(d) == []
+    for key in ("rationale", "capacity"):
+        bad = copy.deepcopy(d)
+        next(r for t, r in rows_of(bad) if t == "expectations")["confirmation"][key] = None
+        assert errors(bad), key
+
+
 def test_the_withheld_checks_refuse_what_the_schema_cannot_see(exports_):
     d = exports_["sanitised"]
     assert withheld_problems(d) == []
@@ -467,6 +481,9 @@ def test_two_renders_are_byte_identical_and_two_exports_differ_only_in_built_at(
         assert render_json.write(d, ["evidence_index"], tmp_path / str(n), {}) == {"files": ["dataset.json"],
                                                                                    "notes": []}
     assert (tmp_path / "1" / "dataset.json").read_bytes() == (tmp_path / "2" / "dataset.json").read_bytes()
+    (tmp_path / "3").mkdir()  # ensure_ascii=False: the fixture's text is ASCII, so add one non-ASCII string
+    render_json.write({**d, "notices": [*d["notices"], "CO₂e émissions"]}, [], tmp_path / "3", {})
+    assert "CO₂e émissions".encode("utf-8") in (tmp_path / "3" / "dataset.json").read_bytes()
     with pytest.raises(FileExistsError):  # mode "x": a renderer never overwrites
         render_json.write(d, [], tmp_path / "1", {})
     # the renderer adds no string of its own
