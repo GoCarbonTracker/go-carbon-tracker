@@ -207,8 +207,11 @@ def _decide(conn, root, mode: str, include: tuple):
     if mode == "sanitised":
         ship.update(dict.fromkeys(COMPLETE_ONLY, []))
         # A decision or restatement names a series by its key, which holds the boundary text and ids its claims and
-        # inferences give; it ships only when the shipped rows form that series now, or provably formed it earlier
-        formed = _formed(conn, ship) | history_keys(ship)
+        # inferences give; it ships only when the shipped rows form that series now. ponytail: a series that held only
+        # earlier is withheld, since no record proves which extract config, metric assignment and inference were in
+        # force at a past review (reviews record no run and no gct version); a shared event sequence with the config
+        # per run would let provable history ship (post-M1)
+        formed = _formed(conn, ship)
         for t in SERIES_NAMED:
             kept = [r for r in ship[t] if scrub_key(r["series_key"]) in formed]
             withheld["selection_recomputed"] += len(ship[t]) - len(kept)
@@ -242,123 +245,6 @@ def _formed(conn, ship: dict) -> set:
         return {s["key"] for s in match.compute(mem)["series"].values()}
     finally:
         mem.close()
-
-
-def history_keys(ship: dict) -> set:
-    """The keys (as match.compute builds them, through redact.scrub_key) of the series the given rows provably formed
-    at some moment. The only recorded order across tables: inference_review ids, one sequence over both fields and
-    every claim; and a review comes after the start of the run of the inference it names (run ids are global). So the
-    reviews are replayed in id order and, at each, a claim version's key counts only when nothing about it is
-    ambiguous:
-    - it is its claim's newest version (a later version or correction may have come before the moment);
-    - it has exactly one metric assignment, and that assignment's run is earlier than the run of an inference some
-      review at or before the moment names (so the assignment existed then);
-    - each field is known by its newest review so far: resolved gives the review's values, accepted the values of the
-      inference it names, if that inference is given and no newer inference of the field exists (a re-proposal ends
-      an acceptance at a moment no row records); rejected or anything else leaves it unknown.
-    A unit as printed key counts while two claims hold it at once.
-    ponytail: everything else is withheld (sanitised) as ambiguous, since nothing orders metric_assignment,
-    inference re-proposals, claim_version and correction rows against inference_review rows; runs are taken not to
-    overlap; whether a claim was current (its page's reading and extraction) at the moment is not checked. A shared
-    sequence column would close it (post-M1)."""
-    claims = {c["id"]: c for c in ship["claim"]}
-    versions = {v["id"]: v for v in ship["claim_version"] if v["claim_id"] in claims}
-    newest_version = {}
-    for v in versions.values():
-        newest_version[v["claim_id"]] = max(newest_version.get(v["claim_id"], 0), v["id"])
-    count = Counter(a["claim_version_id"] for a in ship["metric_assignment"])
-    single = {a["claim_version_id"]: a for a in ship["metric_assignment"] if count[a["claim_version_id"]] == 1}
-    inferences = {i["id"]: i for i in ship["inference"]}
-    newest_inference = {}
-    for i in inferences.values():
-        k = i["claim_version_id"], i["field"]
-        newest_inference[k] = max(newest_inference.get(k, 0), i["id"])
-    current = _current_from(ship, claims, versions)
-    state, held, holders, out, elapsed = {}, {}, Counter(), set(), 0
-
-    def update(vid):
-        v, a, s = versions[vid], single.get(vid), state[vid]
-        ordinary = printed = None
-        if newest_version[v["claim_id"]] == vid and a is not None and a["run_id"] < elapsed and vid in current and \
-                current[vid] <= elapsed:
-            ordinary, printed = _key(claims[v["claim_id"]], v, a, s.get("boundary"), s.get("period"))
-        if ordinary:
-            out.add(ordinary)
-        holders[held.pop(vid, None)] -= 1
-        if printed:
-            held[vid] = printed
-            holders[printed] += 1
-            if holders[printed] > 1:
-                out.add(printed)
-
-    for r in ship["inference_review"]:  # in id order
-        if r["claim_version_id"] not in versions:
-            continue
-        inf = inferences.get(r["inference_id"])
-        later = inf is not None and inf["run_id"] > elapsed
-        elapsed = max(elapsed, inf["run_id"]) if inf else elapsed
-        if r["decision"] == "resolved":
-            given = r
-        elif r["decision"] == "accepted" and inf and newest_inference[inf["claim_version_id"], r["field"]] == inf["id"]:
-            given = inf
-        else:
-            given = None
-        state.setdefault(r["claim_version_id"], {})[r["field"]] = given and (
-            (given["boundary"], given["boundary_detail"]) if r["field"] == "boundary" else given["period_kind"])
-        for vid in (list(state) if later else [r["claim_version_id"]]):  # a later run can prove an assignment
-            update(vid)
-    return out
-
-
-def _current_from(ship: dict, claims: dict, versions: dict) -> dict:
-    """{claim version id: the run after which the version was provably current (correct.states), and stayed so}.
-    The claim's page reading that is newest now is the newest at any moment, since page rows are append-only; the
-    version was current at a moment once that reading had an ok extract attempt and a claim_seen row of the version,
-    both under the current extract config, in runs that ended before it. A version of a spreadsheet document, or with
-    no such rows, is never proven current."""
-    from gct.stages import extract
-    config, pdf = extract.extract_config(), {d["id"] for d in ship["document"] if d["file_type"] == "pdf"}
-    newest = {}
-    for p in ship["page"]:
-        k = p["document_id"], p["page_number"]
-        newest[k] = max(newest.get(k, 0), p["id"])
-    extracted = {}
-    for t in ship["attempt"]:
-        if t["stage"] == "extract" and t["outcome"] == "ok" and t["config_version"] == config:
-            k = t["item"].split(":", 1)[0], t["input_version"]
-            extracted[k] = min(extracted.get(k, t["run_id"]), t["run_id"])
-    seen = {}
-    for s in ship["claim_seen"]:
-        if s["config_version"] == config:
-            k = s["claim_version_id"], s["page_id"]
-            seen[k] = min(seen.get(k, s["run_id"]), s["run_id"])
-    out = {}
-    for vid, v in versions.items():
-        c = claims[v["claim_id"]]
-        page = newest.get((c["document_id"], c["page_number"]))
-        runs_ = (extracted.get((str(c["document_id"]), f"page {page}")), seen.get((vid, page)))
-        if c["document_id"] in pdf and page and None not in runs_:
-            out[vid] = max(runs_)
-    return out
-
-
-def _key(c, v, a, boundary, kind) -> tuple:
-    """(ordinary key, unit as printed key) of one claim version in one state, as JSON (match.compute, match._series),
-    from claim text through redact.scrub_key, as match.compute builds it."""
-    if a is None or kind is None or boundary is None or boundary[0] in (None, "unknown"):
-        return None, None
-    row, doc = match._row(c["locator"]), c["document_id"]
-    label = match.key_label(v["metric_text"])
-    if a["metric_key"] is None and not (label and row):
-        return None, None
-    head = [c["company_id"], a["metric_key"] or f"doc:{doc}:p{c['page_number']}:{row}:{label}", boundary[0],
-            scrub_key(boundary[1]) if boundary[0] == "subsidiary_set" else None]
-    family = a["unit_key"]
-    if family is not None and (a["metric_key"] is None or family in match.ACCEPTS[a["metric_key"]]):
-        return json.dumps(head + [family, doc if a["metric_key"] is None else None, kind], ensure_ascii=False), None
-    unit = match.key_unit(v["unit_text"]) or "-"
-    return None, row and json.dumps(head + [f"printed:{unit}", doc, kind, f"p{c['page_number']}:{row}"],
-                                    ensure_ascii=False)
 
 
 def _cause(conn, table: str, named, docs: dict, eff: dict) -> str | None:

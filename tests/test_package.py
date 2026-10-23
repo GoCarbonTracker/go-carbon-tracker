@@ -1186,26 +1186,13 @@ def history_case(root, private=None, match_first=True, then=()):
     return packages(g, root)
 
 
-# Round 3, F3, unambiguous history: match runs before infer, so each claim version's one metric assignment provably
-# came before the reviews that made the standalone series; the review and the restatement stay in the sanitised
-# package as in the complete one (W'). W adds an unrelated private document first (another metric, its groups
-# accepted, a series of its own): its sanitised package keeps the same public history, key for key once renumbered.
-def test_rows_naming_a_series_their_claims_formed_earlier_ship_in_an_all_shareable_package(tmp_path):
-    got = {name: history_case(tmp_path / name / "ws", private) for name, private in (("w2", None), ("w", UNRELATED))}
-    parity(got["w2"])
-    ws = got["w2"]["sanitised"][0]["workspace"]
-    assert len(ws["match_review"]) == len(ws["restatement"]) == 1 and '"standalone"' in ws["restatement"][0]["series_key"]
-    other, p = got["w"]["sanitised"]
-    for t in package.SERIES_NAMED:
-        assert keys(other["workspace"], t) == keys(ws, t), t
-    assert p["withheld"]["selection_recomputed"] == 0
-
-
-# Round 3, F3, ambiguous history. "match last" is the reviewer's fix-history order: match runs after the reviews'
-# inferences, so nothing recorded shows the metric assignment existed while the standalone states held. The others
-# start unambiguous and then add a second metric assignment, or a re-proposal that ends the acceptances at a moment no
-# row records. Each time the sanitised package withholds both rows (selection_recomputed 2), the complete package
-# keeps them, and W with an unrelated private document withholds the same.
+# Rounds 3 and 4, F3: history. A review and a restatement recorded against the standalone series, then both rule
+# claims resolved to consolidated, so the shipped rows no longer form the key. No record proves the extract config,
+# metric assignment and inference in force at a past review (reviews record no run), so a series that held only
+# earlier is withheld in a sanitised package however it was made: "match first" (round 3 kept it as provable),
+# "match last" (the reviewer's fix-history order), then a second metric assignment, a re-proposal or a correction.
+# Each time the sanitised package withholds both rows (selection_recomputed 2), the complete package keeps them, and
+# W with an unrelated private document withholds the same as W'.
 def reassign(root, claims) -> None:
     """A second metric assignment on the newest version of each claim, in the first one's run (so only the count
     makes it ambiguous: which of the two held at a moment is not recorded)."""
@@ -1245,9 +1232,9 @@ def recorrect(root, claims) -> None:
         gate_fixture.gct("correct", c, "--value", "1", *gate_fixture.WHO, "--workspace", root)
 
 
-@pytest.mark.parametrize("how", ["match last", "a second assignment", "a re-proposal", "a correction"])
+@pytest.mark.parametrize("how", ["match first", "match last", "a second assignment", "a re-proposal", "a correction"])
 def test_rows_naming_a_series_only_ambiguous_history_formed_are_withheld(tmp_path, how):
-    later = {"match last": {"match_first": False}, "a second assignment": {"then": [reassign]},
+    later = {"match first": {}, "match last": {"match_first": False}, "a second assignment": {"then": [reassign]},
              "a re-proposal": {"then": [repropose]}, "a correction": {"then": [recorrect]}}[how]
     got = {name: history_case(tmp_path / name / "ws", private, **later)
            for name, private in (("w2", None), ("w", UNRELATED))}
@@ -1255,8 +1242,8 @@ def test_rows_naming_a_series_only_ambiguous_history_formed_are_withheld(tmp_pat
     counts = src.execute("SELECT (SELECT COUNT(*) FROM metric_assignment), (SELECT COUNT(*) FROM inference),"
                          " (SELECT COUNT(*) FROM claim_version)").fetchone()
     src.close()
-    assert counts == {"match last": (3, 9, 3), "a second assignment": (6, 9, 3), "a re-proposal": (3, 12, 3),
-                      "a correction": (3, 9, 6)}[how], counts
+    assert counts == {"match first": (3, 9, 3), "match last": (3, 9, 3), "a second assignment": (6, 9, 3),
+                      "a re-proposal": (3, 12, 3), "a correction": (3, 9, 6)}[how], counts
     for name, out in got.items():
         san, p = out["sanitised"]
         assert san["workspace"]["match_review"] == san["workspace"]["restatement"] == [], name
@@ -1530,33 +1517,74 @@ def test_resolutions_on_a_claim_that_was_not_current_support_no_history(tmp_path
     assert len(got["w"]["complete"][0]["workspace"]["match_review"]) == 1
 
 
-# In an unambiguous workspace (match first; mapped, unmapped and unit as printed series) the replay of
-# package.history_keys reaches every key match.compute forms now, on the source and on both packages: the check that
-# ties its copy of the key shape to match.py
-def test_history_keys_reach_what_match_compute_forms(tmp_path):
-    from gct.stages import match
-    root = tmp_path / "w" / "ws"
-    root.parent.mkdir()
-    shared = gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "100", "110"], ["Mystery water recycled", "kL", "1", "2"],
-                                [gate_fixture.SCOPE_1, "A+B+C", "7", "8"]], ["FY 2024-25", "FY 2023-24"])
-    g, doc, claims = small(root, shared, match_first=True)
-    out = packages(g, root)
+# Round 4, rule check (the reviewer's extract config A, B, A): the public claim is extracted under A; under B it is not
+# current, its standalone resolution and a link of another public claim to the private-only series (the private PDF
+# extracted under B) happen, and it is resolved to consolidated; back on A it is current again, consolidated. No
+# shipped row forms the standalone series now, so the sanitised package of W withholds the review (selection_recomputed
+# 1) as W' holds none; the complete package keeps it.
+def test_a_review_made_under_another_extract_config_has_no_support(tmp_path, monkeypatch):
+    from gct.stages import extract, match
+    a_config = extract.extract_config()
+    got = {}
+    for name, private in (("w", True), ("w2", False)):
+        root = tmp_path / name / "ws"
+        root.parent.mkdir()
+        gate_fixture.gct("workspace", "init", root)
 
-    def rows(db) -> dict:
-        conn = store.connect(db)
-        try:
-            return {t: [dict(r) for r in conn.execute(f"SELECT * FROM {t} ORDER BY id")] for t in (
-                "document", "page", "attempt", "claim_seen", "claim", "claim_version", "metric_assignment", "inference",
-                "inference_review")}
-        finally:
-            conn.close()
+        def g(*argv):
+            return gate_fixture.gct(*argv, "--workspace", root)
 
-    for db in (root / layout.DB_NAME, *(root / "exports" / n / layout.DB_NAME for n in made(root))):
-        conn = store.connect(db)
-        formed = {s["key"] for s in match.compute(conn)["series"].values()}
+        g("company", "add", "Acme")
+        g("contributor", "add", "ana", "--name", "Ana")
+        period = ("--field", "period", "--kind", "fiscal_year", "--start", "2024-04-01", "--end", "2025-03-31")
+
+        def shared(n, value):  # a shareable PDF of one claim, read, extracted, matched and inferred
+            path = root.parent / f"shared{n}.pdf"
+            path.write_bytes(gate_fixture.make_pdf([gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", value]],
+                                                                      ["FY 2024-25"], boundary="")]))
+            d = g("doc", "add", path, "--company", "Acme", "--privacy", "shareable")["items"][0]["document"]["id"]
+            for step in ("read", "extract"):
+                g(step, d)
+            for step in ("match", "infer"):
+                g(step, "--doc", d)
+            return g("claims", "list", "--doc", d)["claims"][0]["id"]
+
+        a = shared(1, "100")
+        monkeypatch.setattr(extract, "extract_config", lambda: "config B")  # B: claim a is not current
+        c = shared(2, "110")  # current under B
+        g("infer", "resolve", c, *period, *gate_fixture.WHO)  # its boundary stays unknown (no statement)
+        if private:
+            path = root.parent / "private.pdf"
+            path.write_bytes(gate_fixture.make_pdf([gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "999"]],
+                                                                      ["FY 2024-25"])]))
+            pd = g("doc", "add", path, "--company", "Acme")["items"][0]["document"]["id"]
+            for step in ("read", "extract"):
+                g(step, pd)
+            for step in ("match", "infer"):
+                g(step, "--doc", pd)
+            for b in g("infer", "bases", "--doc", pd)["bases"]:
+                if b["kind"] == "reporting_boundary":
+                    g("infer", "scope", b["id"], "--pages", 1, *gate_fixture.WHO)
+            g("infer", "--doc", pd)
+            for group in g("infer", "groups", "--state", "proposed")["groups"]:
+                if group["document"] == pd:
+                    g("infer", "accept", group["id"], *gate_fixture.WHO)
+        g("infer", "resolve", a, *period, *gate_fixture.WHO)
+        g("infer", "resolve", a, "--field", "boundary", "--boundary", "standalone", *gate_fixture.WHO)
+        conn = store.connect(root / layout.DB_NAME)
+        series = list(match.compute(conn)["series"].values())
         conn.close()
-        assert len(formed) == 3 and formed <= package.history_keys(rows(db)), (db, formed)
-    assert len(out) == 2
+        assert [{p["document_id"] for p in s["points"]} for s in series] == ([{pd}] if private else []), series
+        if private:
+            g("match", "link", c, "--series", series[0]["id"], *gate_fixture.WHO)
+        g("infer", "resolve", a, "--field", "boundary", "--boundary", "consolidated", *gate_fixture.WHO)
+        monkeypatch.undo()  # A again
+        assert extract.extract_config() == a_config
+        got[name] = packages(g, root)
+    san, p = got["w"]["sanitised"]
+    assert san["workspace"]["match_review"] == [] and p["withheld"]["selection_recomputed"] == 1
+    assert got["w2"]["sanitised"][0]["workspace"]["match_review"] == []
+    assert len(got["w"]["complete"][0]["workspace"]["match_review"]) == 1
 
 
 # The shared scrubber (gct/models/redact.py; its own tests are in tests/test_models.py, outside this round's grant).
