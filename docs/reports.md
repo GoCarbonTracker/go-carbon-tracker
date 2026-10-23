@@ -283,3 +283,82 @@ GCT never changes or removes an export or a file you put in `exports/`; it remov
 export that failed. Copies already exported or shared, including files in
 `exports/`, cannot be recalled by GCT: after `gct doc delete`, an export made before the deletion still holds the
 deleted document's rows. An export made after it reads the rewritten version, with a new `sha256`.
+
+## XLSX and CSV
+
+`--format xlsx` writes one workbook per report `NAME` names: `evidence-index.xlsx`, `restatement-log.xlsx` and
+`gap-report.xlsx`. `--format csv` writes one folder per report, `evidence-index/`, `restatement-log/` and
+`gap-report/`, holding `about.csv` and one file per table, named after the table's key in `columns` (for example
+`records.csv`), and `pair_sides.csv` for the pair sides. `--format xlsx,csv` writes both into one export folder. The
+layout is provisional until people who use the reports have said what they need.
+
+### Tables
+
+Each report holds its own tables, the sheets of its workbook and the files of its folder, in this order:
+
+- evidence index: Evidence index, Review records, Disagreements, Documents;
+- restatement log: Restatement log, Restatement records, Adjudications, Unpaired restatements, Pair sides,
+  Documents;
+- gap report: Inconsistency candidates, Restatement records, Adjudications, Pair sides, Expectations, Missing
+  reasons, Accepted pages, Declared documents, Documents checked, Extraction limits, Archived documents, Deleted
+  documents, Documents.
+
+Titles come from `words.fixed.titles` and the columns, their headings and their order from `columns`. A sub-table's
+sheet holds the sub-table rows of every parent row, in parent order, and each row names its parent in the parent's
+id column (Claim, Pair or Expectation). A table with no rows still has its heading row.
+
+**Pair sides.** A restatement log or candidates row names its two claims only by `claim_a` and `claim_b`. The Pair
+sides table holds each claim a pair of that report names, once, in pair order: its `evidence_index` row, or its
+`related_claims` row when it is outside the selection, with the evidence index's columns. The pair row's Claim A
+selection and Claim B selection columns say "outside this selection" for such a side, and are empty otherwise. The
+related claims have no table of their own.
+
+### The About sheet, the version band and the notices
+
+The first sheet, About, and `about.csv` hold a Field and Value heading and one row per item: the data version
+fields the mode holds (`history_mark` and `labels_mark` in a complete output only), the dataset's built time, schema
+and GCT version, the mode line, the included classes, the filter, every notice, and the line "Identities and
+capacities are self-declared. GCT does not check them and does not adopt any conclusion as its own." when the output
+holds a row with a contributor. The mode line, the notices and that line have an empty Field cell. The filter is
+compact JSON with sorted keys; in a sanitised output a withheld `text` shows `withheld`.
+
+Every other sheet starts with the version band: the data version number, when the version was built, its SHA-256
+and the mode line. The next rows hold every notice, one per row, then the self-declared line when that sheet holds
+a row with a contributor, then one empty row, the headings and the data. Panes are frozen under the headings and a
+filter covers the headings and the data. A CSV table file starts with its headings; every data row carries the data
+version in its Data version column, on every sheet too.
+
+### Values
+
+- Text is written as text. A number is a number: in XLSX as the file stores it, at most 16 significant digits (so
+  `1260.0` reads back as `1260`), in CSV as Python writes it (`1260.0`).
+- `true` and `false` print `yes` and `no`; a list prints its items joined with `; `; a key named in the row's
+  `withheld` list prints `withheld`, also when its object is `null`; a `null` or empty value is an empty cell. A
+  dotted column such as `correction.created_at` takes the value inside its object.
+- An XLSX text cell is always an inline string, never a formula or an error value, so `=1+1` and `#N/A` stay text.
+
+### Cell safety
+
+Three transforms are applied, in this order, and nothing else:
+
+1. Both formats: the control characters U+0000 to U+0008, U+000B, U+000C and U+000E to U+001F, and U+FFFE and
+   U+FFFF, become U+FFFD. Tab, line feed and carriage return stay.
+2. XLSX only: a carriage return and line feed, or a carriage return alone, becomes a line feed, since an XLSX file
+   cannot hold a carriage return that reads back.
+3. CSV only: a text that starts with a tab or a carriage return, or with `=`, `+`, `-` or `@` and is not a plain
+   number such as `-12.5` or `-1,234`, gets one leading `'`, so a spreadsheet program does not read it as a formula.
+
+The command prints, as notes on your terminal only, how many characters were replaced and how many CSV cells got a
+leading `'`. Use the JSON export for exact text.
+
+CSV files are UTF-8 with a byte order mark, comma separated, with CRLF line ends, every text field quoted and
+numbers bare. A spreadsheet program may still read some CSV text in its own way, for example as a date; the
+workbook keeps text as text. Two CSV exports of one dataset are identical byte for byte; two workbooks hold the same
+cells but differ in their stored save times.
+
+### XLSX refusals
+
+Before any file is written, an XLSX export is refused when a cell would be longer than 32,767 UTF-16 units after the
+transforms, or a sheet would have more than 1,048,576 rows, the band and the headings included. The refusal names
+the table, the row id and the column, and its next step is "Export CSV or JSON for this selection, or narrow the
+filter." CSV has neither limit.
