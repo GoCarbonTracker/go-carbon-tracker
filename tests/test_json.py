@@ -468,6 +468,21 @@ def test_doc_label_and_the_doc_add_label_match_the_documented_keys(tmp_path, gct
     check("error", gct("doc", "label", 1, "--availability", "internal", *who, *w).data)
 
 
+def test_package_preview_and_create_match_the_documented_keys(tmp_path, gct, make_file):
+    ws = tmp_path / "ws"
+    gct("workspace", "init", ws)
+    w = ("--workspace", ws, "--json")
+    gct("company", "add", "Acme", *w)
+    gct("doc", "add", make_file("a.pdf", PDF), "--company", "Acme", "--privacy", "shareable", *w)
+    gct("doc", "add", make_file("b.pdf", PDF + b"b"), "--company", "Acme", *w)
+    gct("publish", "build", *w)
+    for flags in ((), ("--complete",), ("--include", "identity,flags")):
+        check("package preview", gct("package", "preview", *flags, *w).data)
+    token = gct("package", "preview", *w).data["token"]
+    check("package create", gct("package", "create", "--confirm", token, *w).data)
+    check("error", gct("package", "create", "--confirm", token, "--complete", *w).data)
+
+
 def test_report_preview_matches_the_documented_keys(tmp_path, gct):
     import gate_fixture
 
@@ -491,7 +506,7 @@ def test_every_command_has_a_documented_section():
         "series show", "restate list", "restate show", "restate record", "restate withdraw", "review company", "review auditor", "review list", "review pending", "sheet show", "sheet map",
         "adjudicate list", "adjudicate record", "adjudicate status", "flag raise", "flag withdraw", "flag list",
         "highlight add", "highlight list", "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
-        "publish build", "publish restore", "publish status", "view records", "view save", "view list", "view open",
+        "publish build", "publish restore", "publish status", "package preview", "package create", "view records", "view save", "view list", "view open",
         "view remove", "view questions", "report preview",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",
         "approve spend", "approve transfer", "approve list", "model list", "measure g2",

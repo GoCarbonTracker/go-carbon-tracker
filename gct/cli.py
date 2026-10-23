@@ -11,7 +11,7 @@ from collections import Counter
 from gct import __version__
 from gct.measure import g2
 from gct.models import adapters, policy
-from gct.reports import dataset, export
+from gct.reports import dataset, export, package
 from gct.stages import (adjudicate, archive, correct, deletion, extract, highlight, infer, link, match, missing, read,
                         restate, review, saved_view, sheet, view)
 from gct.workspace import intake, labels, layout, lock, published, registry, runs, store
@@ -1169,6 +1169,19 @@ def cmd_publish_status(args) -> None:
     _print(args, {"status": "ok", **st}, text)
 
 
+def cmd_package_preview(args) -> None:
+    p = package.plan(_open(args), args.root, "complete" if args.complete else "sanitised",
+                     package.parse_include(args.include))
+    _print(args, {"status": "ok", **p}, "\n".join(p["lines"]))
+
+
+def cmd_package_create(args) -> None:
+    include = package.parse_include(args.include)
+    c = package.create(_open(args), args.root, "complete" if args.complete else "sanitised", include, args.confirm,
+                       args.include_private)
+    _print(args, {"status": "ok", **c}, "\n".join(c["lines"]))
+
+
 def _filter_arg(given: str | None) -> dict:
     """--filter JSON, or @FILE holding it."""
     if given is None:
@@ -1425,10 +1438,11 @@ def cmd_run_retry(args) -> int:
         key = "documents" if out else "items"
         _print(args, {"status": "ok", "run_id": None, "of_run": args.id, key: []}, f"Run {args.id} has no failed items.")
         return 0
+    sel = _selection(conn, r)  # as resume: a run with no record of what it was given is never replayed
     if out:
         run_id, docs = stage.retry(conn, args.root, wanted, [note])
         return out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": args.id})
-    return _replay(args, conn, r, {**_selection(conn, r), "sources": wanted}, note, head)
+    return _replay(args, conn, r, {**sel, "sources": wanted}, note, head)
 
 
 def cmd_approve_spend(args) -> None:
@@ -1672,7 +1686,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,review,adjudicate,flag,claims,sheet,correct,contributor,expect,pages,gap,publish,view,run,approve,model,measure,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,review,adjudicate,flag,claims,sheet,correct,contributor,expect,pages,gap,publish,package,view,run,approve,model,measure,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -1998,6 +2012,19 @@ def build_parser() -> argparse.ArgumentParser:
     publish.add_parser("build", parents=[common], help="build the next version and make it current").set_defaults(func=cmd_publish_build)
     publish.add_parser("restore", parents=[common], help="make the previous version current again").set_defaults(func=cmd_publish_restore)
     publish.add_parser("status", parents=[common], help="show the current version").set_defaults(func=cmd_publish_status)
+
+    packages = group("package", "a copy of the workspace for someone else, complete or without private content")
+    for name, help_ in (("preview", "show what a package would hold, and the token create needs"),
+                        ("create", "write the package under exports/")):
+        sub = packages.add_parser(name, parents=[common], help=help_)
+        sub.add_argument("--complete", action="store_true", help="every document, private ones included")
+        sub.add_argument("--include", metavar="CLASS,CLASS",
+                         help=f"keep what is withheld by default: {', '.join(package.INCLUDE)}")
+        if name == "create":
+            sub.add_argument("--confirm", required=True, metavar="TOKEN", help="the token gct package preview printed")
+            sub.add_argument("--include-private", action="store_true",
+                             help="authorise private content in a complete package")
+        sub.set_defaults(func=cmd_package_preview if name == "preview" else cmd_package_create)
 
     views = group("view", "Tables and Graphs: claims of the current published version selected by one filter")
     rec = views.add_parser("records", parents=[common], help="the claims a filter selects, as a table, graph or series")
