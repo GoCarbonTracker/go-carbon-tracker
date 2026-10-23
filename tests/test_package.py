@@ -285,6 +285,11 @@ def test_a_complete_package_needs_include_private_and_carries_every_row(src, gct
                                             "folder": out.data["folder"]}
     assert "private content authorised: documents 4, 6, 7" in [e["message"] for e in runs.show_run(conn, run_id)["events"]]
     conn.close()
+    w = ("--workspace", folder)  # J6 in the complete package
+    assert gct("workspace", "status", *w).code == 0
+    assert [d["id"] for d in gct("doc", "list", *w, "--json").data["documents"]] == [1, 2, 3, 4, 5, 6, 7]
+    assert ", 0 extracted," in gct("extract", *w).out
+    assert gct("publish", "build", *w, "--json").data["version"] == 2
 
 
 def test_without_private_documents_the_complete_refusal_names_none(src, gct):
@@ -527,6 +532,7 @@ def test_a_source_ships_only_for_a_public_url(ws, gct, web):
     back = read_back(ws / create(gct).data["folder"])["workspace"]
     assert [(d["id"], d["source"]) for d in back["document"]] == [(1, web.url("/r.pdf")), (2, None)]
     assert back["attempt"] == [] and {d["id"] for d in back["document"]} == {1, 2}
+    assert {a[2] for a in dump(ws)["attempt"]} == {"fetch"}  # the source holds the download results
 
 
 # Behaviour: archive, deletion, missing evidence, renewed review, same bytes (one test each)
@@ -564,6 +570,31 @@ def test_expected_items_ship_only_with_their_documents_and_keep_their_states(src
     mine = [dict(r) for r in source.execute("SELECT * FROM expected_item WHERE company_id = 1")]
     source.close()
     assert back["published"]["expected_item"] == mine
+
+
+# AC 2: attempt items, documents_checked, expected_item_document and the rows only pointed at, each by its own rule
+def test_each_naming_rule_decides_its_rows(src, gct):
+    assert gct("expect", "add", "--company", "Acme", "--metric", "Total water recycled").code == 0
+    for d in (1, 2):  # charts are not read: accept the figures pages first
+        assert gct("pages", "accept", "--doc", d, "--pages", "1", "--type", "figures", *WHO).code == 0
+    assert gct("gap", "confirm", 1, *WHO).code == 0
+    assert gct("publish", "build").code == 0
+    ws = read_back(src / create(gct).data["folder"])["workspace"]
+    source = store.connect(src / layout.DB_NAME)
+    checked = {d["id"] for d in json.loads(source.execute("SELECT documents_checked FROM gap_confirmation").fetchone()[0])}
+    declared = {d for (d,) in source.execute("SELECT document_id FROM expected_item_document")}
+    assert checked <= set(SHARED) and declared <= set(SHARED)
+    assert len(ws["gap_confirmation"]) == 1 and len(ws["expected_item_document"]) == len(declared)
+    heads = {int(a["item"].split(":")[0]) for a in ws["attempt"]}
+    assert heads == set(SHARED) and source.execute("SELECT COUNT(*) FROM attempt WHERE item LIKE '6%'").fetchone()[0]
+    assert [c["name"] for c in ws["company"]] == ["Acme"]  # Beta has only private documents
+    used = {r["run_id"] for t in ws.values() for r in t if "run_id" in r and t is not ws["run_event"]}
+    assert {r["id"] for r in ws["run"]} == used < {r for (r,) in source.execute("SELECT id FROM run")}
+    source.close()
+    assert gct("doc", "label", 2, "--privacy", "private", *WHO).code == 0  # a declared and checked document
+    assert gct("publish", "build").code == 0
+    ws = read_back(src / create(gct).data["folder"])["workspace"]
+    assert ws["gap_confirmation"] == [] and ws["expected_item"] == [] and ws["expected_item_document"] == []
 
 
 def compare(src, folder, version) -> dict:
