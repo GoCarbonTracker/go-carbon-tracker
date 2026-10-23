@@ -375,6 +375,53 @@ def test_delete_refusals_have_cause_next_action_and_no_internals(ws, gct, make_f
     assert gct("doc", "delete", "2", "--json").data["status"] == "plan"
 
 
+def test_package_messages_have_cause_next_action_and_no_internals(ws, gct, make_file, monkeypatch):
+    from gct.reports import package
+    from gct.workspace import registry as reg
+
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    gct("doc", "add", make_file("a.pdf", PDF), "--company", "Acme")
+    cases = [(["package", "preview"], 4), (["package", "preview", "--include", "names"], 2)]
+    gct("publish", "build")
+    token = gct("package", "preview", "--json").data["token"]
+    cases += [(["package", "create", "--confirm", token], 4),  # every document private
+              (["package", "create", "--complete", "--confirm", token], 4),
+              (["package", "create", "--include-private", "--confirm", token], 2),
+              (["package", "create", "--complete", "--include-private", "--confirm", "000000000000"], 4)]
+    gct("doc", "label", "1", "--privacy", "shareable", *WHO)
+    cases.append((["package", "preview"], 4))  # out of date
+    names = internal_names(ws)
+
+    def check(argv, code):
+        human = gct(*argv)
+        assert human.code == code and human.out == "", (argv, human.out)
+        assert human.err.startswith("error: ") and "\nnext: " in human.err, (argv, human.err)
+        machine = gct(*argv, "--json")
+        assert machine.code == code and machine.data["status"] == "error"
+        assert machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in [*INTERNAL_WORDS, *names]:
+                assert word not in text, (argv, word)
+
+    for argv, code in cases:
+        check(argv, code)
+    gct("publish", "build")
+    token = gct("package", "preview", "--json").data["token"]
+    shown = [gct("package", "preview").out, gct("package", "preview", "--complete").out]
+    monkeypatch.setattr(reg, "verify", lambda conn, root: [{"problem": "missing"}])
+    check(["package", "create", "--confirm", token], 4)  # the package did not verify
+    monkeypatch.undo()
+    monkeypatch.setenv("GCT_WORKSPACE", str(ws))
+    monkeypatch.setattr(package, "_stamp", lambda: "20261023T000000000000Z")
+    shown.append(gct("package", "create", "--confirm", token).out)
+    check(["package", "create", "--confirm", token], 4)  # the folder name exists
+    for text in shown:
+        assert text
+        for word in [*INTERNAL_WORDS, *names]:
+            assert word not in text, word
+
+
 def test_every_refusal_has_cause_next_action_and_no_internals(ws, gct, tmp_path, make_file):
     gct("company", "add", "Acme")
     gct("contributor", "add", "ana", "--name", "Ana")
