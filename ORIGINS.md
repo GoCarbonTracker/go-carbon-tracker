@@ -5,6 +5,14 @@ Code copied or adapted from `go-carbon-insights` is logged here. Nothing has bee
 | Source path | Commit | What changed | Why |
 |---|---|---|---|
 
+## Dependency notes
+
+- reportlab (BSD licence, used for the PDF reports): its wheel also carries the DarkGarden font files
+  (`reportlab/fonts/DarkGarden*`, GPL 2 or later with a font-embedding exception). GCT never registers or embeds
+  them; it registers only reportlab's Vera fonts (Bitstream Vera licence), by path. `tests/test_licences.py` reads
+  licence metadata, which cannot see font files inside a wheel, so this note records them;
+  `tests/test_render_pdf.py` checks that no registered font name starts with DarkGarden.
+
 ## Third-party code in the committed viewer build
 
 `gct/viewer_dist/assets/*.js` bundles these packages, minified by Vite, with their `@license` comments kept. Build-only packages are listed in `viewer/README.md`.

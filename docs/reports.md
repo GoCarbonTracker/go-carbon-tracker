@@ -296,3 +296,41 @@ GCT never changes or removes an export or a file you put in `exports/`; it remov
 export that failed. Copies already exported or shared, including files in
 `exports/`, cannot be recalled by GCT: after `gct doc delete`, an export made before the deletion still holds the
 deleted document's rows. An export made after it reads the rewritten version, with a new `sha256`.
+
+## PDF
+
+`--format pdf` writes one PDF per report `NAME` names: `evidence-index.pdf`, `restatement-log.pdf` and
+`gap-report.pdf` (all three for `all`). The layout is provisional until practitioners have used it.
+
+- **Pages.** A4 portrait, 36 pt margins, the Vera fonts that ship with reportlab. The first page holds the report
+  title, every `data_version` key the mode holds, the dataset's `gct_version`, `built_at`, `dataset_schema` and
+  `include`, the mode line, the filter (one field per line), the notices and, when any row is attributed, the
+  self-declared line. Every page's footer holds the report title, the data version, the first 12 characters of its
+  `sha256`, the page number and, in a sanitised PDF, the privacy notice.
+- **Rows.** One block per row, opened by its heading (`words.fixed.pdf.row`, for example "Evidence index 19"), then
+  one "heading: value" line for every column of the table, an empty value included, and a line with the row's
+  evidence references ("E12; E14"). Sub-tables follow under their parent row, indented, with their title. Each
+  restatement log pair and gap report candidate prints both claims under "Pair sides", a claim outside the
+  selection marked "outside this selection"; the restatement log then prints the unpaired restatements. The gap
+  report prints its six parts in a fixed order. Every PDF ends its rows with the documents table.
+- **Evidence appendix.** One entry per evidence reference the PDF's rows cite, in document and page order, with the
+  document name and version and the page, or the sheet and cell. A located figure shows a band of its page: the
+  page's full width (one half of a two-page spread when the figure sits in that half) by the figure's boxes plus
+  24 pt above and below, rendered at 216 dpi by the viewer's own renderer, each box outlined in red just outside its
+  edge. It is drawn at most at full size and scaled down only to fit the page. A reference without a box shows the
+  whole page as the viewer shows it. A spreadsheet cell shows its row as a two-column table with the header, the
+  cited cell in bold, and no image. A record on an earlier version shows its location as text, no image. The
+  pictures are cut from the stored originals when the export runs, from the same data version as the rows; the
+  viewer's page cache is neither read nor written.
+- **Image cap.** When the dataset holds more than 500 page locations, the PDFs hold no images: every location is
+  listed as text and `words.fixed.image_limit` is printed once. A narrower `--filter` brings the images back.
+- **Characters.** A character the font cannot draw is printed as its NFKC form when that is drawable (`CO₂` as
+  `CO2`), else as `[U+XXXX]` (`₹` as `[U+20B9]`), and the first page prints `words.fixed.pdf.font_note` once. The
+  text you see is the text a PDF reader extracts. The format's note on the terminal gives the count per file.
+- **What a sanitised PDF leaves out.** The same rows and fields as the sanitised dataset, and no image of a page of
+  a private document. A complete PDF holds private documents' names, figures and page images.
+- **Repeat runs.** Two PDFs of one dataset are byte-identical: the PDF's own date is 2000-01-01 unless
+  `SOURCE_DATE_EPOCH` is set, and the dataset's `built_at` on the first page is the time that counts.
+- **Refusals.** The export is refused, with nothing written, when the stored copy of a document whose page it shows
+  is missing from the workspace (add the same file again with `gct doc add` to restore it) or when a row comes from
+  another data version than the report.
