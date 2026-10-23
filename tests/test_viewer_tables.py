@@ -12,7 +12,9 @@ import gate_fixture
 from conftest import grid, make_pdf
 from test_view import dump, records
 from test_viewer import browse, get, srv, vws  # noqa: F401  (srv and vws: the viewer fixture's server)
+from gct.api import app as app_module
 from gct.api import server
+from gct.api.app import BACK
 from gct.stages import view
 
 OWN_WORDS = re.compile(r"_|verified|assured|certified|compliant", re.I)
@@ -107,12 +109,26 @@ def test_the_tables_tab_on_the_gate_workspace(built, tmp_path):
     assert "/api/records" in paths
 
 
-def test_a_page_outside_its_document_opens_nothing(srv, tmp_path):
-    # 6.1 F11 i3: the page count comes from GET /api/documents/{id}; page 999 of a three-page report opens nothing
+def test_a_page_outside_its_document_or_a_gone_document_opens_nothing(srv, tmp_path, monkeypatch):
+    # 6.1 F11 i3: the page count comes from GET /api/documents/{id}; page 999 of a three-page report opens nothing;
+    # when that read fails (the document gone after the first read), its cause shows in the Tables alert line
+    query, reads = app_module._query, []
+
+    def gone_after_one_read(root, sql, *params):
+        if sql.startswith("SELECT id, company_id, logical_name, version, sha256, file_type FROM document"):
+            reads.append(params)
+            if len(reads) > 1:
+                return []
+        return query(root, sql, *params)
+
+    monkeypatch.setattr(app_module, "_query", gone_after_one_read)
     out = browse(srv, tmp_path, "tables", "nolocation")
     assert out["said"] == "This claim has no source location to open."
     assert out["evidenceHidden"] is True and out["cell"] is False
     assert out["reads"] == ["/api/documents/1"]
+    assert out["gone"] == {"alert": "There is no document 1 in the published data. " + BACK, "evidenceHidden": True,
+                           "rows": out["gone"]["rows"], "active": True}
+    assert out["gone"]["rows"] > 0
 
 
 def paging_workspace(root: Path) -> Path:

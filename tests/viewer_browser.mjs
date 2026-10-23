@@ -430,13 +430,21 @@ const tablesNoLocation = async () => {
     T.rows().find((tr) => tr.cells[3].innerText === "page 999").focus();
   });
   await press("Enter");
-  return tablesStep(async () => {
+  const out = await tablesStep(async () => {
     const said = await T.wait(() => document.querySelector(".tables-said").innerText, "the no-location line");
     return {
       said, evidenceHidden: document.querySelector("main").hidden, cell: !!document.querySelector(".cell-view"),
       reads: performance.getEntriesByType("resource").map((e) => new URL(e.name).pathname).filter((p) => p.startsWith("/api/documents")),
     };
   });
+  // The document is gone by the next read (the test answers 404): its cause in the Tables alert line, nothing opened.
+  await tablesStep(() => T.rows().find((tr) => tr.cells[3].innerText === "page 1").focus());
+  await press("Enter");
+  out.gone = await tablesStep(async () => ({
+    alert: (await T.wait(() => document.querySelector(".tables [role=alert]"), "the alert line")).innerText,
+    evidenceHidden: document.querySelector("main").hidden, rows: T.rows().length, active: T.active().startsWith("row"),
+  }));
+  return out;
 };
 
 const run = async (fn) => {
