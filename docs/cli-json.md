@@ -538,13 +538,13 @@ deletion, a version file missing, holding a deleted document or built by an olde
 `gct report NAME --format F[,F...] [--filter JSON|@FILE] [--complete] [--include identity,contributor_text,flags]
 [--data-version V]` (NAME `evidence-index`, `restatement-log`, `gap-report` or `all`) writes one export of the current
 published version into `folder`, the absolute path of `exports/<NAME>-v<N>-<stamp>-<mode>/` (see `docs/reports.md`).
-`--format` takes the format names (today `json`; a repeated name counts once). `files` lists every file written,
+`--format` takes the format names `docs/reports.md` describes (a repeated name counts once). `files` lists every file written,
 relative to `folder` (with `json`: `dataset.json` and `dataset-1.schema.json`); `outputs` has one entry per format in
 `--format` order with its own `files` and `notes` (local lines, never in a file). `run_id` is the `report` run the
 export opened. `mode`, `include` and `preview` are as in `report preview`; `data_version` is the version's full
 identity with both marks (the terminal is the local user; a sanitised file holds only the first four). `stale` is true
 when the workspace changed after that version was built: the export still shows it, with a warning. Refused, with
-nothing written and no run: an unknown format (exit 2, cause "Unknown format X. Available: json."), a filter, inclusion
+nothing written and no run: an unknown format (exit 2, cause "Unknown format X. Available: " and the format names in alphabetical order), a filter, inclusion
 class or filter file as `report preview` refuses them, another command holding the workspace, a workspace that needs
 an upgrade (exit 4, with `report preview`'s cause and next step; an export never upgrades it), a workspace made by a
 newer gct, and every refusal of the version pin (exit 4). Refused after the run opened,
