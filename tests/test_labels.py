@@ -479,6 +479,7 @@ EXEMPT = {
     ("gct/workspace/published.py", "history_mark"),  # counts document_label ids only
     ("gct/stages/deletion.py", "KEPT"), ("gct/stages/deletion.py", "CLEAR"),  # the column classification
     ("gct/stages/deletion.py", "PROJECTION"), ("gct/stages/deletion.py", "RECORDS"),  # a deleted document's records
+    ("gct/reports/package.py", "COLUMNS"),  # story 7.6: the package column classification (7.1 AC 5's exemption)
 }
 
 

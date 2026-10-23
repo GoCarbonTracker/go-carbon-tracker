@@ -171,6 +171,16 @@ Every document has a privacy label, `private` or `shareable`, and an availabilit
 - `gct doc label ID [--privacy L] [--availability A] --as KEY --capacity TEXT --rationale TEXT` changes a label. Each change is kept with who made it, in what capacity and why; nothing is overwritten. A deleted document, and a label the document already has, are refused. An archived document can be relabelled. Relabelling does not warn about other documents with the same file; reports still treat the file as private while any of them is private.
 - Documents registered before labels existed keep their label, with availability `unknown`. After that upgrade, `gct publish status` shows the current version as stale until the next `gct publish build`.
 
+## Packages
+
+A package is a copy of the workspace for someone else to reopen, add reports to and process again. gct writes it fresh into `exports/package-v<N>-<stamp>-<mode>/`, with its own data version 1.
+
+- `gct package preview [--complete] [--include identity,contributor_text,flags]` shows what would go in and what is left out, and prints a token. It writes nothing.
+- `gct package create --confirm TOKEN [--include ...]` writes a package without private content: only rows of shareable documents, contributors shown as "Contributor 1", "Contributor 2" and so on, their text withheld, no run log lines, approvals or saved views. Each `--include` class keeps its own part.
+- `gct package create --complete --include-private --confirm TOKEN` writes everything except approvals, private documents included; the source run log records that you authorised it.
+
+Both refuse a data version that is out of date (build a fresh one with `gct publish build`) and a token from another preview. A copy of the workspace folder is a complete copy of everything in it. Details are in `docs/packages.md`.
+
 ## Highlights
 
 `gct highlight add CLAIM --version V --note TEXT --as KEY --capacity TEXT` marks a claim's newest version with a short note; `gct highlight list CLAIM` lists them per version. A highlight is its own record: it is not a correction, a company confirmation or a review outcome, and nothing counts it as one. Details are under "Highlights" in `docs/reviews.md`.

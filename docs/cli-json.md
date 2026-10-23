@@ -368,6 +368,22 @@ In the published version (`projection_schema` 4), a claim's `period_kind`, `peri
 ## publish status
 - top: status, current_version, built_at, history_mark, companies, documents, previous_version, stale, files
 
+## package preview
+- top: status, data_version, mode, include, included, withheld, history_mark, labels_mark, filter, not_in_packages, token, lines
+- data_version: version, built_at, sha256, projection_schema, history_mark, labels_mark
+- included: documents, tables, files
+- withheld: private_document, absent_from_version, same_bytes_private, names_private_document, flag, archived, deleted, selection_recomputed, contributor_text, identity
+- not_in_packages: run_log_lines, approvals, saved_views, page_images
+
+`gct package preview [--complete] [--include identity,contributor_text,flags]` takes the workspace lock and writes nothing. `data_version` is the current version it reads (with `history_mark` and `labels_mark`, as the preview is for the local user only); `mode` is `sanitised` or `complete`; `include` the sorted classes given. `included.documents` lists `{id, sha256, label}` per document that goes in, `included.tables` the row count per table, `included.files` `{originals: [{sha256, bytes}], readings: N}` (reading files present on disk). `withheld` counts the rows left out by the first cause that applies, in the fixed order above (whole rows; the last two count rows that go in with a field withheld; causes a package never uses stay 0; a download's stage result names no document and is not counted). `filter` is always `{}`: a package is the whole workspace. `not_in_packages` counts what this package leaves out by design (page images are never in a package). `token` is the first 12 hex digits of the sha256 of `{sha256, mode, include, included}` as canonical JSON. `lines` is the printed preview, line by line; when every document is private it holds the version line, the empty-package line, one line per document and the relabel command. Refusals (exit 4): no data version, a version of an older gct, an unfinished deletion, a version that is out of date; an unknown class is exit 2. Details are in `docs/packages.md`.
+
+## package create
+- top: status, folder, mode, include, token, run_id, source_data_version, data_version, lines
+- source_data_version: version, built_at, sha256, projection_schema
+- data_version: version, built_at, sha256, projection_schema
+
+`gct package create --confirm TOKEN [--include ...]` writes a sanitised package, `--complete --include-private --confirm TOKEN` a complete one, to `folder` (`exports/package-v<N>-<stamp>-<mode>`, relative to the workspace). `source_data_version` is the version it was made from and `data_version` the package's own version 1, both as `gct-package.json` holds them; a complete package adds `history_mark` and `labels_mark` to both. `run_id` is the source workspace's `package create` run. `lines` ends with the reminder that copies cannot be recalled. Refused, writing nothing and opening no run (exit 4): what `package preview` refuses, a token that no longer matches (another mode, class set or plan), a sanitised package with no document, an existing folder name, and `--complete` without `--include-private`; `--include-private` without `--complete` is exit 2. A check that fails after the run opened ("The package did not verify: ...") leaves no folder and finishes the run `failed`.
+
 ## run list
 - top: status, runs
 - runs: id, started_at, finished_at, command, gct_version, outcome, events
