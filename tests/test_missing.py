@@ -5,7 +5,6 @@ from collections import Counter
 
 import pdfplumber
 import pytest
-from pdfplumber.utils.exceptions import PdfminerException
 
 from conftest import PDF, grid, make_pdf
 from old_code import NOW, old_tree, run_old  # noqa: F401 (old_tree is a fixture)
@@ -351,8 +350,8 @@ def acceptance(db, doc: int, page: int) -> dict:
 def test_the_published_version_holds_page_limits_and_ids_only(ws, db, gct, limits, monkeypatch):
     for argv in CHANGES[1:4]:
         assert gct(*argv).code == 0
-    opened, real = Counter(), missing._count
-    monkeypatch.setattr(missing, "_count", lambda path: opened.update([str(path)]) or real(path))
+    opened, real = Counter(), pdfplumber.open
+    monkeypatch.setattr(pdfplumber, "open", lambda path, *a, **k: opened.update([str(path)]) or real(path, *a, **k))
     assert gct("publish", "build").code == 0
     # Each stored PDF that is active is opened once, though four expectations and two companies read document 2's file
     assert len(opened) == 5 and set(opened.values()) == {1}
@@ -400,40 +399,134 @@ def test_the_published_version_holds_page_limits_and_ids_only(ws, db, gct, limit
     conn.close()
 
 
-# Fix round 1 (H1): the page count is pdfplumber's, without walking every page object.
-def test_the_page_count_is_pdfplumbers(tmp_path, monkeypatch):
-    def write(name: str, data: bytes):
+# Xiao's review probe files (fix round 2) on which a /Count shortcut differed from the walk, with the walk's answer.
+ODD_PDFS = {
+    "MediaBox_not_array": ((None, "not opened"), (
+        b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R "
+        b"4 0 R 5 0 R] /Count 3  >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>"
+        b"\nendobj\n4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>\nendobj\n5 0 obj\n<< /Ty"
+        b"pe /Page /Parent 2 0 R /MediaBox 7 >>\nendobj\nxref\n0 6\n0000000000 65535 f \n0000000009 00000 n \n"
+        b"0000000058 00000 n \n0000000128 00000 n \n0000000200 00000 n \n0000000272 00000 n \ntrailer\n<< /Siz"
+        b"e 6 /Root 1 0 R  >>\nstartxref\n331\n%%EOF\n"
+    )),
+    "bad_MediaBox": ((None, "not opened"), (
+        b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R "
+        b"4 0 R 5 0 R] /Count 3  >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>"
+        b"\nendobj\n4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>\nendobj\n5 0 obj\n<< /Ty"
+        b"pe /Page /Parent 2 0 R /MediaBox [0 0 /a /b] >>\nendobj\nxref\n0 6\n0000000000 65535 f \n0000000009 "
+        b"00000 n \n0000000058 00000 n \n0000000128 00000 n \n0000000200 00000 n \n0000000272 00000 n \ntraile"
+        b"r\n<< /Size 6 /Root 1 0 R  >>\nstartxref\n341\n%%EOF\n"
+    )),
+    "count_1048575,_1_page": ((1, None), (
+        b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R]"
+        b" /Count 1048575  >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>\nendo"
+        b"bj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000122 00000 n \nt"
+        b"railer\n<< /Size 4 /Root 1 0 R  >>\nstartxref\n194\n%%EOF\n"
+    )),
+    "count_too_large_(9_of_3)": ((3, None), (
+        b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R "
+        b"4 0 R 5 0 R] /Count 9  >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>"
+        b"\nendobj\n4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>\nendobj\n5 0 obj\n<< /Ty"
+        b"pe /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>\nendobj\nxref\n0 6\n0000000000 65535 f \n00000000"
+        b"09 00000 n \n0000000058 00000 n \n0000000128 00000 n \n0000000200 00000 n \n0000000272 00000 n \ntra"
+        b"iler\n<< /Size 6 /Root 1 0 R  >>\nstartxref\n344\n%%EOF\n"
+    )),
+    "count_too_small_(1_of_3)": ((3, None), (
+        b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R "
+        b"4 0 R 5 0 R] /Count 1  >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>"
+        b"\nendobj\n4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>\nendobj\n5 0 obj\n<< /Ty"
+        b"pe /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>\nendobj\nxref\n0 6\n0000000000 65535 f \n00000000"
+        b"09 00000 n \n0000000058 00000 n \n0000000128 00000 n \n0000000200 00000 n \n0000000272 00000 n \ntra"
+        b"iler\n<< /Size 6 /Root 1 0 R  >>\nstartxref\n344\n%%EOF\n"
+    )),
+    "cycle": ((0, None), (
+        b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R]"
+        b" /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\nxref\n0 4\n0000000"
+        b"000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer\n<< /Size 4 /Ro"
+        b"ot 1 0 R  >>\nstartxref\n172\n%%EOF\n"
+    )),
+    "duplicate_kid": ((2, None), (
+        b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R "
+        b"3 0 R 4 0 R] /Count 3  >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>"
+        b"\nendobj\n4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>\nendobj\nxref\n0 5\n0000"
+        b"000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000128 00000 n \n0000000200 00000 n "
+        b"\ntrailer\n<< /Size 5 /Root 1 0 R  >>\nstartxref\n272\n%%EOF\n"
+    )),
+    "incremental_adds_page,_stale_count_2": ((3, None), (
+        b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R "
+        b"4 0 R] /Count 2  >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>\nendo"
+        b"bj\n4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>\nendobj\nxref\n0 5\n0000000000"
+        b" 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000122 00000 n \n0000000194 00000 n \ntrail"
+        b"er\n<< /Size 5 /Root 1 0 R  >>\nstartxref\n266\n%%EOF\n2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R 5"
+        b" 0 R] /Count 2 >>\nendobj\n5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>\nendobj"
+        b"\nxref\n2 1\n0000000430 00000 n \n5 1\n0000000499 00000 n \ntrailer\n<< /Size 6 /Root 1 0 R /Prev 26"
+        b"6 >>\nstartxref\n571\n%%EOF\n"
+    )),
+    "kid_is_array": ((2, None), (
+        b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R "
+        b"4 0 R 5 0 R] /Count 3  >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>"
+        b"\nendobj\n4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>\nendobj\n5 0 obj\n[1 2 3"
+        b"]\nendobj\nxref\n0 6\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000128 0000"
+        b"0 n \n0000000200 00000 n \n0000000272 00000 n \ntrailer\n<< /Size 6 /Root 1 0 R  >>\nstartxref\n295"
+        b"\n%%EOF\n"
+    )),
+    "kid_missing_object": ((2, None), (
+        b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R "
+        b"4 0 R 9 0 R] /Count 3  >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>"
+        b"\nendobj\n4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>\nendobj\nxref\n0 5\n0000"
+        b"000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000128 00000 n \n0000000200 00000 n "
+        b"\ntrailer\n<< /Size 5 /Root 1 0 R  >>\nstartxref\n272\n%%EOF\n"
+    )),
+    "kid_without_Type": ((2, None), (
+        b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R "
+        b"4 0 R 5 0 R] /Count 3  >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>"
+        b"\nendobj\n4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]  >>\nendobj\n5 0 obj\n<< /Pa"
+        b"rent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 6\n0000000000 65535 f \n0000000009 00000 n \n"
+        b"0000000058 00000 n \n0000000128 00000 n \n0000000200 00000 n \n0000000272 00000 n \ntrailer\n<< /Siz"
+        b"e 6 /Root 1 0 R  >>\nstartxref\n331\n%%EOF\n"
+    )),
+}
+
+
+# Fix round 2: the page count is the read stage's own pdfplumber walk, whatever /Count says, or "not opened".
+def test_the_page_count_is_the_read_stages_walk(tmp_path):
+    def walk(path):
+        try:
+            with pdfplumber.open(path) as pdf:
+                return len(pdf.pages), None
+        except Exception:
+            return None, "not opened"
+
+    files = dict(ODD_PDFS)
+    files |={"page": ((1, None), make_pdf([PAGE])), "five": ((5, None), FIVE), "no eof": ((5, None), FIVE[:-6]),
+              "count 0": ((5, None), FIVE.replace(b"/Count 5", b"/Count 0")),
+              "count 1": ((5, None), FIVE.replace(b"/Count 5", b"/Count 1"))}
+    files |= {name: ((None, "not opened"), data) for name, data in (
+        ("conftest PDF", PDF), ("broken", b"%PDF-1.4 broken"), ("truncated", FIVE[: len(FIVE) // 2]),
+        ("xref damaged", FIVE.replace(b"xref", b"xrex")), ("csv", b"metric,value\nwater,5\n"), ("empty", b""))}
+    for name, (expected, data) in files.items():
         path = registry.stored_path(tmp_path, name)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
-        return path
+        assert missing.page_count(tmp_path, {"file_type": "pdf", "sha256": name}) == expected == walk(path), name
 
-    def plumber(path):
-        with pdfplumber.open(path) as pdf:
-            return len(pdf.pages)
 
-    without_count = FIVE.replace(b"/Count 5", b"/Count 0")  # same length, so the xref offsets still hold
-    assert without_count != FIVE
-    pdfs = {"page": make_pdf([PAGE]), "other": OTHER, "five": FIVE, "one": one_page("x"), "no eof": FIVE[:-6],
-            "two": make_pdf([{"text": [(72, 300, "a")]}] * 2)}
-    for name, data in pdfs.items():
-        path = write(name, data)
-        assert missing._count(path) == plumber(path), name
-    assert missing._count(write("count 0", without_count)) == 5  # no usable /Count: the walk
-    # The files that do not open are pdfplumber's: a repairable xref that pdfium would count stays unopened.
-    broken = {"conftest PDF": PDF, "broken": b"%PDF-1.4 broken", "truncated": FIVE[: len(FIVE) // 2],
-              "xref damaged": FIVE.replace(b"xref", b"xrex"), "csv": b"metric,value\nwater,5\n", "empty": b""}
-    for name, data in broken.items():
-        path = write(name, data)
-        with pytest.raises(PdfminerException):
-            plumber(path)
-        assert missing.page_count(tmp_path, {"file_type": "pdf", "sha256": name}) == (None, "not opened"), name
-    five = write("five", FIVE)
-    monkeypatch.setattr(pdfplumber, "open", lambda path: 1 / 0)  # from here the walk, if taken, raises
-    assert missing._count(five) == 5  # /Count used, no walk
-    monkeypatch.setattr(missing, "MAX_PAGES", 4)
-    with pytest.raises(ZeroDivisionError):
-        missing._count(five)  # a /Count above the cap: the walk
+# Fix round 2 (AC16): a /Count smaller than the pages read never lets the unchecked pages be confirmed as a gap.
+def test_a_wrong_page_count_in_the_file_does_not_confirm_a_gap(ws, gct, make_file):
+    three = make_pdf([{"text": [(72, 300, f"Water withdrawn {n} kL")]} for n in (1, 2, 3)])
+    gct("company", "add", "Acme")
+    assert gct("doc", "add", make_file("c1.pdf", three.replace(b"/Count 3", b"/Count 1")), "--company", "Acme").code == 0
+    gct("read")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    item = expect(gct, "--metric", METRIC)["id"]
+    assert gct("pages", "accept", "--doc", 1, "--pages", "1", "--type", "figures", *WHO).code == 0
+    r = gct("gap", "confirm", item, *WHO)
+    assert r.code == 4 and "processing is incomplete for figures" in r.err
+    assert {"type": "figures", "reason": missing.CHARTS, "count": 2} in listed(gct, item)["reasons"]
+    assert gct("publish", "build").code == 0
+    conn = published.open_version(ws / "published" / "v1.db")
+    assert [r[0] for r in conn.execute("SELECT read_state FROM page ORDER BY page_number")] == ["read"] * 3
+    conn.close()
 
 
 # B9 (R3): the CLI prints what the code before projection 15 printed, and a confirmation it stored stays current.

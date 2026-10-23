@@ -122,34 +122,6 @@ def page_ready(conn, doc_id: int, page: int, type_: str) -> tuple[bool, str | No
     return False, ", ".join(flags) or CHARTS, None
 
 
-MAX_PAGES = 0xFFFFF  # pdfium's own cap on a page tree's /Count
-
-
-def _count(path) -> int:
-    """len(pdfplumber.open(path).pages), raising where that raises. The document is opened as pdfplumber.open opens
-    it (pdfminer, empty password), so the files that do not open are the same; the count is the page tree's /Count,
-    because walking every page object parses the file's object streams (about 1 ms a page). Without a usable /Count it
-    is the walk itself."""
-    from pdfminer.pdfdocument import PDFDocument  # pdfplumber's own parser, installed with it
-    from pdfminer.pdfparser import PDFParser
-    from pdfminer.pdftypes import resolve1
-
-    with open(path, "rb") as fh:
-        catalog = PDFDocument(PDFParser(fh), password="").catalog
-        try:
-            n = resolve1(resolve1(catalog["Pages"])["Count"])
-        except Exception:
-            n = None
-    # ponytail: trusts /Count as pdfium does; a file whose positive /Count disagrees with its leaf pages differs from
-    # the read stage's numbering. Walk instead (always) if such a file turns up.
-    if type(n) is int and 0 < n <= MAX_PAGES:
-        return n
-    import pdfplumber  # 0.8 s; only a file without a usable /Count pays for it
-
-    with pdfplumber.open(path) as pdf:
-        return len(pdf.pages)
-
-
 def page_count(root, doc: dict, counts: dict | None = None) -> tuple[int | None, str | None]:
     """(pages, None) from the stored PDF, or (None, why) when there is no page set. counts, keyed by sha256, lets one
     published build open each stored file once."""
@@ -157,8 +129,13 @@ def page_count(root, doc: dict, counts: dict | None = None) -> tuple[int | None,
         return None, "not a PDF"
     if counts is not None and doc["sha256"] in counts:
         return counts[doc["sha256"]]
+    import pdfplumber  # 0.8 s; only commands that count pages pay for it
+
+    # ponytail: the read stage's own walk (read.py), so the count is the pages it numbers; pdfminer parses every page
+    # object for it, about 1 ms a page. A page count stored per file by the read stage would avoid that (a migration).
     try:
-        out = _count(registry.stored_path(Path(root), doc["sha256"])), None
+        with pdfplumber.open(registry.stored_path(Path(root), doc["sha256"])) as pdf:
+            out = len(pdf.pages), None
     except Exception:
         out = None, "not opened"
     if counts is not None:
