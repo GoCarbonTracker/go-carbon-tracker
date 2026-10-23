@@ -10,14 +10,17 @@ member, image or database) does not stop the rest of the scan; at the end found 
 place, so it never returns a result for a scan that skipped a part. Only bytes with a strong image signature (PNG,
 JPEG, GIF, WebP, TIFF) are opened as images (ones that do not decode are text if UTF-8, else unreadable), and a PDF
 stream's decoded data never is; object stream members are read as objects. found returns {name: [places]} for the
-seeds it finds.
+seeds it finds: a hex image seed by exact pixel hash only, and a marker-colour hit only under the image seeds whose
+value is None (7.1 G). parts(path) gives the same parts for checks that are not seeds.
 
-Known ceilings (not decoded; recorded in the TASK-0224 worker notes): Indexed and 16-bit PDF images (reported as
+Known ceilings (not decoded; recorded in the TASK-0224 worker notes): 16-bit PDF images, colour spaces other
+than device, ICCBased and Indexed over those, and DCT or JPX data with a non-default /Decode (reported as
 unreadable, so a scan meeting one raises); UTF-16LE text without a BOM; free-page overflow chains and UTF-16
 databases (only the dump and raw bytes are searched); a marker under MIN_PIXELS pixels, so a private crop's marker
 rectangle must stay above about 7 by 7 pixels at the smallest scale a renderer draws it. Test code only."""
 import base64
 import bisect
+import contextlib
 import hashlib
 import html
 import io
@@ -62,33 +65,54 @@ class Unreadable(Exception):
 def found(path, seeds) -> dict:
     """{seed name: [place]} for every seed found under path (a file or a folder); seeds not found are left out."""
     texts, digests, images = _check(seeds)
-    root = Path(path)
-    links = [root] if root.is_symlink() else [
-        Path(d, n) for d, dirs, names in os.walk(root) for n in dirs + names if Path(d, n).is_symlink()]
-    if links:
-        raise ValueError("symbolic links under the scanned path: " + ", ".join(map(str, links)))
-    files = sorted(p for p in root.rglob("*") if p.is_file()) if root.is_dir() else [root]
     hits, unreadable = {}, []
-    with tempfile.TemporaryDirectory() as tmp:
-        assert not Path(tmp).resolve().is_relative_to(root.resolve()), "the temporary folder is inside the scanned path"
-        for p in files:
-            rel = p.relative_to(root).as_posix() if root.is_dir() else p.name
-            for kind, place, part in [("text", f"{rel}: path", rel),
-                                      *_blob(p.read_bytes(), rel, tmp, p.with_name(p.name + "-wal"))]:
-                if kind == "unreadable":
-                    unreadable.append(f"{place} ({part})")
-                for name, where in _match(kind, place, part, texts, digests, images):
-                    hits.setdefault(name, set()).add(where)
+    for kind, place, part in _scan(path):
+        if kind == "unreadable":
+            unreadable.append(f"{place} ({part})")
+        for name, where in _match(kind, place, part, texts, digests, images):
+            hits.setdefault(name, set()).add(where)
     result = {name: sorted(places) for name, places in hits.items()}
     if unreadable:
         raise Unreadable(unreadable, result)
     return result
 
 
+def parts(path) -> list[tuple[str, str, str]]:
+    """Every part found reads under path, as (kind, place, value): "text" with its text, "hash" with the file's
+    sha256, "image" with the sha256 of its decoded RGB pixels. For the checks that are not seeds (a path pattern, a
+    sentence, a mark) and for comparing two outputs part by part. Raises Unreadable as found does."""
+    out, unreadable = [], []
+    for kind, place, part in _scan(path):
+        if kind == "unreadable":
+            unreadable.append(f"{place} ({part})")
+        else:
+            out.append((kind, place, hashlib.sha256(part.convert("RGB").tobytes()).hexdigest()
+                        if kind == "image" else part))
+    if unreadable:
+        raise Unreadable(unreadable, out)
+    return out
+
+
+def _scan(path):
+    """(kind, place, part) of every file under path: its relative path as text, then _blob's parts."""
+    root = Path(path)
+    links = [root] if root.is_symlink() else [
+        Path(d, n) for d, dirs, names in os.walk(root) for n in dirs + names if Path(d, n).is_symlink()]
+    if links:
+        raise ValueError("symbolic links under the scanned path: " + ", ".join(map(str, links)))
+    files = sorted(p for p in root.rglob("*") if p.is_file()) if root.is_dir() else [root]
+    with tempfile.TemporaryDirectory() as tmp:
+        assert not Path(tmp).resolve().is_relative_to(root.resolve()), "the temporary folder is inside the scanned path"
+        for p in files:
+            rel = p.relative_to(root).as_posix() if root.is_dir() else p.name
+            yield "text", f"{rel}: path", rel
+            yield from _blob(p.read_bytes(), rel, tmp, p.with_name(p.name + "-wal"))
+
+
 def _check(seeds):
     """Seed hygiene (section 3): kinds are 7.1 G's six tokens, text seeds use [A-Za-z0-9-] only, digests are sha256
     hex (exempt from the charset), no value is a substring of another. Returns the text seeds [(name, casefolded
-    value)], {digest: [name]} and the image seed names."""
+    value)], {digest: [name]} and the names of the image seeds whose value is None (the marker seeds)."""
     names = [s["name"] for s in seeds]
     if len(set(names)) != len(names):
         raise ValueError("seed names repeat")
@@ -106,7 +130,8 @@ def _check(seeds):
                     raise ValueError(f"seed {name}: {field} is a sha256 hex digest")
                 digests.setdefault(d.lower(), []).append(name)
                 values.append((name, d.casefold()))
-            images.append(name)
+            if value is None:  # 7.1 G: a marker hit is reported only under an image seed whose value is None
+                images.append(name)
             continue
         rule = DIGEST if kind == "file_hash" else SAFE
         if not isinstance(value, str) or not rule.fullmatch(value):
@@ -230,13 +255,15 @@ def _pdf(data, place, tmp, wal):
     """The raw file's string tokens (stream data blanked, comments skipped), then through pdfplumber: page text (also
     reversed), inline images, the metadata, every object of every xref section, and every other object body in the
     file (a copy an incremental update superseded, or one no xref section lists), each parsed as an object at its
-    byte position. Each part is read on its own."""
+    byte position. A listed id is skipped only when proven free: every xref section listing it marks it free, no
+    header for it is in the file and no object stream holds it; any other id getobj cannot read is unreadable. An
+    inline image's empty filter array is read as no filter (_empty_inline_filters). Each part is read on its own."""
     import pdfplumber
 
     streams = [m.span(1) for m in STREAM.finditer(data)]  # stream data, blanked below with its length kept
     strings = list(_strings(STREAM.sub(lambda m: m[0][:m.start(1) - m.start()] + b" " * len(m[1]) + b"endstream", data)))
     yield "text", f"{place}: string tokens", _tokens(strings)
-    with pdfplumber.open(io.BytesIO(data)) as pdf:
+    with _empty_inline_filters(), pdfplumber.open(io.BytesIO(data)) as pdf:
         for n, page in enumerate(pdf.pages, 1):
             where = f"{place}: page {n}"
             yield from _guard(f"{where} text", _page_text(page, where))
@@ -257,6 +284,7 @@ def _pdf(data, place, tmp, wal):
                     resources.setdefault(getattr(ref, "objid", None), page.page_obj.resources)
         except Exception as e:  # noqa: BLE001
             yield _bad(f"{place}: page resources", e)
+        members, free = set(), []  # object stream members read in either pass; listed ids every section marks free
         for x, xref in enumerate(doc.xrefs, 1):
             try:
                 objids = list(xref.get_objids())
@@ -264,16 +292,55 @@ def _pdf(data, place, tmp, wal):
                 yield _bad(f"{place}: xref section {x}", e)
                 continue
             for objid in objids:
+                if _marked_free(doc, objid):
+                    free.append(objid)
+                    continue
                 where = f"{place}: object {objid}"
-                yield from _guard(where, _pdf_object(doc, lambda objid=objid: doc.getobj(objid), where, tmp))
+                yield from _guard(where, _pdf_object(doc, lambda objid=objid: doc.getobj(objid), where, tmp,
+                                                     members=members))
                 live |= {(objid, _newest_pos(doc, objid))}
         spans = [a[:2] for a in strings]  # strings and comments
+        headers = set()
         for m in OBJECT.finditer(data):
             objid, pos = int(m[1]), m.start(1)
-            if (objid, pos) in live or _inside(streams, pos) or _inside(spans, pos):  # the live copy, or not a header
+            if _inside(streams, pos) or _inside(spans, pos):  # not a header
+                continue
+            headers.add(objid)
+            if (objid, pos) in live:  # the live copy
                 continue
             where = f"{place}: object {objid} at byte {pos}"
-            yield from _guard(where, _pdf_object(doc, lambda m=m: _parse_at(doc, m), where, tmp, resources.get(objid)))
+            yield from _guard(where, _pdf_object(doc, lambda m=m: _parse_at(doc, m), where, tmp, resources.get(objid),
+                                                 members=members))
+        for objid in dict.fromkeys(free):  # skipped only when proven free: no header and in no object stream
+            if objid in headers or objid in members:
+                where = f"{place}: object {objid}"
+                yield from _guard(where, _pdf_object(doc, lambda objid=objid: doc.getobj(objid), where, tmp))
+
+
+def _marked_free(doc, objid) -> bool:
+    """Every xref section that lists objid marks it free, and one does (an xref stream entry of type 0). pdfminer's
+    PDFXRefStream.get_objids reads each /Index range's entries from the start of the stream data, so it can list an
+    id whose own entry is free, and getobj then raises PDFObjectNotFound. An xref table holds only its in-use entries
+    to pdfminer, so a table listing objid marks it in use."""
+    from pdfminer.pdfdocument import PDFXRefStream
+
+    marked = False
+    for xref in doc.xrefs:
+        if not isinstance(xref, PDFXRefStream):
+            if objid in xref.get_objids():
+                return False
+            continue
+        index = 0
+        for start, n in xref.ranges:
+            if start <= objid < start + n:
+                entry = xref.data[xref.entlen * (index + objid - start):][:xref.entlen]
+                kind = int.from_bytes(entry[:xref.fl1], "big") if xref.fl1 else 1  # no type field: in use
+                if kind != 0:
+                    return False
+                marked = True
+                break
+            index += n
+    return marked
 
 
 def _newest_pos(doc, objid):
@@ -362,7 +429,7 @@ def _literal(data, i):
     return bytes(out), None
 
 
-def _pdf_object(doc, get, where, tmp, resources=None):
+def _pdf_object(doc, get, where, tmp, resources=None, members=None):
     """One object of doc (get() reads it): its strings and names; a stream decoded (an image to pixels; an embedded
     file as its own file; any other stream as text with its string tokens; a form or appearance stream, drawn or not,
     and a superseded page content stream with its page's resources, also interpreted for text and inline images; an
@@ -384,8 +451,33 @@ def _pdf_object(doc, get, where, tmp, resources=None):
             yield from _form(obj, where, resources)
         if kind == "ObjStm":  # its members, current or superseded, parsed as pdfminer parses them
             objs, n = doc._get_objects(obj)  # pdfminer's own member parse: it has no public call for it
+            if members is not None:
+                members.update(objs[:2 * n:2])
             for objid, member in zip(objs[:2 * n:2], objs[2 * n:]):
                 yield from _pdf_object(doc, lambda member=member: member, f"{where} member {objid}", tmp)
+
+
+@contextlib.contextmanager
+def _empty_inline_filters():
+    """While interpreting: an inline image's empty filter array (/F [] or /Filter [], no filter) is dropped before
+    pdfminer reads its dictionary, as its PDFContentParser.do_keyword indexes filter[0] and raises IndexError on it."""
+    from pdfminer import pdfinterp
+    from pdfminer.psparser import literal_name
+
+    class Parser(pdfinterp.PDFContentParser):
+        def do_keyword(self, pos, token):
+            if token is self.KEYWORD_ID and self.curtype == "inline":
+                if len(self.curstack) % 2 == 0:  # else pdfminer's own "Invalid dictionary construct" error
+                    pairs = zip(self.curstack[::2], self.curstack[1::2])
+                    self.curstack = [x for k, v in pairs if not (v[1] == [] and literal_name(k[1]) in ("F", "Filter"))
+                                     for x in (k, v)]
+            super().do_keyword(pos, token)
+
+    pdfinterp.PDFContentParser, original = Parser, pdfinterp.PDFContentParser
+    try:
+        yield
+    finally:
+        pdfinterp.PDFContentParser = original
 
 
 def _form(stream, where, resources=None):
@@ -442,24 +534,95 @@ def _pdf_strings(obj):
 
 def _pdf_image(stream, where):
     """DCT and JPX data opened by Pillow; other data rebuilt from width, height and colour space (8-bit grey, RGB,
-    CMYK and ICCBased, 1-bit masks). Any other image raises, so it is reported as unreadable."""
+    CMYK and ICCBased, 1-bit masks, and Indexed over one of those at 1, 2, 4 or 8 bits), each through its /Decode
+    array when it has one (an Indexed image's maps samples to indices). Any other image or Decode raises, so it is
+    reported as unreadable; DCT and JPX data with a Decode array other than the default raise too (Pillow's reading
+    of an Adobe CMYK JPEG already inverts it, so a Decode on top is not known to draw as a renderer would)."""
     from pdfminer.pdftypes import LITERALS_DCT_DECODE, LITERALS_JPX_DECODE, resolve1
 
     data = stream.get_data()
-    if any(f in LITERALS_DCT_DECODE or f in LITERALS_JPX_DECODE for f, _ in stream.get_filters()):
-        yield "image", where, Image.open(io.BytesIO(data))
-        return
     a = {k: resolve1(v) for k, v in stream.attrs.items()}
+    if any(f in LITERALS_DCT_DECODE or f in LITERALS_JPX_DECODE for f, _ in stream.get_filters()):
+        image = Image.open(io.BytesIO(data))
+        decode = a.get("Decode", a.get("D"))
+        if decode is not None and [resolve1(x) for x in decode] != [0, 1] * len(image.mode):
+            raise ValueError(f"image Decode {decode!r} on DCT or JPX data is not decoded")
+        yield "image", where, image
+        return
     cs, bits = a.get("ColorSpace", a.get("CS")), a.get("BitsPerComponent", a.get("BPC"))
-    if isinstance(cs, list) and getattr(cs[0], "name", None) == "ICCBased":
-        mode = {1: "L", 3: "RGB", 4: "CMYK"}.get(resolve1(cs[1]).get("N"))
-    else:
-        mode = MODES.get(getattr(cs, "name", None))
+    size = (a.get("Width", a.get("W")), a.get("Height", a.get("H")))
+    if isinstance(cs, list) and getattr(cs[0], "name", None) in ("Indexed", "I"):
+        yield "image", where, _indexed(cs, bits, size, data, a.get("Decode", a.get("D")))
+        return
+    mode = _mode(cs)
     if a.get("ImageMask", a.get("IM")) is True or (mode == "L" and bits == 1):
         mode = "1"
     elif mode is None or bits != 8:
         raise ValueError(f"image colour space {cs!r} at {bits} bits is not decoded")
-    yield "image", where, Image.frombytes(mode, (a.get("Width", a.get("W")), a.get("Height", a.get("H"))), data)
+    image = Image.frombytes(mode, size, data)
+    decode = a.get("Decode", a.get("D"))
+    if decode is not None:  # each component through its [Dmin Dmax] range, as a renderer draws it (clipped to 0-1)
+        tables = _decode(decode, 1 if mode == "1" else 8, 1 if mode == "1" else len(mode))
+        if mode == "1":  # Pillow holds the two samples as 0 and 255
+            image, tables = image.convert("L"), [[t[v >= 128] for v in range(256)] for t in tables]
+        image = image.point([round(min(max(v, 0), 1) * 255) for t in tables for v in t])
+    yield "image", where, image
+
+
+def _mode(cs):
+    """The Pillow mode of a device or ICCBased colour space, None for any other."""
+    from pdfminer.pdftypes import resolve1
+
+    cs = resolve1(cs)
+    if isinstance(cs, list) and getattr(cs[0], "name", None) == "ICCBased":
+        return {1: "L", 3: "RGB", 4: "CMYK"}.get(resolve1(cs[1]).get("N"))
+    return MODES.get(getattr(cs, "name", None))
+
+
+def _indexed(cs, bits, size, data, decode=None):
+    """An Indexed image ([/Indexed base hival lookup], 1, 2, 4 or 8 bits) as the image of its base colour space whose
+    pixels are the palette entries its indices pick, so it hashes as that direct image would; a Decode array maps
+    each sample to its index first, accepted only when every possible sample maps to a whole index in 0 to hival
+    (the default and its reverse, for example). An index above hival, any other Decode or a lookup shorter than its
+    entries raises."""
+    from pdfminer.pdftypes import PDFStream, resolve1
+
+    base, hival, lookup = _mode(cs[1]), resolve1(cs[2]), resolve1(cs[3])
+    lookup = lookup.get_data() if isinstance(lookup, PDFStream) else lookup
+    lookup = lookup.encode("latin-1") if isinstance(lookup, str) else lookup
+    if base is None or bits not in (1, 2, 4, 8) or not isinstance(lookup, bytes):
+        raise ValueError(f"image colour space {cs!r} at {bits} bits is not decoded")
+    n = len(base)  # components per palette entry: L 1, RGB 3, CMYK 4
+    if len(lookup) < (hival + 1) * n:
+        raise ValueError(f"Indexed lookup holds {len(lookup)} bytes, fewer than {(hival + 1) * n}")
+    indices = Image.frombytes("P", size, data, "raw", "P" if bits == 8 else f"P;{bits}").tobytes()
+    if decode is not None:  # each sample to its index, before the palette
+        decoded = _decode(decode, bits, 1)[0]
+        # Fail closed: readers round a fractional index differently (Codex fix check 1: Poppler and PDFium disagree
+        # on [0.5 0.5]), so every possible sample must decode to a whole index in 0 to hival.
+        if not all(float(v).is_integer() and 0 <= v <= hival for v in decoded):
+            raise ValueError(f"Indexed image Decode {decode!r} does not map every sample to a whole index in 0 to"
+                             f" hival {hival}")
+        index = [int(v) for v in decoded]
+        indices = indices.translate(bytes(i if 0 <= i <= hival else 0 for i in index + [0] * (256 - len(index))))
+    if max(indices, default=0) > hival:
+        raise ValueError(f"Indexed image index {max(indices)} above hival {hival}")
+    planes = [Image.frombytes("L", size, indices.translate(bytes(lookup[i * n + k] if i <= hival else 0
+                                                                for i in range(256)))) for k in range(n)]
+    return Image.merge(base, planes)
+
+
+def _decode(decode, bits, n):
+    """Per component, the value each sample s (0 to 2 ** bits - 1) decodes to under a Decode array of n [Dmin Dmax]
+    pairs: Dmin + s * (Dmax - Dmin) / (2 ** bits - 1), a colour component from 0 to 1 or an Indexed index. Any other
+    Decode (wrong length, not numbers) raises, so the image is unreadable."""
+    from pdfminer.pdftypes import resolve1
+
+    d = [resolve1(x) for x in decode] if isinstance(decode, list) else None
+    if d is None or len(d) != 2 * n or not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in d):
+        raise ValueError(f"image Decode {decode!r} is not decoded")
+    last = 2 ** bits - 1
+    return [[d[2 * k] + s * (d[2 * k + 1] - d[2 * k]) / last for s in range(last + 1)] for k in range(n)]
 
 
 def _sqlite(data, place, tmp, wal):

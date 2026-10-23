@@ -5,6 +5,7 @@ shared read-back contract (C4b, readiness resolution 3 as amended) that 7.7 call
 import ast
 import copy
 import csv
+import gc
 import hashlib
 import http.server
 import io
@@ -1012,7 +1013,7 @@ def expected_hits(d, c, seeds) -> dict:
     out.update({s["name"]: "pixel hash" for s in seeds if s["kind"] == "image" and s["value"] in hashes})
     private = next(s["value"] for s in seeds if s["name"] == "FILE-PDF-01")
     if any(e["sha256"] == private and e["page"] == f.IMAGE_PAGE for e in d["evidence"] if e["id"] in shown):
-        out.update({s["name"]: "marker colour" for s in seeds if s["kind"] == "image"})
+        out["IMG-MARKER-01"] = "marker colour"  # found reports a marker hit under the value-None seed only (7.1 G)
     return out
 
 
@@ -1020,6 +1021,7 @@ def test_the_scan_finds_exactly_what_the_complete_pages_print_and_nothing_in_the
     d, c, folder, _ = planted["complete"]
     seeds = seeds_of(d, c)
     never = [s for s in seeds if s["expect"] == "never"]
+    gc.collect()  # closes in-process SQLite connections: their -shm and -wal files settle before found lists them
     assert set(found(planted["ws"], [s for s in never if s["name"] in f.STORED_RAW])) == set(f.STORED_RAW)
     got, want = found(folder, seeds), expected_hits(d, c, seeds)
     assert set(got) == set(want), sorted(set(got) ^ set(want))

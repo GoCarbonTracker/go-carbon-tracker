@@ -92,3 +92,40 @@ in sanitised outputs was considered and not done.
   printed.
 - It does not check a contributor's typed text for names. `--include contributor_text` ships it as typed.
 - It does not hide that a document exists from someone who holds the workspace; labels govern outputs only.
+
+## How leakage is tested
+
+The tests build a synthetic workspace (`tests/report_fixture.py`, extended by `tests/leakage_fixture.py`) whose
+private documents, contributor records, credentials and paths hold marked strings called seeds. Each seed has a
+kind and an expectation. `document_text` and `contributor` seeds may appear in complete outputs only.
+`credential` and `path` seeds may appear in no output at all. A `file_hash` seed is the SHA-256 of a private
+original. An `image` seed is the pixel hash of a private page or crop. One image seed, the marker, stands for a
+colour that only the private page draws.
+
+The scanner, `tests/leakage.py`, reads an output from its files alone. It never asks the dataset or the database
+what an output should contain. It reads every file of a folder, hidden ones included, and its name. It decodes JSON
+strings, CSV in its byte-order encoding, every member of an XLSX or other zip archive and the XML inside it, PDF
+text, metadata and every stream of every object, HTML with its entities and `data:` URIs, and SQLite databases
+through their raw bytes, their `-wal` file and a dump of a copy made outside the scanned folder. Images in any of
+these are decoded to pixels and checked for an exact private pixel hash and for the marker colour. A part it cannot
+read stops the scan with an error. It never skips a part. A PDF cross-reference entry that every section marks free,
+with no object behind it, is not a part.
+
+Every report format, in both modes, is written through `gct report all`. Both packages are written through
+`gct package create`, the complete one with `--include-private`. A complete output must hold each complete-only
+seed that its format prints. No sanitised output may hold any seed, and no output may hold a credential or path
+seed. A second check finds what no seed marks. A second workspace is built from the same steps without any private
+document, and its sanitised outputs are compared part by part with the first workspace's, after ids are renumbered
+in order of first appearance. Only the creation times that openpyxl writes into an XLSX file may differ. The same
+comparison between the two complete outputs must find a difference, which shows the check can fail.
+
+Run both privacy gates with:
+
+    pytest tests/test_gate_privacy_exports.py tests/test_gate_report_formats.py
+
+Each gate file's docstring lists the tests of the output stories that the gate relies on. If any test in the run is
+skipped, the gate has not passed. The browser check of the viewer pages needs Chrome and Node.
+
+GCT cannot recall an output it has already written. Deleting a document removes it from every later output and
+package. A report or package made before the deletion still holds what it held. So does anything you put in
+`exports/` yourself, which no package carries.
