@@ -415,3 +415,41 @@ filter." CSV has neither limit.
 - **Refusals.** The export is refused, with nothing written, when the stored copy of a document whose page it shows
   is missing from the workspace (add the same file again with `gct doc add` to restore it) or when a row comes from
   another data version than the report.
+
+## Viewer pages
+
+`--format page` writes one HTML page per report `NAME` names: `evidence-index.html`, `restatement-log.html` and
+`gap-report.html` (all three for `all`), and beside them `crops/E<id>.png`, one image per evidence reference a page
+shows. The layout is provisional until practitioners have used it.
+
+- **Opening it.** Open a page from the export folder in a browser, for example by double-clicking it; GCT does not
+  need to run. Keep the `crops/` folder beside the pages: share the whole export folder. The pages were tested in
+  Chrome.
+- **No script, no network.** A page holds HTML and one inline stylesheet only, and its own Content Security Policy
+  (`default-src 'none'; img-src 'self'; style-src 'unsafe-inline'`) lets it load nothing but the images beside it:
+  no script runs, and nothing is fetched from the network or from GCT's local service. Text from documents and
+  contributors is written as text, so markup in a value is shown as written and never acts.
+- **What a page holds.** The report title, the data version, the mode line and every notice of the dataset (the
+  privacy notice in a sanitised page), then the data version block (every `data_version` key the mode holds and the
+  dataset's `gct_version`, `built_at`, `dataset_schema`, filter, written as JSON, and `include`), then the report's
+  tables with the headings of `columns`, each row in the dataset's order with its data version (a complete page
+  also has the Label column). Under a row with records, one "details" toggle holds its sub-tables (for example
+  Review records; Disagreements); open it to read them. The restatement log and the gap report's candidates are
+  followed by "Pair sides", each claim of a pair once, a claim outside the selection marked "outside this
+  selection"; a pair's claim numbers link to it, and to the evidence index page when the same export holds it. The
+  restatement log then holds the unpaired restatements. The gap report holds its six parts in a fixed order, an
+  empty part as its heading and an empty table. Every page ends with the documents table and the data version.
+  When any row names a contributor, the self-declared line is printed under the header and above each table that
+  holds such a row.
+- **Evidence.** Each evidence reference of a row is listed under it with its document name and page, or sheet and
+  cell. A located figure on a PDF page also shows the same picture the PDF export shows (a band of the page with
+  the figure outlined, or the whole page when the figure has no box). A spreadsheet cell shows its row under the
+  sheet's header row, the cited cell marked, and no image. A record on an earlier version shows its location as
+  text only. A browser that blocks the images still shows every location as text.
+- **Image cap.** When the dataset holds more than 500 page locations, the export holds no images: every location is
+  listed as text and each page says so once under its header. A narrower `--filter` brings the images back.
+- **What a sanitised page leaves out.** The same rows and fields as the sanitised dataset, and no image of a page
+  of a private document.
+- **Repeat runs.** Two exports of one dataset write byte-identical pages and images.
+- **Refusals.** The export is refused, with nothing written, when the stored copy of a document whose page it shows
+  is missing from the workspace, or when a row comes from another data version than the report.
