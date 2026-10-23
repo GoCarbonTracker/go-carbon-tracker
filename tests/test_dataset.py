@@ -291,6 +291,32 @@ def pin_version(root):
         conn.close()
 
 
+# AC 7 (K14, the injected build): a purge of the version file in the middle of one build changes nothing it holds
+
+@pytest.mark.parametrize("mode", dataset.MODES)
+def test_a_purge_between_two_queries_of_one_build_changes_nothing(base, tmp_path, monkeypatch, mode):
+    from gct.stages import deletion
+    from gct.workspace import published
+
+    w = world(base, tmp_path / "w", publish=False)
+    want = build(w, mode=mode)
+    path = published.version_path(w, pin_version(w))
+    before = path.read_bytes()
+    real, done = view.answer, []
+
+    def purging(*a, **k):
+        if not done:
+            published.purge(path, 1, [], [], [], deletion.MARKER.format(1))
+            done.append(1)
+        return real(*a, **k)
+
+    monkeypatch.setattr(view, "answer", purging)
+    got = build(w, mode=mode)
+    assert done and path.read_bytes() != before
+    same(got[0], want[0])
+    assert got[0]["data_version"] == want[0]["data_version"] and got[1] == want[1]
+
+
 # AC 6 (P4) and AC 10 (C7): inheritance, labels, withheld fields, pseudonyms
 
 def test_sanitised_rows_ship_only_with_every_named_document_and_complete_rows_carry_their_label(base):
@@ -740,42 +766,63 @@ def unchanged(gct, root, *argv, code=0):
     return r
 
 
-def test_report_preview_writes_nothing_on_success_and_on_every_refusal(base, tmp_path, gct, monkeypatch):
-    from gct.stages import deletion
-
-    w = world(base, tmp_path / "w", publish=False)
-    for argv in ((), ("--complete",), ("--include", "flags"), ("--filter", '{"review": ["disagreement"]}')):
-        unchanged(gct, w, *argv)
-    assert "is no longer the current one" in unchanged(gct, w, "--data-version", 1, code=4).err
-    empty = tmp_path / "empty"
-    gct("workspace", "init", empty)
-    assert "no published data version" in unchanged(gct, empty, code=4).err
-    newer = world(base, tmp_path / "newer", publish=False)
-    c = sqlite3.connect(newer / layout.DB_NAME)
+def newer_workspace(base, tmp_path, gct, monkeypatch):
+    w = world(base, tmp_path / "newer", publish=False)
+    c = sqlite3.connect(w / layout.DB_NAME)
     c.execute("INSERT INTO schema_version (version, applied_at) VALUES (999, 't')")
     c.commit()
     c.close()
-    assert "made by a newer version of gct" in unchanged(gct, newer, code=4).err
-    older = tmp_path / "w20"  # schema 20 under this code: the upgrade is pending
+    return w
+
+
+def schema_20(base, tmp_path, gct, monkeypatch):
+    w = tmp_path / "w20"  # schema 20 under this code: the upgrade is pending
     for name in layout.SUBDIRS:
-        (older / name).mkdir(parents=True)
-    c = store.connect(older / layout.DB_NAME)
+        (w / name).mkdir(parents=True)
+    c = store.connect(w / layout.DB_NAME)
     store.migrate(c, up_to=20)
     c.close()
-    (older / "workspace.lock").touch()
-    r = unchanged(gct, older, code=4)
-    assert r.err == ("error: This workspace needs an upgrade before a report can be built.\nnext: Run a command that"
-                     " writes, for example gct publish build: it upgrades the workspace first and records the upgrade"
-                     " in the run log.\n")
-    gone = world(base, tmp_path / "gone", publish=False)
+    (w / "workspace.lock").touch()
+    return w
+
+
+def no_version(base, tmp_path, gct, monkeypatch):
+    gct("workspace", "init", tmp_path / "empty")
+    return tmp_path / "empty"
+
+
+def unfinished_deletion(base, tmp_path, gct, monkeypatch):
+    from gct.stages import deletion
+
+    w = world(base, tmp_path / "gone", publish=False)
     real = deletion.WORK["published"]
     monkeypatch.setitem(deletion.WORK, "published", lambda *a: (_ for _ in ()).throw(OSError("held open")))
-    conn = store.connect(gone / layout.DB_NAME)
+    conn = store.connect(w / layout.DB_NAME)
     sha = conn.execute("SELECT sha256 FROM document WHERE id = 2").fetchone()[0]
     conn.close()
-    assert gct("doc", "delete", 2, "--confirm", sha[:12], *WHO, "--workspace", gone).code == 4
+    assert gct("doc", "delete", 2, "--confirm", sha[:12], *WHO, "--workspace", w).code == 4
     monkeypatch.setitem(deletion.WORK, "published", real)
-    assert "removal did not finish" in unchanged(gct, gone, code=4).err
+    return w
+
+
+def current(base, tmp_path, gct, monkeypatch):
+    return world(base, tmp_path / "w", publish=False)
+
+
+UPGRADE = ("error: This workspace needs an upgrade before a report can be built.\nnext: Run a command that writes, for"
+           " example gct publish build: it upgrades the workspace first and records the upgrade in the run log.\n")
+
+
+@pytest.mark.parametrize("make,argv,code,text", [
+    (current, (), 0, None), (current, ("--complete",), 0, None), (current, ("--include", "flags"), 0, None),
+    (current, ("--filter", '{"review": ["disagreement"]}'), 0, None),
+    (current, ("--data-version", 1), 4, "is no longer the current one"),
+    (no_version, (), 4, "no published data version"), (newer_workspace, (), 4, "made by a newer version of gct"),
+    (schema_20, (), 4, UPGRADE), (unfinished_deletion, (), 4, "removal did not finish")],
+    ids=["sanitised", "complete", "include", "filter", "stale", "no-version", "newer", "schema-20", "deletion"])
+def test_report_preview_writes_nothing(base, tmp_path, gct, monkeypatch, make, argv, code, text):
+    r = unchanged(gct, make(base, tmp_path, gct, monkeypatch), *argv, code=code)
+    assert text is None or (r.err == text if text == UPGRADE else text in r.err)
 
 
 # AC 13 (AD-19): renderers never read the workspace
