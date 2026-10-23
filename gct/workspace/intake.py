@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from gct.stages import Result, Stage, result, run_stage, version_of
-from gct.workspace import registry, runs
+from gct.workspace import labels, registry, runs
 from gct.workspace.layout import REFUSED, USAGE, GctError
 
 TIMEOUT = 60
@@ -88,6 +88,19 @@ def _restore(doc) -> str | None:
     return registry._restore_next(doc["id"]) if doc and doc["state"] == "archived" else None
 
 
+def _not_applied(doc, label: dict) -> str | None:
+    """P2: what a duplicate says when the batch's label differs from the document's stored one, else None."""
+    if not doc:
+        return None
+    differ = {k: v for k, v in label.items() if doc[k] != v}
+    if not differ:
+        return None
+    flags = " ".join(f"--{k} {v}" for k, v in differ.items())
+    return (f"The requested label ({label['privacy']}, availability {label['availability']}) was not applied: document"
+            f" {doc['id']} keeps {doc['privacy']}, availability {doc['availability']}. Change it with: gct doc label"
+            f" {doc['id']} {flags} --as KEY --capacity TEXT --rationale TEXT")
+
+
 def _entries(sources, name):
     """(source, refusal) per item: URLs and files as given, folders expanded to their recognised direct children."""
     out = []
@@ -112,9 +125,15 @@ def _entries(sources, name):
     return out
 
 
-def plan(conn, sources, company, name=None) -> list[dict]:
+def label(kind="report", privacy=None, availability="unknown") -> dict:
+    """The one label a batch declares (P1)."""
+    return {"privacy": labels.default(kind, availability, privacy), "availability": availability}
+
+
+def plan(conn, sources, company, name=None, kind="report", privacy=None, availability="unknown") -> list[dict]:
     """What add would do with each item. Reads only; downloads nothing."""
     co = registry._find_company(conn, company)
+    want = label(kind, privacy, availability)
     items, seen = [], set()
     for source, refusal in _entries(sources, name):
         if _is_url(source):
@@ -129,7 +148,9 @@ def plan(conn, sources, company, name=None) -> list[dict]:
             continue
         digest = registry._hash_file(Path(source))
         dup = registry.find_duplicate(conn, co["id"], digest)
-        items.append(_item(source, co["name"], "duplicate" if dup or digest in seen else "would register", dup,
+        new = not dup and digest not in seen
+        cause = labels.twin_warning(labels.twins(conn, digest, want["privacy"])) if new else _not_applied(dup, want)
+        items.append(_item(source, co["name"], "would register" if new else "duplicate", dup, cause,
                            next_action=_restore(dup)))
         seen.add(digest)
     return items
@@ -140,19 +161,21 @@ def failed(conn, run_id: int) -> list[str]:
     return [item for (item,) in conn.execute(FAILED_SQL, (run_id,))]
 
 
-def add(conn, root, sources, company, kind="report", privacy="private", name=None, source=None,
-        notes=()) -> tuple[int, list[dict]]:
+def add(conn, root, sources, company, kind="report", privacy=None, name=None, source=None,
+        notes=(), availability="unknown") -> tuple[int, list[dict]]:
     """Register every item in one run record. A bad item is reported and the batch keeps going.
-    Returns the run id and one record per item."""
+    Returns the run id and one record per item. privacy is the one asked for (None: the P1 default); a selection
+    note recorded before story 7.1 has no availability and replays as unknown with the privacy it recorded."""
     co = registry._find_company(conn, company)
+    want = label(kind, privacy, availability)
     # Absolute, so a resume or retry from another folder replays the same files.
     sources = [s if _is_url(s) else str(Path(s).resolve()) for s in map(str, sources)]
     entries = _entries(sources, name)
     stage = Stage("fetch", FETCH_CONFIG, lambda url, conn: _download(root, url), version_of)
     items = []
     with runs.run(conn, "doc add") as run_id:
-        runs.record(conn, run_id, {"sources": sources,"company": company, "kind": kind,
-                                   "privacy": privacy, "name": name, "source": source}, notes)
+        runs.record(conn, run_id, {"sources": sources,"company": company, "kind": kind, "privacy": privacy,
+                                   "availability": availability, "name": name, "source": source}, notes)
         for src, refusal in entries:
             cached = False
             try:
@@ -168,15 +191,19 @@ def add(conn, root, sources, company, kind="report", privacy="private", name=Non
                         items.append(_item(src, co["name"], "failed", None, cause, RETRY))
                         continue
                     status, doc = registry.add_stored(conn, root, out["sha256"], company, name or _name(src),
-                                                      kind, privacy, src, file_name=_name(src))
+                                                      kind, want["privacy"], src, file_name=_name(src),
+                                                      availability=availability)
                 else:
-                    status, doc = registry.add_document(conn, root, src, company, kind, privacy, name, source)
+                    status, doc = registry.add_document(conn, root, src, company, kind, want["privacy"], name, source,
+                                                        availability)
             except GctError as e:
                 runs.event(conn, run_id, "failure", stage="register", item=src, message=e.cause)
                 items.append(_item(src, co["name"], "refused", None, e.cause, e.next_action))
                 continue
             outcome = "ok" if status == "ok" else "duplicate"
             runs.event(conn, run_id, "item", stage="register", item=src, outcome=outcome, message=f"document {doc['id']}")
-            items.append(_item(src, co["name"], "registered" if status == "ok" else "duplicate", doc, cached=cached,
-                               next_action=_restore(doc) if status != "ok" else None))
+            cause = (labels.twin_warning(labels.twins(conn, doc["sha256"], doc["privacy"], doc["id"])) if status == "ok"
+                     else _not_applied(doc, want))
+            items.append(_item(src, co["name"], "registered" if status == "ok" else "duplicate", doc, cause,
+                               cached=cached, next_action=_restore(doc) if status != "ok" else None))
     return run_id, items

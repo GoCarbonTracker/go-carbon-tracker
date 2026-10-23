@@ -191,6 +191,86 @@ def test_highlight_messages_have_cause_next_action_and_no_internals(ws, db, gct,
         assert r.code == 0 and not any(w in r.out for w in [*INTERNAL_WORDS, *names]), r.out
 
 
+def test_saved_view_messages_have_cause_next_action_and_no_internals(tmp_path, gct):
+    import gate_fixture
+
+    root = gate_fixture.build(tmp_path / "gws")
+    names = internal_names(root)
+    assert "saved_view" in names and "contributor_version_id" in names
+    w = ["--workspace", root]
+    assert gct("view", "save", "gone", "--filter", "{}", "--as", "ana", *w).code == 0
+    assert gct("view", "remove", "gone", "--as", "ana", *w).code == 0
+    cases = [(["save", "", "--filter", "{}", "--as", "ana"], 2), (["save", "x" * 81, "--filter", "{}", "--as", "ana"], 2),
+             (["save", "a\nb", "--filter", "{}", "--as", "ana"], 2),
+             (["save", "v", "--filter", "{}", "--section", "maps", "--as", "ana"], 2),
+             (["save", "v", "--filter", '{"colour": [1]}', "--as", "ana"], 2),
+             (["save", "v", "--filter", "{", "--as", "ana"], 2), (["save", "v", "--filter", "{}", "--as", "zed"], 3),
+             (["open", "nobody"], 3), (["open", "gone"], 3), (["remove", "nobody", "--as", "ana"], 3),
+             (["remove", "gone", "--as", "ana"], 3)]
+    for argv, code in cases:
+        human, machine = gct("view", *argv, *w), gct("view", *argv, *w, "--json")
+        assert human.code == machine.code == code and human.out == "", (argv, human.out)
+        assert human.err.startswith("error: ") and "\nnext: " in human.err, (argv, human.err)
+        assert machine.data["status"] == "error" and machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in [*INTERNAL_WORDS, *names]:
+                assert word not in text, (argv, word)
+    assert gct("view", "save", "v", "--filter", "{}", "--as", "ana", *w).code == 0
+    done = [gct("view", "list", *w), gct("view", "open", "v", *w), gct("view", "questions", *w),
+            gct("view", "remove", "v", "--as", "ana", *w), gct("view", "list", *w)]
+    for r in done:
+        assert r.code == 0 and not any(word in r.out for word in [*INTERNAL_WORDS, *names]), r.out
+
+
+def test_report_preview_messages_have_cause_next_action_and_no_internals(tmp_path, gct):
+    import shutil
+
+    import gate_fixture
+    from gct.workspace import layout, lock, store
+
+    root = gate_fixture.build(tmp_path / "gws")
+    names = internal_names(root)
+    newer = tmp_path / "newer"
+    shutil.copytree(root, newer)
+    c = sqlite3.connect(newer / "workspace.db")
+    c.execute("INSERT INTO schema_version (version, applied_at) VALUES (999, 't')")
+    c.commit()
+    c.close()
+    older = tmp_path / "w20"  # a workspace this gct would upgrade first
+    for name in layout.SUBDIRS:
+        (older / name).mkdir(parents=True)
+    c = store.connect(older / layout.DB_NAME)
+    store.migrate(c, up_to=20)
+    c.close()
+    empty = tmp_path / "empty"
+    gct("workspace", "init", empty)
+    cases = [((root, "--filter", "{"), 2), ((root, "--filter", '{"colour": [1]}'), 2), ((root, "--include", "names"), 2),
+             ((root, "--filter", f"@{tmp_path / 'none.json'}"), 3), ((root, "--data-version", 9), 4),
+             ((empty,), 4), ((newer,), 4), ((older,), 4)]
+    def refused(where, argv, code):
+        human, machine = (gct("report", "preview", *argv, "--workspace", where, *j) for j in ((), ("--json",)))
+        assert human.code == machine.code == code and human.out == "", (argv, human.out)
+        assert human.err.startswith("error: ") and "\nnext: " in human.err, (argv, human.err)
+        assert machine.data["status"] == "error" and machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in [*INTERNAL_WORDS, *names]:
+                assert word not in text, (argv, word)
+        return human.err
+
+    for (where, *argv), code in cases:
+        refused(where, argv, code)
+    held = lock.hold(root)
+    try:
+        assert "Another gct command is using this workspace." in refused(root, [], 4)
+    finally:
+        lock.release(held)
+    assert "needs an upgrade before a report can be built" in refused(older, [], 4)
+    assert "made by a newer version of gct" in refused(newer, [], 4)
+    for argv in ((), ("--complete",), ("--include", "flags,identity,contributor_text"), ("--filter", '{"document": [2]}')):
+        r = gct("report", "preview", *argv, "--workspace", root)
+        assert r.code == 0 and r.err == "" and not [w for w in [*INTERNAL_WORDS, *names] if w in r.out], (argv, r.out)
+
+
 def test_adjudicate_and_flag_messages_have_no_internals(ws, gct, make_file):
     from test_restate import cp2
 
@@ -274,6 +354,44 @@ def test_archive_refusals_have_cause_next_action_and_no_internals(ws, gct, make_
                 assert word not in text, (argv, word)
             for name in names:
                 assert name not in text, (argv, name)
+
+
+def test_doc_label_messages_have_cause_next_action_and_no_internals(ws, db, gct, make_file):
+    gct("company", "add", "Acme")
+    gct("company", "add", "Beta")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    a = make_file("a.pdf", PDF)
+    gct("doc", "add", a, "--company", "Acme")
+    gct("doc", "add", make_file("b.pdf", PDF + b"b"), "--company", "Acme")
+    sha = db.execute("SELECT sha256 FROM document WHERE id = 2").fetchone()[0]
+    assert gct("doc", "delete", "2", "--confirm", sha[:12], *WHO).code == 0
+    names = internal_names(ws)
+    for argv, code in ((["doc", "label", "1", "--privacy", "private", *WHO], 4), (["doc", "label", "1", *WHO], 2),
+                       (["doc", "label", "2", "--privacy", "shareable", *WHO], 4),
+                       (["doc", "label", "99", "--privacy", "shareable", *WHO], 3),
+                       (["doc", "label", "1", "--privacy", "shareable", "--as", "bob", "--capacity", "c",
+                         "--rationale", "r"], 3)):
+        human = gct(*argv)
+        assert human.code == code and human.out == "", argv
+        assert human.err.startswith("error: ") and "\nnext: " in human.err, (argv, human.err)
+        machine = gct(*argv, "--json")
+        assert machine.code == code and machine.data["status"] == "error"
+        assert machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in INTERNAL_WORDS:
+                assert word not in text, (argv, word)
+            for name in names:
+                assert name not in text, (argv, name)
+    # the P2 lines of doc add and the doc label success lines name no internals either
+    outs = [gct("doc", "add", a, "--company", "Acme", "--privacy", "shareable").out,
+            gct("doc", "add", a, "--company", "Beta", "--privacy", "shareable").out,
+            gct("doc", "label", "1", "--availability", "public", *WHO).out]
+    assert "was not applied" in outs[0] and "Warning: document 1 (Acme)" in outs[1] and "it is now" in outs[2]
+    for text in outs:
+        for word in INTERNAL_WORDS:
+            assert word not in text, word
+        for name in names:
+            assert name not in text, name
 
 
 def test_delete_refusals_have_cause_next_action_and_no_internals(ws, gct, make_file):

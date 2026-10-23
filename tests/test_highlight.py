@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 
 from test_deletion import WHO as DELETE_WHO, scan, token, world  # noqa: F401 (world is a fixture)
+from old_code import labels_table
 from test_match import SCOPE_1
 from test_restate import acme, add  # noqa: F401 (acme is a fixture)
 from test_review import NOTE, SELF, counts, first_claim, newest, one, projected, rec, rows  # noqa: F401 (one is a fixture)
@@ -29,6 +30,7 @@ def test_migration_19_applies_in_order_and_the_table_is_append_only(tmp_path, gc
     monkeypatch.setattr(store, "migrate", lambda conn, up_to=None: real(conn, old))
     root = tmp_path / "old"
     assert gct("workspace", "init", root).code == 0
+    labels_table(root)  # story 7.1 part A (Q1): the current doc add writes it
     monkeypatch.setenv("GCT_WORKSPACE", str(root))
     gct("company", "add", "Acme")
     gct("contributor", "add", "ana", "--name", "Ana")
@@ -37,13 +39,14 @@ def test_migration_19_applies_in_order_and_the_table_is_append_only(tmp_path, gc
     db = sqlite3.connect(root / "workspace.db")
     claim = db.execute("SELECT claim_id FROM claim_version WHERE period_label = 'FY 2024-25'").fetchone()[0]
     assert db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == old
+    db.execute("DROP TABLE document_label")  # the upgrade below creates it (Q1)
     monkeypatch.setattr(store, "migrate", real)
     r = gct("highlight", "list", claim)
     assert r.code == 0 and "no highlights" in r.out, r.out
     assert [v for (v,) in db.execute("SELECT version FROM schema_version ORDER BY version")][old - 1:] == list(
-        range(old, 20))
-    notes = [m for (m,) in db.execute("SELECT message FROM run_event WHERE kind = 'note' ORDER BY id DESC LIMIT 1")]
-    assert notes == ["applied migration 19"]
+        range(old, 22))
+    notes = [m for (m,) in db.execute("SELECT message FROM run_event WHERE kind = 'note' ORDER BY id DESC LIMIT 3")]
+    assert notes == ["applied migration 21", "applied migration 20", "applied migration 19"]
     assert db.execute("SELECT COUNT(*) FROM highlight").fetchone()[0] == 0
     db.execute("INSERT INTO highlight (claim_version_id, contributor_version_id, capacity, note, created_at)"
                " VALUES (1, 1, 'c', 'n', 't')")
@@ -221,7 +224,7 @@ def test_projection_schema_14(ws, db, gct, one):
         tables = {t for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     finally:
         conn.close()
-    assert meta["projection_schema"] == "14"
+    assert meta["projection_schema"] == "16"
     assert {"review_company", "review_auditor", "adjudication", "reviewer_flag", "claim", "comparison"} <= tables
     assert h == {"id": 1, "claim_id": claim, "claim_version_id": version, "contributor_name": "Cara",
                  "contributor_organisation": "Audit LLP", "capacity": "analyst", "note": "a note", "latest": 1,

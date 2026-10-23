@@ -427,10 +427,63 @@ def test_delete_matches_the_documented_keys(ws, gct, make_file):
     check("claims history", gct("claims", "history", 1, "--json").data)
 
 
+def test_view_records_matches_the_documented_keys(tmp_path, gct):
+    import gate_fixture
+
+    root = gate_fixture.build(tmp_path / "gws")
+    check("view records", gct("view", "records", "--workspace", root, "--json").data)
+    check("view records", gct("view", "records", "--filter", '{"text": "zzz"}', "--workspace", root, "--json").data)
+
+
+def test_saved_views_and_questions_match_the_documented_keys(tmp_path, gct):
+    import gate_fixture
+
+    root = gate_fixture.build(tmp_path / "gws")
+    w = ("--workspace", root, "--json")
+    check("view list", gct("view", "list", *w).data)
+    check("view save", gct("view", "save", "v", "--filter", '{"company": [1]}', "--as", "ana", *w).data)
+    check("view save", gct("view", "save", "v", "--filter", "{}", "--as", "ana", *w).data)
+    check("view list", gct("view", "list", *w).data)
+    check("view open", gct("view", "open", "v", *w).data)
+    check("view questions", gct("view", "questions", *w).data)
+    check("view remove", gct("view", "remove", "v", "--as", "ana", *w).data)
+    check("view list", gct("view", "list", *w).data)
+
+
+def test_doc_label_and_the_doc_add_label_match_the_documented_keys(tmp_path, gct, make_file):
+    ws = tmp_path / "ws"
+    gct("workspace", "init", ws)
+    w = ("--workspace", ws, "--json")
+    gct("company", "add", "Acme", *w)
+    gct("company", "add", "Beta", *w)
+    gct("contributor", "add", "ana", "--name", "Ana", *w)
+    f = make_file("a.pdf", PDF)
+    check("doc add", gct("doc", "add", f, "--company", "Acme", "--availability", "public", *w).data)
+    check("doc add", gct("doc", "add", f, "--company", "Acme", "--plan", *w).data)  # duplicate, label not applied
+    check("doc add", gct("doc", "add", f, "--company", "Beta", *w).data)  # same file, another label: warning
+    who = ("--as", "ana", "--capacity", "analyst", "--rationale", "checked the website")
+    check("doc label", gct("doc", "label", 1, "--privacy", "private", *who, *w).data)
+    check("doc label", gct("doc", "label", 1, "--availability", "internal", *who, *w).data)
+    check("doc show", gct("doc", "show", 1, *w).data)
+    check("error", gct("doc", "label", 1, "--availability", "internal", *who, *w).data)
+
+
+def test_report_preview_matches_the_documented_keys(tmp_path, gct):
+    import gate_fixture
+
+    root = gate_fixture.build(tmp_path / "gws")
+    w = ("--workspace", root, "--json")
+    for extra in ((), ("--complete",), ("--include", "flags,identity"), ("--filter", '{"document": [2]}')):
+        r = gct("report", "preview", *extra, *w)
+        assert r.code == 0, r.out
+        check("report preview", r.data)
+    check("error", gct("report", "preview", "--data-version", 9, *w).data)
+
+
 def test_every_command_has_a_documented_section():
     assert set(spec()) == {
         "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc archive", "doc restore",
-        "doc delete",
+        "doc delete", "doc label",
         "doc pages", "read", "extract", "link", "claims list",
         "claims history", "correct",
         "infer", "infer bases", "infer scope", "infer groups", "infer accept", "infer resolve", "infer reject",
@@ -438,7 +491,8 @@ def test_every_command_has_a_documented_section():
         "series show", "restate list", "restate show", "restate record", "restate withdraw", "review company", "review auditor", "review list", "review pending", "sheet show", "sheet map",
         "adjudicate list", "adjudicate record", "adjudicate status", "flag raise", "flag withdraw", "flag list",
         "highlight add", "highlight list", "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
-        "publish build", "publish restore", "publish status",
+        "publish build", "publish restore", "publish status", "view records", "view save", "view list", "view open",
+        "view remove", "view questions", "report preview",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",
         "approve spend", "approve transfer", "approve list", "model list", "measure g2",
     }

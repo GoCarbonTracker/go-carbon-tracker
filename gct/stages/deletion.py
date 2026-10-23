@@ -78,6 +78,11 @@ KEPT = {
     "reviewer_flag": "id claim_version_id decision contributor_version_id created_at",
     # Story 5.4: a highlight's version and contributor.
     "highlight": "id claim_version_id contributor_version_id created_at",
+    # Story 6.4: a saved view is the user's name and a filter of ids, states and the user's own words, attached to no
+    # document (as expected_item); a deleted document named in its filter is shown as deleted when it is opened.
+    "saved_view": "id name action filter section contributor_version_id created_at",
+    # Story 7.1 part A: a document's labels are file facts of it, like document.privacy.
+    "document_label": "id document_id privacy availability contributor_version_id created_at",
 }
 VERSIONS = "SELECT v.id FROM claim_version v JOIN claim c ON c.id = v.claim_id WHERE c.document_id = :d"
 FREE = {"capacity": ":m", "rationale": ":m"}  # contributor-typed text on a record attached to the document (Codex 190)
@@ -170,6 +175,8 @@ CLEAR = {
         **{c: f"CASE WHEN {c} IS NULL THEN NULL ELSE :m END" for c in ("counter_note", "follow_up", "closure_reason")}}),
     "reviewer_flag": (f"claim_version_id IN ({VERSIONS})", FREE),
     "highlight": (f"claim_version_id IN ({VERSIONS})", {"capacity": ":m", "note": ":m"}),
+    # Story 7.1 part A: label changes only; an intake row holds no contributor text (its CHECK keeps it all null).
+    "document_label": ("document_id = :d AND contributor_version_id IS NOT NULL", FREE),
 }
 
 # The published projection (schema 12): a column naming the document, one of its claims or claim versions makes the
@@ -199,18 +206,23 @@ PROJECTION = {
                    **dict.fromkeys(("series_id", "state", "reason", "restatement_id"), "kept"),
                    **dict.fromkeys(("period_start", "period_end"), "content")},
     "restatement": {"original_version_id": "version", "restated_version_id": "version",
-                    "evidence_document_id": "document",
+                    "evidence_document_id": "document", "original_claim_id": "claim", "restated_claim_id": "claim",
                     **dict.fromkeys(("id", "decision", "evidence_page", "contributor_name", "contributor_organisation",
                                      "created_at", "binds"), "kept"),
                     **dict.fromkeys(("series_key", "evidence_quote", "capacity", "rationale"), "content")},
     "evidence_ref": {"claim_version_id": "version", "document_id": "document",
                      **dict.fromkeys(("id", "page_number", "source_match", "source_match_reason"), "kept"),
                      **dict.fromkeys(("boxes", "sheet", "cell"), "content")},
-    "expected_item": {"accepted": "content", **dict.fromkeys(
-        ("id", "company_id", "metric_text", "period_label", "found", "claims", "state", "reasons"), "kept")},
-    "expected_item_document": {"expected_item_id": "kept", "document_id": "document"},
+    # Story 7.1 part B (projection schema 15): accepted holds acceptance ids and counts only.
+    "expected_item": dict.fromkeys(
+        ("id", "company_id", "metric_text", "period_label", "found", "claims", "state", "reasons", "accepted"), "kept"),
+    "expected_item_document": {"expected_item_id": "kept", "document_id": "document", "state": "kept"},
     "gap_confirmation": {**dict.fromkeys(("id", "expected_item_id", "contributor_name", "contributor_organisation",
-                                          "current", "created_at"), "kept"), "capacity": "content", "rationale": "content"},
+                                          "current", "created_at", "documents_checked"), "kept"),
+                         "capacity": "content", "rationale": "content"},
+    "page": {"document_id": "document", **dict.fromkeys(
+        ("page_number", "read_state", "rung", "method", "words", "tables", "flags", "width", "height", "limit_text",
+         "limit_tables", "limit_figures"), "kept")},
     "page_acceptance": {"document_id": "document", **dict.fromkeys(
         ("id", "page_number", "content_type", "contributor_name", "contributor_organisation", "current", "created_at"),
         "kept"), "capacity": "content", "rationale": "content"},
@@ -242,6 +254,10 @@ PROJECTION = {
                   **dict.fromkeys(("id", "contributor_name", "contributor_organisation", "latest", "binds", "created_at"),
                                   "kept"),
                   **dict.fromkeys(("capacity", "note"), "content")},
+    # Story 7.1 part C (projection schema 16): the key of a document-scoped series holds that document's text; a row
+    # whose series loses its last rule point goes too (published.purge and the file's triggers).
+    "match_candidate": {"claim_id": "claim", "claim_version_id": "version", "series_id": "kept", "series_key": "content",
+                        "decision": "kept"},
 }
 
 
@@ -492,6 +508,9 @@ RECORDS = {
                     " FROM document_state_change x JOIN document_state s ON s.id = x.document_state_id"
                     " JOIN contributor_version c ON c.id = x.contributor_version_id"
                     " WHERE s.document_id = ? AND s.state <> 'deleted'",
+    "label change": "SELECT l.id, l.privacy || ', availability ' || l.availability, c.name, c.organisation, l.capacity,"
+                    " l.rationale, l.created_at FROM document_label l"
+                    " JOIN contributor_version c ON c.id = l.contributor_version_id WHERE l.document_id = ?",
 }
 
 

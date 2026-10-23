@@ -111,10 +111,10 @@ def test_migration_6_upgrades_a_version_5_workspace(tmp_path, gct):
     c.close()
     assert gct("approve", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 19
+    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 21
     (run,) = runs.list_runs(c)
     assert [e["message"] for e in runs.show_run(c, run["id"])["events"]] == [
-        "applied migration 6", "applied migration 7", "applied migration 8", "applied migration 9", "applied migration 10", "applied migration 11", "applied migration 12", "applied migration 13", "applied migration 14", "applied migration 15", "applied migration 16", "applied migration 17", "applied migration 18", "applied migration 19", None]
+        "applied migration 6", "applied migration 7", "applied migration 8", "applied migration 9", "applied migration 10", "applied migration 11", "applied migration 12", "applied migration 13", "applied migration 14", "applied migration 15", "applied migration 16", "applied migration 17", "applied migration 18", "applied migration 19", "applied migration 20", "applied migration 21", None]
     c.close()
 
 

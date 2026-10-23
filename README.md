@@ -6,8 +6,8 @@ A workspace folder for company documents, kept as an append-only history. Early 
 
 - `gct workspace init PATH` creates a workspace folder (SQLite database plus `files/`, `artifacts/`, `published/`, `exports/`, `logs/`).
 - `gct company add NAME` and `gct company list`.
-- `gct doc add SOURCE... --company NAME` registers PDF, XLSX and CSV files (recognised from content) for that one company. Each SOURCE is a file, a folder (its direct children of those types, by name) or a direct `http://` or `https://` link. The original is stored once by SHA-256. Adding the same bytes again is reported as a duplicate. Adding a changed file under the same name creates a new version and keeps the old one. A batch keeps going past a bad item, reports each one, and exits 4 if any was refused or failed. A link is downloaded once (only the address is sent); adding it again reuses that download. `--plan` shows what would happen to each item and stores nothing. A batch leaves one run record.
-- `gct doc list` and `gct doc show ID`.
+- `gct doc add SOURCE... --company NAME` registers PDF, XLSX and CSV files (recognised from content) for that one company. Each SOURCE is a file, a folder (its direct children of those types, by name) or a direct `http://` or `https://` link. The original is stored once by SHA-256. Adding the same bytes again is reported as a duplicate. Adding a changed file under the same name creates a new version and keeps the old one. A batch keeps going past a bad item, reports each one, and exits 4 if any was refused or failed. A link is downloaded once (only the address is sent); adding it again reuses that download. `--plan` shows what would happen to each item and stores nothing. A batch leaves one run record. Each document gets a privacy label and an availability; see "Privacy labels" below.
+- `gct doc list` and `gct doc show ID`, each with the document's label and availability.
 - Documents default to the `private` label.
 - `gct publish build` writes the next numbered, read-only data version (`published/vN.db`, companies and active documents) and makes it current. `gct publish restore` makes the previous version current again without rebuilding. `gct publish status` shows the current version and whether new history has arrived since. Only the current and previous files are kept; history is never touched.
 - `gct publish build` and `gct publish restore` each leave a run record. `gct run list` shows the runs, newest first, with their outcome (`ok`, `failed`, or `interrupted` when the process stopped before finishing). `gct run show ID` shows one run: methods used, failures, retries, estimated and confirmed cost on separate lines, outputs, and every event.
@@ -69,7 +69,7 @@ A missing item is something else: a figure you expected that has no claim at all
 - `gct pages accept --doc ID --pages SPEC --type text|tables|figures --as KEY --capacity TEXT --rationale TEXT` records that a reviewer accepts flagged or unchecked pages (`SPEC` like `3`, `1-4` or `1,3-5`). It is always shown as `accepted by <name> (<capacity>)`, never as checked. An acceptance holds for the reading it was given on; after the page is read again it shows as `accepted on an earlier reading` and the page needs accepting again. A page that was not read or failed to read cannot be accepted: read it, or retry the run.
 - `gct gap confirm ITEM --as KEY --capacity TEXT --rationale TEXT` records that the figure is not disclosed. It is refused unless the item is `not found in successfully processed material`, so a reading failure is never confirmed as a gap. Its message repeats that only the exact wording was looked for. The confirmation keeps the documents' fingerprints and the readings of every page; after a re-read the item shows its computed state again and names the earlier confirmation.
 - `gct contributor add KEY --name NAME [--organisation ORG]`, `gct contributor edit KEY ...` and `gct contributor list`. An edit adds a new version; records made earlier keep the name they were made under. Every acceptance and confirmation needs `--as KEY` each time, and the capacity is what you declare; nothing is filled in from an earlier command.
-- `gct publish build` includes the expectations with their document sets, the state and reasons at build time, the newest gap confirmation of each item with the contributor's name, organisation and capacity, and every page acceptance with whether it is for the page's newest reading (`current`).
+- `gct publish build` includes the expectations with the state and reasons at build time, their declared documents that are not deleted (an archived one stays listed, marked archived), the accepted pages by acceptance id, the newest gap confirmation of each item with the contributor's name, organisation and capacity and the documents and readings it looked in, every page acceptance with whether it is for the page's newest reading (`current`), and one row per page of each active PDF with how it was read and why it is not ready for text, tables or figures.
 
 ## Corrections and re-reading
 
@@ -162,13 +162,30 @@ An `unresolved conflict` pair is an inconsistency candidate: two different figur
 
 When a newer version replaces the figure people reviewed (a correction, a new reading or a new spreadsheet mapping), their company confirmations, auditor reviews, raised reviewer flags and adjudications stay on the version they were made on, and the claim is listed as needing re-review of each, beside corrections and period and boundary reviews. `gct review pending [--company NAME] [--doc ID]` lists every such claim of an active document, grouped by kind, with the command that records it again on the newest version; gct never carries a record forward itself. Details are under "Renewed review" in `docs/reviews.md`.
 
+## Privacy labels
+
+Every document has a privacy label, `private` or `shareable`, and an availability, `public`, `internal` or `unknown`. Reports will use the label to leave private content out of what you share.
+
+- `gct doc add ... --availability public|internal|unknown` declares the availability (default `unknown`). The label is `shareable` only for `--kind report` with `--availability public`, and `private` otherwise. `--privacy private|shareable` overrides that, and the registered line prints the label used. A file's name, type, folder or web address never sets either value. `--plan` shows the label each item would get.
+- Adding a file that is already a document of the company keeps that document's label; when you asked for another one, the duplicate line says it was not applied and gives the `gct doc label` command. Adding a file that another document (of any company) holds under the other label prints a warning naming it: while one of them is private, reports treat both as private.
+- `gct doc label ID [--privacy L] [--availability A] --as KEY --capacity TEXT --rationale TEXT` changes a label. Each change is kept with who made it, in what capacity and why; nothing is overwritten. A deleted document, and a label the document already has, are refused. An archived document can be relabelled. Relabelling does not warn about other documents with the same file; reports still treat the file as private while any of them is private.
+- Documents registered before labels existed keep their label, with availability `unknown`. After that upgrade, `gct publish status` shows the current version as stale until the next `gct publish build`.
+
 ## Highlights
 
 `gct highlight add CLAIM --version V --note TEXT --as KEY --capacity TEXT` marks a claim's newest version with a short note; `gct highlight list CLAIM` lists them per version. A highlight is its own record: it is not a correction, a company confirmation or a review outcome, and nothing counts it as one. Details are under "Highlights" in `docs/reviews.md`.
 
+## Tables and Graphs
+
+`gct view records [--filter JSON|@FILE] [--shape table|graph|series|values] [--offset N] [--limit N] [--sort KEY[:desc]] [--claims ID,ID]` lists the claims of the current published version that one filter selects (company, document, metric, wording, period, boundary, state, evidence, matching, series, comparison, review), as table rows, a graph or one metric's series. Every row, node and edge says where its evidence opens. The viewer's Tables and Graphs section uses the same filter on one pinned version: it counts the claims that match, and offers a newer version with a Reload button when one is published. The table and the graphs themselves are not in the viewer yet. Details are in `docs/views.md`.
+
+## Report preview
+
+`gct report preview [--filter JSON|@FILE] [--complete] [--include identity,contributor_text,flags] [--data-version V]` shows what a report of the current published version would hold: the version it reads, the rows per report and, for a sanitised output (the default), what it leaves out and why. A sanitised output leaves out every row that names a private document, archived and deleted documents, reviewer flags, contributor text and contributor names (each contributor becomes "Contributor N"); `--include` keeps the named classes. Values such as the review summary are worked out again from the rows that stay, so they read as if the left-out rows did not exist. `--complete` keeps every row, each with its label. When every document in the selection is private, the preview names them and gives the `gct doc label` command. The preview writes nothing, and it refuses a workspace that needs an upgrade until a writing command such as `gct publish build` has upgraded it. Details are in `docs/privacy.md`.
+
 ## What does not exist yet
 
-OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, review in the viewer of page acceptance, gap confirmation, infer review and restatement (those stay CLI commands), reports.
+OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, review in the viewer of page acceptance, gap confirmation, infer review and restatement (those stay CLI commands), report files (only the preview above exists).
 
 ## Setup
 

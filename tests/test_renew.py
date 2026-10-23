@@ -284,7 +284,7 @@ def test_projection_13_carries_the_new_kinds(ws, db, gct, one):
         got = json.loads(conn.execute("SELECT needs_re_review FROM claim WHERE id = ?", (claim,)).fetchone()[0])
     finally:
         conn.close()
-    assert meta["projection_schema"] == "14"
+    assert meta["projection_schema"] == "16"
     assert got == [entry("company confirmation", company["id"], v1)]
 
 

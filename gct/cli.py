@@ -2,17 +2,19 @@ import argparse
 import json
 import math
 import os
+import shlex
+import sqlite3
 import sys
 import webbrowser
 from collections import Counter
 
 from gct import __version__
-from gct.api import server
 from gct.measure import g2
 from gct.models import adapters, policy
+from gct.reports import dataset
 from gct.stages import (adjudicate, archive, correct, deletion, extract, highlight, infer, link, match, missing, read,
-                        restate, review, sheet)
-from gct.workspace import intake, layout, lock, published, registry, runs, store
+                        restate, review, saved_view, sheet, view)
+from gct.workspace import intake, labels, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
 
@@ -39,7 +41,8 @@ def _open(args, write=True):
 
 
 def _doc_line(d: dict) -> str:
-    return (f"{d['id']}  {d['company']}  {d['logical_name']}  v{d['version']}  {d['privacy']}  {d['state']}"
+    return (f"{d['id']}  {d['company']}  {d['logical_name']}  v{d['version']}  {d['privacy']}  {d['availability']}"
+            f"  {d['state']}"
             + (f" {d['deleted_at'][:10]}" if d["deleted_at"] else ""))
 
 
@@ -69,13 +72,19 @@ def cmd_company_list(args) -> None:
     _print(args, {"status": "ok", "companies": companies}, text)
 
 
-def _item_line(i: dict) -> str:
-    d = i["document"]
+def _label_text(x: dict) -> str:
+    return f"{x['privacy']}, availability {x['availability']}"
+
+
+def _item_line(i: dict, label: dict) -> str:
+    d, note = i["document"], f"\n{i['cause']}" if i["cause"] else ""
     if i["action"] == "registered":
-        return f"registered {d['id']}: {d['logical_name']} (version {d['version']}, {d['privacy']})"
+        return f"registered {d['id']}: {d['logical_name']} (version {d['version']}, {_label_text(d)}){note}"
     if i["action"] == "duplicate":
         line = f"duplicate of {d['id']}: {i['source']}" if d else f"duplicate: {i['source']}"
-        return line + (f"\nIt is archived. {i['next_action']}" if i["next_action"] else "")
+        return line + note + (f"\nIt is archived. {i['next_action']}" if i["next_action"] else "")
+    if i["action"] in ("would register", "would fetch"):
+        return f"{i['action']}: {i['source']} ({_label_text(label)}){note}"
     if i["cause"]:
         return f"{i['action']}: {i['source']} — {i['cause']}"
     return f"{i['action']}: {i['source']}"
@@ -83,24 +92,29 @@ def _item_line(i: dict) -> str:
 
 def cmd_doc_add(args) -> int:
     conn = _open(args, write=not args.plan)
+    label = intake.label(args.kind, args.privacy, args.availability)
     if args.plan:
-        return _doc_add_out(args, intake.plan(conn, args.sources, args.company, args.name), plan=True)
-    _, items = intake.add(conn, args.root, args.sources, args.company, args.kind, args.privacy, args.name, args.source)
-    return _doc_add_out(args, items)
+        return _doc_add_out(args, intake.plan(conn, args.sources, args.company, args.name, args.kind, args.privacy,
+                                              args.availability), label, plan=True)
+    _, items = intake.add(conn, args.root, args.sources, args.company, args.kind, args.privacy, args.name, args.source,
+                          availability=args.availability)
+    return _doc_add_out(args, items, label)
 
 
-def _doc_add_out(args, items, plan=False, head=None, extra=None) -> int:
-    """Print doc add items. head is a first text line and extra more top-level keys (resume and retry)."""
+def _doc_add_out(args, items, label, plan=False, head=None, extra=None) -> int:
+    """Print doc add items with the batch's label. head is a first text line and extra more top-level keys (resume
+    and retry)."""
     summary = ", ".join(f"{n} {a}" for a, n in Counter(i["action"] for i in items).items())
-    text = "\n".join([*([head] if head else []), *map(_item_line, items),
+    text = "\n".join([*([head] if head else []), *(_item_line(i, label) for i in items),
                       f"{summary}. Nothing was stored." if plan else summary])
     bad = [i["source"] for i in items if i["action"] in ("refused", "failed")]
     if plan or not bad:
-        _print(args, {"status": "ok", **(extra or {}), "items": items}, text)
+        _print(args, {"status": "ok", **(extra or {}), "label": label, "items": items}, text)
         return 0
     cause = f"{len(bad)} of {len(items)} items were not added."
     next_action = "Check these and add them again: " + ", ".join(bad)
-    _print(args, {"status": "partial", "cause": cause, "next_action": next_action, **(extra or {}), "items": items}, text)
+    _print(args, {"status": "partial", "cause": cause, "next_action": next_action, **(extra or {}), "label": label,
+                  "items": items}, text)
     if not args.json:
         print(f"error: {cause}\nnext: {next_action}", file=sys.stderr)
     return layout.REFUSED
@@ -115,6 +129,15 @@ def cmd_doc_list(args) -> None:
         text += f"\n{n} {state} document{'s' * (n > 1)} hidden. Show every document with: gct doc list"
     _print(args, {"status": "ok", "documents": shown, "hidden_by_archive": hidden["archived"],
                   "hidden_deleted": hidden["deleted"]}, text)
+
+
+def cmd_doc_label(args) -> None:
+    r = labels.change(_open(args), args.id, args.privacy, args.availability, args.as_, args.capacity, args.rationale)
+    c, org = r["change"], f", {r['change']['organisation']}" if r["change"]["organisation"] else ""
+    _print(args, {"status": "ok", **r},
+           f"Document {args.id} ({r['document']['logical_name']}) was {_label_text(r['old'])}; it is now"
+           f" {_label_text(r['new'])}.\nlabel change by {c['contributor']}{org} ({c['capacity']}) at {c['created_at']}:"
+           f" {c['rationale']}")
 
 
 def _change_line(c: dict) -> str:
@@ -841,11 +864,6 @@ def _entry_line(e: dict) -> str:
             + ("" if e["binds"] else " (on an earlier version)") + _mark(e["evidence_deleted"], e["created_at"]))
 
 
-def _disagreement_line(version: int, d: dict) -> str:
-    return (f"company confirmation and auditor review disagree on version {version}: company "
-            f"{', '.join(d['company'])}; auditor {', '.join(d['auditor'])}")
-
-
 def _ledger_lines(v: dict, indent: str = "  ") -> list[str]:
     """Both ledgers of one version as two lists, then their disagreement."""
     lines = []
@@ -853,7 +871,7 @@ def _ledger_lines(v: dict, indent: str = "  ") -> list[str]:
         lines.append(f"{indent}{words}s:" + ("" if v[key] else " none"))
         lines += [f"{indent}  {_entry_line(e)}" for e in v[key]]
     if v["disagreement"]:
-        lines.append(indent + _disagreement_line(v["id"], v["disagreement"]))
+        lines.append(indent + review.disagreement_line(v["id"], v["disagreement"]))
     return lines
 
 
@@ -873,7 +891,7 @@ def cmd_review_record(args) -> None:
     lines = [f"Recorded {review.LEDGERS[e['ledger']][1]} #{e['id']} on version {c['version']} of claim {c['id']}"
              f" (document {c['document']}, company {c['company']}):", f"  {_entry_line(e)}"]
     if r["disagreement"]:
-        lines.append("  " + _disagreement_line(c["version"], r["disagreement"]))
+        lines.append("  " + review.disagreement_line(c["version"], r["disagreement"]))
     _print(args, {"status": "ok", **r}, "\n".join([*lines, review.SELF_DECLARED]))
 
 
@@ -1151,6 +1169,174 @@ def cmd_publish_status(args) -> None:
     _print(args, {"status": "ok", **st}, text)
 
 
+def _filter_arg(given: str | None) -> dict:
+    """--filter JSON, or @FILE holding it."""
+    if given is None:
+        return {}
+    text = given
+    if given.startswith("@"):
+        try:
+            text = open(given[1:], encoding="utf-8").read()
+        except OSError:
+            raise GctError(layout.NOT_FOUND, f"The filter file {given[1:]} cannot be read.",
+                           "Give the path of a file holding the filter as JSON, for example --filter @filter.json") from None
+    try:
+        return json.loads(text)
+    except ValueError:
+        raise GctError(layout.USAGE, "The filter is not valid JSON.",
+                       """Give it as JSON, for example --filter '{"company": [1], "text": "scope 1"}'""") from None
+
+
+def _sort_arg(given: str) -> dict:
+    key, _, way = given.partition(":")
+    if way not in ("", "asc", "desc"):
+        raise GctError(layout.USAGE, f"The sort {given} is not KEY or KEY:desc.", "Give for example --sort value:desc")
+    return {"key": key, "dir": way or "asc"}
+
+
+def _claims_arg(given: str | None) -> list[int] | None:
+    if given is None:
+        return None
+    try:
+        return [int(x) for x in given.split(",")]
+    except ValueError:
+        raise GctError(layout.USAGE, f"The claims {given} are not claim ids separated by commas.",
+                       "Give for example --claims 12,13") from None
+
+
+def _records_text(r: dict) -> list[str]:
+    """What every shape says besides its claims: the count, the F7 lines and the ids not found."""
+    n = r["matched"]
+    lines = [f"{n} claim{' matches' if n == 1 else 's match'} in data version {r['data_version']}."]
+    if r["excluded"]["period_unknown"]:
+        lines.append(f"Left out by the period: {r['excluded']['period_unknown']} with an unknown period.")
+    lines += [r["hidden_by_archive"]["text"]] * bool(r["hidden_by_archive"]["text"])
+    lines += [d["text"] for d in r["deleted_in_filter"]]
+    lines += [f"claim {x['claim_id']}: {x['reason']}" for x in r["not_found"]]
+    return lines
+
+
+def _row_line(row: dict) -> str:
+    c = row["claim"]
+    where = f"sheet {c['sheet']} cell {c['cell']}" if c["sheet"] else f"p{c['page']}" if c["page"] else "no page"
+    figure = f"{c['value_text']} {c['unit_text']}" if c["unit_text"] else c["value_text"]
+    return (f"{c['id']}  {row['company_name']}  {row['document_name']} {where}  {figure}  {c['metric_text'] or '(no wording)'}"
+            f"  evidence: {row['evidence']['text']}  review: {row['review']['text']}")
+
+
+def cmd_view_records(args) -> None:
+    flt, sort, ids = _filter_arg(args.filter), [_sort_arg(s) for s in args.sort], _claims_arg(args.claims)
+    _, pconn = view.pinned(_open(args, write=False), args.root)
+    try:
+        r = view.answer(pconn, flt, args.shape, args.offset, args.limit, sort or None, ids)
+    finally:
+        pconn.close()
+    if args.shape == "values":
+        n = r["matched"]
+        lines = [f"{n} claim{' matches' if n == 1 else 's match'} in data version {r['data_version']}.",
+                 *(f"metric {k['metric_key']}: {k['claims']} claim{'s' * (k['claims'] != 1)}" for k in r["metric_keys"]),
+                 *(f"series {s['id']}  {s['metric_key']}  company {s['company_id']}  {s['points']}"
+                   f" point{'s' * (s['points'] != 1)}"
+                   for s in r["series"])]
+        return _print(args, r, "\n".join(lines))
+    _print(args, r, "\n".join(_shape_lines(r, args.shape)))
+
+
+def _shape_lines(r: dict, shape: str) -> list[str]:
+    """What gct view records and gct view open print for a table, graph or series answer."""
+    lines = _records_text(r)
+    if shape == "table":
+        lines += [_row_line(x) for x in r["rows"]]
+        if r["empty"]:
+            lines.append(r["empty"])
+        elif r["rows"]:
+            lines.append(f"Rows {r['offset'] + 1} to {r['offset'] + len(r['rows'])} of {r['matched']}.")
+        else:
+            lines.append(f"No rows from row {r['offset'] + 1}: {r['matched']} match.")
+    elif not r["drawable"]:
+        lines.append(r["reason"])
+    elif shape == "graph":
+        lines.append(f"A graph of {r['matched']} claims: {len(r['nodes'])} nodes, {len(r['hyperedges'])} hyperedges,"
+                     f" {len(r['edges'])} edges.")
+    else:
+        s = r["series"]
+        lines += [f"series {s['id']}  {s['company_name']}  {s['metric_key'] or s['label']}  {s['reporting_boundary']}",
+                  *(f"  {p['period_start']}..{p['period_end']}  " + _row_line(p) for p in r["points"]),
+                  *(f"  claims {p['claim_a']} and {p['claim_b']}: {p['state']}" for p in r["comparisons"])]
+    return lines
+
+
+# Saved views and guided questions (story 6.4 part A): a view stores the filter, never claims or a version.
+
+def _version_of(args, conn) -> int | None:
+    current = published.current_version(conn, args.root)
+    return None if current is None else current[0]
+
+
+def _view_line(v: dict) -> str:
+    return (f"{v['name']}  {v['section']}  saved {v['saved_at'][:10]} by {v['contributor']}  {json.dumps(v['filter'])}"
+            + (f"  ({v['earlier']} earlier save{'s' * (v['earlier'] != 1)} kept)" if v["earlier"] else ""))
+
+
+def cmd_view_save(args) -> None:
+    conn = _open(args)
+    r = saved_view.save(conn, args.name, _filter_arg(args.filter), args.section, args.as_)
+    v = r["view"]
+    _print(args, {"status": "ok", **r, "data_version": _version_of(args, conn)},
+           f"Saved view {_view_line(v)}.\nIt opens on the current data version, with claims of reports added later:"
+           f" gct view open {shlex.quote(v['name'])}")
+
+
+def cmd_view_list(args) -> None:
+    conn = _open(args, write=False)
+    r = saved_view.listing(conn)
+    lines = [*map(_view_line, r["views"])] or ["No saved views. Save one with: gct view save NAME --filter JSON --as KEY"]
+    if r["hidden"]:
+        lines.append(f"{r['hidden']} removed view{'s are' if r['hidden'] != 1 else ' is'} not listed.")
+    _print(args, {"status": "ok", "data_version": _version_of(args, conn), **r}, "\n".join(lines))
+
+
+def cmd_view_open(args) -> None:
+    conn = _open(args, write=False)
+    v = saved_view.get(conn, args.name)
+    shape = args.shape or ("graph" if v["section"] == "graphs" else "table")
+    _, pconn = view.pinned(conn, args.root)
+    try:
+        r = view.answer(pconn, v["filter"], shape, args.offset, args.limit, [_sort_arg(s) for s in args.sort] or None)
+    finally:
+        pconn.close()
+    _print(args, {"status": "ok", "view": v, **r},
+           "\n".join([f"Saved view {_view_line(v)}", *_shape_lines(r, shape)]))
+
+
+def cmd_view_remove(args) -> None:
+    conn = _open(args)
+    r = saved_view.remove(conn, args.name, args.as_)
+    x = r["removed"]
+    _print(args, {"status": "ok", **r, "data_version": _version_of(args, conn)},
+           f"Removed saved view {x['name']} from the list. Its saves and this removal by {x['contributor']} stay in"
+           " the workspace.")
+
+
+def cmd_view_questions(args) -> None:
+    _, pconn = view.pinned(_open(args, write=False), args.root)
+    try:
+        r = saved_view.questions(pconn)
+    finally:
+        pconn.close()
+    lines = []
+    for q in r["questions"]:
+        if q["key"] == saved_view.SERIES_QUESTION:
+            n = len(q["choices"])
+            lines += [f"{q['key']}  {q['text']}  {n} series with two or more periods ({q['section']})",
+                      *(f"  series {c['series']}  {c['company']}  {c['label']}  {c['periods']} periods"
+                        for c in q["choices"])]
+        else:
+            lines.append(f"{q['key']}  {q['text']}  {q['matched']} claim{'s' * (q['matched'] != 1)} in data version"
+                         f" {r['data_version']} ({q['section']})")
+    _print(args, {"status": "ok", **r}, "\n".join(lines))
+
+
 def _run_line(r: dict) -> str:
     return f"{r['id']}  {r['started_at']}  {r['command']}  {r['outcome']}"
 
@@ -1216,7 +1402,8 @@ def _replay(args, conn, r: dict, sel: dict, note: str, head: str) -> int:
         run_id, docs = getattr(stage, r["command"])(conn, args.root, sel["ids"], sel["company"], [note])
         return out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": r["id"]})
     run_id, items = intake.add(conn, args.root, notes=[note], **sel)
-    return _doc_add_out(args, items, head=head.format(run_id), extra={"run_id": run_id, "of_run": r["id"]})
+    label = intake.label(sel.get("kind", "report"), sel.get("privacy"), sel.get("availability", "unknown"))
+    return _doc_add_out(args, items, label, head=head.format(run_id), extra={"run_id": run_id, "of_run": r["id"]})
 
 
 def cmd_run_resume(args) -> int:
@@ -1357,7 +1544,76 @@ def cmd_measure_g2(args) -> None:
     _print(args, r, "\n".join(lines))
 
 
+def report_arguments(p) -> None:
+    """The report options (7.1-P9): gct report preview and every gct report NAME share this one parser."""
+    p.add_argument("--filter", metavar="JSON|@FILE", help="the claims to report, as a Tables filter (see docs/views.md;"
+                                                         " default: every claim of the version)")
+    p.add_argument("--complete", action="store_true", help="every row, each with its label (default: a sanitised"
+                                                           " output without private content)")
+    p.add_argument("--include", default="", metavar="CLASSES", help="in a sanitised output, also keep these, comma"
+                                                                   f" separated: {', '.join(dataset.INCLUDE)}")
+    p.add_argument("--data-version", type=int, metavar="V", help="refuse unless V is the current data version")
+
+
+def report_dataset(args) -> tuple[dict, dict]:
+    """(dataset, preview) of the current data version under the workspace lock (released by main), from workspace.db
+    opened read-only: no upgrade, no run and no file is written (7.1-P9, R3)."""
+    args.root = layout.locate(args.workspace)
+    args.lock = lock.hold(args.root)
+    conn = published.open_version(args.root / layout.DB_NAME)
+    try:
+        try:
+            upgrade = store.pending(conn)
+        except sqlite3.OperationalError:
+            raise GctError(layout.REFUSED, f"The working database in {args.root} cannot be read: SQLite adds its -wal"
+                                           " and -shm files beside it to read it, and that folder is read-only.",
+                           "Make the folder writable, or build the report from a writable copy of the workspace.") from None
+        if upgrade:
+            raise GctError(layout.REFUSED, "This workspace needs an upgrade before a report can be built.",
+                           "Run a command that writes, for example gct publish build: it upgrades the workspace first"
+                           " and records the upgrade in the run log.")
+        store.migrate(conn)  # nothing to apply here; refuses a workspace made by a newer gct
+        return dataset.build(conn, args.root, filter=_filter_arg(args.filter),
+                             mode="complete" if args.complete else "sanitised",
+                             include=[x.strip() for x in args.include.split(",") if x.strip()],
+                             data_version=args.data_version)
+    finally:
+        conn.close()
+
+
+def report_lines(d: dict, p: dict) -> list[str]:
+    """What gct report preview prints, and every gct report NAME before its files: the version, the rows per report
+    and what was withheld, for the local user only (C6)."""
+    v, titles = d["data_version"], d["words"]["fixed"]["titles"]
+    withheld = [f"{REPORT_CAUSES[k]} {n}" for k, n in p["withheld"].items() if n]
+    return [f"Data version {v['version']}, built {v['built_at']}, SHA-256 {v['sha256']}."
+            f" {d['words']['fixed']['mode'][d['mode']]}"
+            + (f" Also kept: {', '.join(x.replace('_', ' ') for x in d['include'])}." if d["include"] else ""),
+            "Rows: " + ("; ".join(f"{titles[k]} {n}" for k, n in p["included"]["rows"].items()) or "none") + ".",
+            "Documents: " + (", ".join(f"{x['id']} {x['label']}" for x in p["included"]["documents"]) or "none") + ".",
+            *(["Left out: " + "; ".join(withheld) + "."] if withheld else []), *p["lines"]]
+
+
+# C6's causes in the words gct report preview prints.
+REPORT_CAUSES = {"private_document": "rows of a private document", "absent_from_version":
+                 "rows naming a document not in this version", "same_bytes_private":
+                 "rows of a document whose file is also held as private", "names_private_document":
+                 "rows naming a private document", "flag": "reviewer flags", "archived": "archived documents",
+                 "deleted": "deleted documents", "selection_recomputed": "rows matched only through left-out records",
+                 "contributor_text": "rows without their contributor text", "identity":
+                 "rows without contributor names and organisations"}
+
+
+def cmd_report_preview(args) -> None:
+    d, p = report_dataset(args)
+    v = {k: d["data_version"][k] for k in ("version", "built_at", "sha256", "projection_schema")}
+    _print(args, {"status": "ok", "mode": d["mode"], "include": d["include"], "data_version": v, "preview": p},
+           "\n".join(report_lines(d, p)))
+
+
 def cmd_serve(args) -> None:
+    from gct.api import server  # FastAPI and uvicorn add about 30 MB to every other command's memory (AC 17)
+
     _open(args, write=False).close()  # locate and upgrade the workspace like every other command
     srv = server.serve(args.root, args.port)
     _print(args, {"status": "ok", "url": srv.url, "port": srv.port},
@@ -1380,7 +1636,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
     parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,review,adjudicate,flag,claims,sheet,correct,contributor,expect,pages,gap,publish,run,approve,model,measure,serve}")
+    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,review,adjudicate,flag,claims,sheet,correct,contributor,expect,pages,gap,publish,view,run,approve,model,measure,serve}")
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -1404,7 +1660,10 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("sources", nargs="+", metavar="SOURCE", help="a file, a folder (its direct children) or an http(s) URL")
     add.add_argument("--company", required=True)
     add.add_argument("--kind", choices=("report", "evidence"), default="report")
-    add.add_argument("--privacy", choices=("private", "shareable"), default="private")
+    add.add_argument("--privacy", choices=labels.PRIVACY, default=None,
+                     help="the label (default: shareable for a report with --availability public, else private)")
+    add.add_argument("--availability", choices=labels.AVAILABILITY, default="unknown",
+                     help="whether the document is published by its company (default: unknown)")
     add.add_argument("--name", help="logical name (default: the file's base name)")
     add.add_argument("--source", help="where the file came from, free text (a URL stores the URL)")
     add.add_argument("--plan", action="store_true", help="show what would happen to each item and store nothing")
@@ -1416,6 +1675,14 @@ def build_parser() -> argparse.ArgumentParser:
     show = doc.add_parser("show", parents=[common], help="show one document")
     show.add_argument("id", type=int)
     show.set_defaults(func=cmd_doc_show)
+    lab = doc.add_parser("label", parents=[common], help="change a document's privacy label or availability")
+    lab.add_argument("id", type=int)
+    lab.add_argument("--privacy", choices=labels.PRIVACY)
+    lab.add_argument("--availability", choices=labels.AVAILABILITY)
+    lab.add_argument("--as", dest="as_", required=True, metavar="KEY", help="the contributor making this record")
+    lab.add_argument("--capacity", required=True, help="the capacity you act in, as you describe it")
+    lab.add_argument("--rationale", required=True, help="why")
+    lab.set_defaults(func=cmd_doc_label)
     pages = doc.add_parser("pages", parents=[common], help="show how each page of one document was read")
     pages.add_argument("id", type=int)
     pages.set_defaults(func=cmd_doc_pages)
@@ -1695,6 +1962,45 @@ def build_parser() -> argparse.ArgumentParser:
     publish.add_parser("build", parents=[common], help="build the next version and make it current").set_defaults(func=cmd_publish_build)
     publish.add_parser("restore", parents=[common], help="make the previous version current again").set_defaults(func=cmd_publish_restore)
     publish.add_parser("status", parents=[common], help="show the current version").set_defaults(func=cmd_publish_status)
+
+    views = group("view", "Tables and Graphs: claims of the current published version selected by one filter")
+    rec = views.add_parser("records", parents=[common], help="the claims a filter selects, as a table, graph or series")
+    rec.add_argument("--filter", metavar="JSON|@FILE", help="the filter object (default: {}, every claim; see docs/views.md)")
+    rec.add_argument("--shape", choices=view.SHAPES, default="table")
+    rec.add_argument("--offset", type=int, default=0, metavar="N", help="the first row of the table page (default: 0)")
+    rec.add_argument("--limit", type=int, default=view.LIMIT, metavar="N", help=f"rows per page, 1 to {view.MAX_LIMIT}"
+                                                                                  f" (default: {view.LIMIT})")
+    rec.add_argument("--sort", action="append", default=[], metavar="KEY[:desc]", help=f"one of: {', '.join(view.SORTS)}")
+    rec.add_argument("--claims", metavar="ID,ID", help="only these claims, of those the filter selects")
+    rec.set_defaults(func=cmd_view_records)
+    sv = views.add_parser("save", parents=[common], help="save a filter under a name, to open on later data versions")
+    sv.add_argument("name", metavar="NAME")
+    sv.add_argument("--filter", required=True, metavar="JSON|@FILE", help="the filter object (see docs/views.md)")
+    sv.add_argument("--section", default="tables", metavar="tables|graphs", help="the tab it opens (default: tables)")
+    sv.add_argument("--as", dest="as_", required=True, metavar="KEY", help="the contributor making this record")
+    sv.set_defaults(func=cmd_view_save)
+    views.add_parser("list", parents=[common], help="the saved views, by name").set_defaults(func=cmd_view_list)
+    op = views.add_parser("open", parents=[common], help="a saved view's claims on the current data version")
+    op.add_argument("name", metavar="NAME")
+    op.add_argument("--shape", choices=("table", "graph", "series"), help="default: table for a tables view, graph"
+                                                                          " for a graphs view")
+    op.add_argument("--offset", type=int, default=0, metavar="N", help="the first row of the table page (default: 0)")
+    op.add_argument("--limit", type=int, default=view.LIMIT, metavar="N", help=f"rows per page, 1 to {view.MAX_LIMIT}"
+                                                                                 f" (default: {view.LIMIT})")
+    op.add_argument("--sort", action="append", default=[], metavar="KEY[:desc]", help=f"one of: {', '.join(view.SORTS)}")
+    op.set_defaults(func=cmd_view_open)
+    rm = views.add_parser("remove", parents=[common], help="take a saved view off the list (its record stays)")
+    rm.add_argument("name", metavar="NAME")
+    rm.add_argument("--as", dest="as_", required=True, metavar="KEY", help="the contributor making this record")
+    rm.set_defaults(func=cmd_view_remove)
+    views.add_parser("questions", parents=[common], help="six guided questions with their counts on the current"
+                                                         " version").set_defaults(func=cmd_view_questions)
+
+    reports = group("report", "reports of the current published version (sanitised unless --complete)")
+    pre = reports.add_parser("preview", parents=[common], help="the rows a report would hold and what it would"
+                                                              " leave out; writes nothing")
+    report_arguments(pre)
+    pre.set_defaults(func=cmd_report_preview)
 
     run = group("run", "the run log")
     run.add_parser("list", parents=[common], help="list runs, newest first").set_defaults(func=cmd_run_list)

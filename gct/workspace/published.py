@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 
 from gct import __version__
-from gct.workspace import store
+from gct.workspace import labels, store
 from gct.workspace.layout import REFUSED, GctError
 
 ACTIVE = "(SELECT s.state FROM document_state s WHERE s.document_id = d.id ORDER BY s.id DESC LIMIT 1)"
@@ -47,7 +47,12 @@ CREATE TABLE restatement (
     id INTEGER PRIMARY KEY, original_version_id INTEGER NOT NULL, restated_version_id INTEGER NOT NULL,
     series_key TEXT NOT NULL, decision TEXT NOT NULL, evidence_document_id INTEGER NOT NULL, evidence_page INTEGER,
     evidence_quote TEXT, contributor_name TEXT NOT NULL, contributor_organisation TEXT, capacity TEXT NOT NULL,
-    rationale TEXT NOT NULL, created_at TEXT NOT NULL, binds INTEGER NOT NULL
+    rationale TEXT NOT NULL, created_at TEXT NOT NULL, binds INTEGER NOT NULL, original_claim_id INTEGER NOT NULL,
+    restated_claim_id INTEGER NOT NULL
+);
+CREATE TABLE match_candidate (
+    claim_id INTEGER NOT NULL, claim_version_id INTEGER NOT NULL, series_id TEXT NOT NULL, series_key TEXT NOT NULL,
+    decision TEXT
 );
 CREATE TABLE evidence_ref (
     id INTEGER PRIMARY KEY, claim_version_id INTEGER NOT NULL, document_id INTEGER NOT NULL, page_number INTEGER,
@@ -57,11 +62,18 @@ CREATE TABLE expected_item (
     id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL, metric_text TEXT NOT NULL, period_label TEXT,
     found INTEGER NOT NULL, claims INTEGER NOT NULL, state TEXT, reasons TEXT NOT NULL, accepted TEXT NOT NULL
 );
-CREATE TABLE expected_item_document (expected_item_id INTEGER NOT NULL, document_id INTEGER NOT NULL);
+CREATE TABLE expected_item_document (
+    expected_item_id INTEGER NOT NULL, document_id INTEGER NOT NULL, state TEXT NOT NULL
+);
 CREATE TABLE gap_confirmation (
     id INTEGER PRIMARY KEY, expected_item_id INTEGER NOT NULL, contributor_name TEXT NOT NULL,
     contributor_organisation TEXT, capacity TEXT NOT NULL, rationale TEXT NOT NULL, current INTEGER NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL, documents_checked TEXT NOT NULL
+);
+CREATE TABLE page (
+    document_id INTEGER NOT NULL, page_number INTEGER NOT NULL, read_state TEXT NOT NULL, rung INTEGER, method TEXT,
+    words INTEGER, tables INTEGER, flags TEXT, width REAL, height REAL, limit_text TEXT, limit_tables TEXT,
+    limit_figures TEXT, PRIMARY KEY (document_id, page_number)
 );
 CREATE TABLE page_acceptance (
     id INTEGER PRIMARY KEY, document_id INTEGER NOT NULL, page_number INTEGER NOT NULL, content_type TEXT NOT NULL,
@@ -105,6 +117,17 @@ CREATE TABLE highlight (
     binds INTEGER NOT NULL, created_at TEXT NOT NULL
 );
 """  # story 5.1's two ledgers share one shape; story 5.3's two tables and story 5.4's highlight follow
+# Story 7.1 part C (projection 16): a deleted claim, a deleted series or the last rule point of a series takes its
+# match_candidate rows with it, so purge code that does not know the table (an older gct) leaves none behind.
+PROJECTION_TRIGGERS = (
+    "CREATE TRIGGER match_candidate_claim AFTER DELETE ON claim"
+    " BEGIN DELETE FROM match_candidate WHERE claim_id = OLD.id; END",
+    "CREATE TRIGGER match_candidate_series AFTER DELETE ON series"
+    " BEGIN DELETE FROM match_candidate WHERE series_id = OLD.id; END",
+    "CREATE TRIGGER match_candidate_rule AFTER DELETE ON series_point WHEN NOT EXISTS"
+    " (SELECT 1 FROM series_point WHERE series_id = OLD.series_id AND link = 'rule')"
+    " BEGIN DELETE FROM match_candidate WHERE series_id = OLD.series_id; END",
+)
 # Ids and dates only: a reader of any later version (and E7's exports) can tell which ids were deleted (story 4.5).
 DELETED_SQL = "SELECT document_id, at FROM document_state WHERE state = 'deleted' ORDER BY document_id"
 # Contributors project their name and organisation only; the sanitised package (E7) decides what leaves.
@@ -116,6 +139,12 @@ SELECT a.id, a.document_id, a.page_number, a.content_type, c.name, c.organisatio
 FROM page_acceptance a JOIN contributor_version c ON c.id = a.contributor_version_id
 JOIN document d ON d.id = a.document_id WHERE {ACTIVE} IN ('registered', 'restored') ORDER BY a.id
 """
+# Every declared document of an expectation that is not deleted, with its state, by id only (story 7.1 part B).
+LINKS_SQL = f"""
+SELECT * FROM (SELECT x.expected_item_id, x.document_id, {ACTIVE} AS state FROM expected_item_document x
+               JOIN document d ON d.id = x.document_id)
+WHERE state <> 'deleted' ORDER BY expected_item_id, document_id
+"""
 # Every mapping row of an active spreadsheet, current or superseded (story 4.3).
 SHEET_MAPPING_SQL = f"""
 SELECT m.id, m.document_id, m.sheet, m.position, m.metric_col, m.value_col, m.unit_col, m.period_col, m.boundary_col,
@@ -125,7 +154,9 @@ FROM sheet_mapping m JOIN contributor_version c ON c.id = m.contributor_version_
 WHERE {ACTIVE} IN ('registered', 'restored') ORDER BY m.id
 """
 COMPANY_COLUMNS = "id, name, sector_ref, sector_version"
-DOCUMENT_COLUMNS = "id, company_id, logical_name, version, sha256, kind, file_type, privacy, size_bytes"
+# privacy is the stored label (story 7.1 part A); labels.effective applies P3 when a report reads the version.
+DOCUMENT_COLUMNS = ("id, company_id, logical_name, version, sha256, kind, file_type,"
+                    f" {labels.STORED_PRIVACY} AS privacy, size_bytes")
 # The newest version of each claim of an active document.
 NEWEST_CLAIMS = f"""
 FROM claim c JOIN claim_version v ON v.id = (SELECT MAX(id) FROM claim_version WHERE claim_id = c.id)
@@ -170,7 +201,9 @@ def history_mark(conn: sqlite3.Connection) -> str:
                   "metric_assignment", "match_review", "restatement", "document_state_change",
                   # A sheet extraction can change a spreadsheet claim's state without adding a version (story 4.3).
                   "sheet_mapping", "claim_note", "attempt WHERE stage = 'sheet'", "review_company", "review_auditor",
-                  "adjudication", "reviewer_flag", "highlight")
+                  "adjudication", "reviewer_flag", "highlight",
+                  # A relabel changes the projected document.privacy (story 7.1 part A).
+                  "document_label")
     )
 
 
@@ -206,34 +239,62 @@ def _info(conn: sqlite3.Connection, root: Path, version: int) -> dict:
     return info
 
 
-def _missing(conn: sqlite3.Connection, root: Path) -> dict:
-    """The projected rows of expectations (state computed now), their documents, the newest gap confirmation of
-    each missing item and every page acceptance."""
+def _pages(conn: sqlite3.Connection, root: Path, docs, counts: dict) -> list[tuple]:
+    """One row per page of each active PDF that opens: its reading state, the newest reading's measurements (none
+    when the newest read attempt failed) and the readiness limit per content type (story 7.1 part B)."""
     from gct.stages import missing  # the stages import this package
 
-    items, links, gaps = [], [], []
+    rows = []
+    for d in docs:
+        n, _ = missing.page_count(root, d, counts)
+        for page in range(1, (n or 0) + 1):
+            failed = missing._failed_read(conn, d["id"], page)
+            row = None if failed else missing._newest_page(conn, d["id"], page)
+            limits = []
+            for t in missing.TYPES:
+                ready, note, acceptance = missing.page_ready(conn, d["id"], page, t)
+                limits.append(f"accepted #{acceptance}" if acceptance is not None else None if ready else note)
+            measured = (row["rung"], row["method"], row["words"], row["tables"], row["flags"], row["width"],
+                        row["height"]) if row else (None,) * 7
+            rows.append((d["id"], page, "read failed" if failed else "read" if row else "not read", *measured, *limits))
+    return rows
+
+
+def _missing(conn: sqlite3.Connection, root: Path, docs) -> dict:
+    """The projected rows of expectations (state computed now) with their accepted pages by acceptance id, every
+    declared document not deleted, the newest gap confirmation of each missing item with the documents and readings it
+    looked in, every page acceptance and the page rows. Each stored file is counted once (counts)."""
+    from gct.stages import missing  # the stages import this package
+
+    counts, items, gaps = {}, [], []
+    pages = _pages(conn, root, docs, counts)
     for (i,) in conn.execute("SELECT id FROM expected_item ORDER BY id").fetchall():
-        e = missing.describe(conn, root, i)
+        e = missing.state(conn, root, i, counts=counts)
         items.append((i, conn.execute("SELECT company_id FROM expected_item WHERE id = ?", (i,)).fetchone()[0],
                       e["metric_text"], e["period_label"], int(e["found"]), len(e["claims"]), e["state"],
-                      json.dumps(e["reasons"]), json.dumps(e["accepted"])))
-        links += [(i, d) for d in e["documents"]]
+                      json.dumps(e["reasons"]), json.dumps(e["acceptances"])))
         if c := e["confirmation"]:
+            checked = conn.execute("SELECT documents_checked FROM gap_confirmation WHERE id = ?", (c["id"],)).fetchone()[0]
             gaps.append((c["id"], i, c["contributor"], c["organisation"], c["capacity"], c["rationale"],
-                         int(c["current"]), c["created_at"]))
-    return {"expected_item": items, "expected_item_document": links, "gap_confirmation": gaps,
-            "page_acceptance": conn.execute(ACCEPTANCE_SQL).fetchall()}
+                         int(c["current"]), c["created_at"],
+                         json.dumps([{k: v for k, v in x.items() if k != "sha256"} for x in json.loads(checked)])))
+    return {"expected_item": items, "expected_item_document": conn.execute(LINKS_SQL).fetchall(),
+            "gap_confirmation": gaps, "page_acceptance": conn.execute(ACCEPTANCE_SQL).fetchall(), "page": pages}
 
 
 def _series(matched: dict) -> dict:
-    """The series and series_point rows of a match result (story 4.1). A time series is series_point by period_end."""
+    """The series and series_point rows of a match result (story 4.1). A time series is series_point by period_end.
+    Each candidate series of a claim that waits for review, with the newest match review decision on it (linked,
+    not_linked or null), and nothing else of that review (story 7.1 part C)."""
     series = [(s["id"], s["company_id"], s["metric_key"], s["label"], s["document_id"], s["reporting_boundary"],
                s["boundary_detail"], s["unit_family"], s["period_kind"], s["periods"], s["latest_period_end"])
               for s in matched["series"].values()]
     points = [(s["id"], p["claim_id"], p["claim_version_id"], p["period_start"], p["period_end"], p["value_text"],
                p["unit_text"], p["unit_key"], p["number"], p["value_base"], p["link"], int(p["comparable"]), p["reason"])
               for s in matched["series"].values() for p in s["points"]]
-    return {"series": series, "series_point": points}
+    candidates = [(c["claim_id"], c["claim_version_id"], sid, key, c["decided"][sid])
+                  for c in matched["claims"] if "candidates" in c for sid, key in c["candidates"].items()]
+    return {"series": series, "series_point": points, "match_candidate": candidates}
 
 
 def _comparison(conn: sqlite3.Connection, matched: dict) -> dict:
@@ -246,7 +307,11 @@ def _comparison(conn: sqlite3.Connection, matched: dict) -> dict:
     rows = conn.execute(
         "SELECT r.id, r.original_version_id, r.restated_version_id, r.series_key, r.decision, r.evidence_document_id,"
         " r.evidence_page, r.evidence_quote, c.name, c.organisation, r.capacity, r.rationale, r.created_at,"
-        f" {restate.BINDS} FROM restatement r JOIN contributor_version c ON c.id = r.contributor_version_id"
+        f" {restate.BINDS},"
+        # Both claims, so a row on an earlier version still finds its pair (story 7.1 part C).
+        " (SELECT claim_id FROM claim_version WHERE id = r.original_version_id),"
+        " (SELECT claim_id FROM claim_version WHERE id = r.restated_version_id)"
+        " FROM restatement r JOIN contributor_version c ON c.id = r.contributor_version_id"
         # A row naming a claim version of an archived document leaves with it; comparison pairs come from
         # match.compute, which already reads active documents only.
         " WHERE (SELECT COUNT(*) FROM claim_version v JOIN claim k ON k.id = v.claim_id JOIN document d ON d.id = k.document_id"
@@ -333,7 +398,7 @@ def _read_history(conn: sqlite3.Connection, root: Path):
         ).fetchall()
         from gct.stages import archive, highlight, review  # the stages import this package
 
-        extra = {**_missing(conn, root), **_series(matched), **_comparison(conn, matched), **_adjudication(conn),
+        extra = {**_missing(conn, root, docs),**_series(matched), **_comparison(conn, matched), **_adjudication(conn),
                  "hidden_by_archive": [tuple(h.values()) for h in archive.hidden(conn)],
                  "sheet_mapping": conn.execute(SHEET_MAPPING_SQL).fetchall(),
                  "deleted_document": conn.execute(DELETED_SQL).fetchall(),
@@ -351,7 +416,7 @@ def _write_projection(path: Path, meta: dict, companies, docs, claims, refs, ext
     try:
         out.execute("PRAGMA journal_mode = DELETE")
         out.execute("BEGIN")
-        for stmt in filter(str.strip, PROJECTION_SCHEMA.split(";")):
+        for stmt in (*filter(str.strip, PROJECTION_SCHEMA.split(";")), *PROJECTION_TRIGGERS):
             out.execute(stmt)
         out.executemany("INSERT INTO meta VALUES (?, ?)", [(k, str(v)) for k, v in meta.items()])
         out.executemany(f"INSERT INTO company VALUES ({','.join('?' * 4)})", [tuple(r) for r in companies])
@@ -394,7 +459,7 @@ def build(conn: sqlite3.Connection, root: Path) -> dict:
     hid = extra["hidden_by_archive"]
     meta = {
         "version": version, "built_at": built_at, "history_mark": mark,
-        "gct_version": __version__, "projection_schema": 14,
+        "gct_version": __version__, "projection_schema": 16,
         "hidden_by_archive": json.dumps({"documents": len(hid), **{k: sum(h[i] for h in hid) for i, k in (
             (3, "claims"), (4, "evidence_refs"), (5, "review_records"))}}),
         "deleted_documents": len(extra["deleted_document"]),
@@ -438,9 +503,12 @@ def _retain(conn: sqlite3.Connection, root: Path) -> None:
 def purge(path: Path, doc_id: int, claims: list, versions: list, gaps: list, marker: str) -> None:
     """Remove a deleted document from one retained version file (story 4.5, AD-9): every row naming the document, one
     of its claims or claim versions (comparison pairs included), the series it alone made, and the contributor text
-    the deletion cleared (gap confirmations by id, the acceptance lines of expectations that declared it, which also
-    clears another document's lines of those expectations). Then VACUUM, so freed pages do not keep the text. A file
-    of an older projection schema is purged in the tables and columns it has."""
+    the deletion cleared (gap confirmations by id). Accepted entries: a file of projection schema 15 or later (it has
+    the page table) holds acceptance ids only, so the entries of the document's acceptances are dropped and every other
+    entry stays as it was; an older file's acceptance lines of expectations that declared it are rewritten with the
+    marker, which also clears another document's lines of those expectations. Then VACUUM, so freed pages do not keep
+    the text. A file of an older projection schema is purged in the tables and columns it has. In a file of projection
+    16 a match candidate goes with its claim, its series, or the last rule point of its series."""
     from gct.stages.deletion import PROJECTION  # the stages import this package
 
     ids = {"document": [doc_id], "claim": claims, "version": versions}
@@ -450,7 +518,14 @@ def purge(path: Path, doc_id: int, claims: list, versions: list, gaps: list, mar
                 for (t,) in out.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
         out.execute("BEGIN IMMEDIATE")
         try:
-            if "accepted" in cols.get("expected_item", ()) and "expected_item_document" in cols:
+            if "page" in cols:  # projection 15: entries by acceptance id, read before the role deletes below
+                gone = {i for (i,) in out.execute("SELECT id FROM page_acceptance WHERE document_id = ?", (doc_id,))}
+                for i, accepted in out.execute("SELECT id, accepted FROM expected_item").fetchall():
+                    entries = json.loads(accepted)
+                    kept = [a for a in entries if a["acceptance_id"] not in gone]
+                    if len(kept) < len(entries):  # untouched otherwise, byte for byte
+                        out.execute("UPDATE expected_item SET accepted = ? WHERE id = ?", (json.dumps(kept), i))
+            elif "accepted" in cols.get("expected_item", ()) and "expected_item_document" in cols:
                 for i, accepted in out.execute(
                         "SELECT id, accepted FROM expected_item WHERE id IN (SELECT expected_item_id FROM"
                         " expected_item_document WHERE document_id = ?)", (doc_id,)).fetchall():
@@ -469,6 +544,9 @@ def purge(path: Path, doc_id: int, claims: list, versions: list, gaps: list, mar
             if "gap_confirmation" in cols:
                 out.execute("UPDATE gap_confirmation SET capacity = ?, rationale = ? WHERE id IN"
                             " (SELECT value FROM json_each(?))", (marker, marker, json.dumps(gaps)))
+            if "match_candidate" in cols:  # projection 16; its triggers already did this, a newer gct says it again
+                out.execute("DELETE FROM match_candidate WHERE series_id NOT IN"
+                            " (SELECT series_id FROM series_point WHERE link = 'rule')")
             if "series_point" in cols:
                 out.execute("DELETE FROM series WHERE id NOT IN (SELECT series_id FROM series_point)")
             out.execute("COMMIT")

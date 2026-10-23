@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from conftest import PDF, make_pdf
+from old_code import old_tree, run_old  # noqa: F401 (old_tree is a fixture)
 from test_intake import web  # noqa: F401 (a fixture)
 from test_match import BOTH, SCOPE_1, WHO, ids, ready, series
 from test_messages import internal_names
@@ -115,10 +116,11 @@ def test_migration_16_applies_after_15_and_its_tables_are_append_only(tmp_path, 
     c.close()
     assert gct("doc", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-5:] == [15, 16, 17, 18, 19]
+    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-7:] == [15, 16, 17, 18, 19, 20, 21]
     (run,) = runs.list_runs(c)
     assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == [
-        "applied migration 16", "applied migration 17", "applied migration 18", "applied migration 19"]
+        "applied migration 16", "applied migration 17", "applied migration 18", "applied migration 19",
+        "applied migration 20", "applied migration 21"]
     c.close()
     db.execute("INSERT INTO company (name, created_at) VALUES ('Acme', 't')")
     db.execute("INSERT INTO document (company_id, logical_name, version, sha256, kind, file_type, privacy, size_bytes,"
@@ -332,13 +334,75 @@ def test_retained_versions_lose_the_document_and_restore_cannot_bring_it_back(ws
     v4 = published.open_version(ws / "published" / "v4.db")
     try:
         meta = dict(v4.execute("SELECT key, value FROM meta").fetchall())
-        assert meta["projection_schema"] == "14" and meta["deleted_documents"] == "1"
+        assert meta["projection_schema"] == "16" and meta["deleted_documents"] == "1"
         assert [tuple(r) for r in v4.execute("SELECT * FROM deleted_document")] == [
             (d, db.execute("SELECT at FROM document_state WHERE state = 'deleted'").fetchone()[0])]
         assert {"hidden_by_archive", "comparison", "restatement", "series", "page_acceptance"} <= {
             t for (t,) in v4.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     finally:
         v4.close()
+
+
+def held(ws, v: int, d: int) -> tuple[dict, str]:
+    """({page, expected_item_document: rows of document d}, expectation 1's accepted column) of version v."""
+    conn = published.open_version(ws / "published" / f"v{v}.db")
+    try:
+        tables = {t for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        rows = {t: [tuple(r) for r in conn.execute(f"SELECT * FROM {t} WHERE document_id = ?", (d,))]
+                for t in ("page", "expected_item_document") if t in tables}
+        return rows, conn.execute("SELECT accepted FROM expected_item WHERE id = 1").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def entry(db, doc: int) -> dict:
+    (i,) = db.execute("SELECT id FROM page_acceptance WHERE document_id = ?", (doc,)).fetchone()
+    return {"type": "figures", "acceptance_id": i, "count": 1}
+
+
+# Story 7.1 part B, B6 (and B4: a deleted declared document has no link)
+def test_purge_removes_the_documents_page_rows_links_and_accepted_entries(ws, db, gct, world):
+    a, d = world["a"], world["d"]
+    rows, accepted = held(ws, 2, d)
+    assert rows["page"] and rows["expected_item_document"] == [(1, d, "registered")]
+    assert json.loads(accepted) == [entry(db, a), entry(db, d)]
+    assert delete(gct, db, d).code == 0
+    for v in (1, 2):
+        rows, after = held(ws, v, d)
+        assert rows == {"page": [], "expected_item_document": []}
+        assert after == json.dumps([entry(db, a)]) and json.dumps(entry(db, a)) in accepted  # a's entry byte for byte
+    assert gct("publish", "build").code == 0
+    rows, accepted = held(ws, 3, d)
+    assert rows == {"page": [], "expected_item_document": []} and json.loads(accepted) == [entry(db, a)]
+    assert held(ws, 3, a)[0]["expected_item_document"] == [(1, a, "registered")]
+
+
+# Story 7.1 part B, B8: a projection-14 file built by the code before 15, retained as the previous version
+def test_a_projection_14_file_of_the_older_code_is_purged_and_restored(ws, db, gct, world, old_tree):
+    a, d = world["a"], world["d"]
+    (r,) = run_old(old_tree, ws, ("publish", "build", "--json"), newer=True)  # the workspace is at schema 21
+    assert r["code"] == 0 and json.loads(r["out"])["version"] == 3
+    assert gct("publish", "build").code == 0
+    assert sorted(p.name for p in (ws / "published").iterdir()) == ["v3.db", "v4.db"]
+    old = published.open_version(ws / "published" / "v3.db")
+    try:
+        assert dict(old.execute("SELECT key, value FROM meta").fetchall())["projection_schema"] == "14"
+        assert "page" not in {t for (t,) in old.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    finally:
+        old.close()
+    rows, accepted = held(ws, 3, d)
+    assert rows == {"expected_item_document": [(1, d)]} and json.loads(accepted) == [
+        {"type": "figures", "accepted": "accepted by Ana (analyst)", "count": 1},
+        {"type": "figures", "accepted": f"accepted by Ana ({CAPACITY} reading {METRIC})", "count": 1}]
+    assert held(ws, 4, a)[0]["page"]  # the first build after the older code fills the page table from the readings
+    assert delete(gct, db, d).code == 0
+    rows, accepted = held(ws, 3, d)
+    assert rows == {"expected_item_document": []} and json.loads(accepted) == [
+        {"type": "figures", "accepted": f"cleared with document {d}", "count": 1}] * 2
+    assert CAPACITY.encode() not in (ws / "published" / "v3.db").read_bytes()
+    assert held(ws, 4, d)[1] == json.dumps([entry(db, a)])
+    r = gct("publish", "restore", "--json")
+    assert r.code == 0 and r.data["version"] == 3
 
 
 # AC 7, AC 8
@@ -400,7 +464,7 @@ def test_retained_reviews_carry_the_marker_and_shared_records_stay(ws, db, gct, 
     assert r["action"] == "registered" and r["document"]["id"] not in (a, d, world["e"])
     assert gct("claims", "list", "--doc", r["document"]["id"], "--json").data["claims"] == []
     lst = gct("doc", "list").out
-    assert f"{d}  Acme  {marker}  v1  private  deleted {when[:10]}" in lst
+    assert f"{d}  Acme  {marker}  v1  private  unknown  deleted {when[:10]}" in lst
     act = gct("doc", "list", "--active", "--json").data
     assert d not in {x["id"] for x in act["documents"]} and act["hidden_deleted"] == 1
 
@@ -501,7 +565,7 @@ def test_migrations_13_to_16_apply_in_order_to_a_4_1_workspace(tmp_path, gct):
     c = store.connect(root / layout.DB_NAME)
     (run,) = runs.list_runs(c)
     assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == [
-        f"applied migration {n}" for n in (13, 14, 15, 16, 17, 18, 19)]
+        f"applied migration {n}" for n in (13, 14, 15, 16, 17, 18, 19, 20, 21)]
     assert {"restatement", "document_state_change", "sheet_mapping", "claim_note", "document_deletion"} <= {
         t for (t,) in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     c.close()

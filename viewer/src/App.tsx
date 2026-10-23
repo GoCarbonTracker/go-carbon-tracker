@@ -1,5 +1,14 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ADJUDICATION_STATES, bandText, boundaryText, type Box, byPosition, correctionBody, correctionText, type CorrectionFields, decide, type Entry, evidenceTarget, flagText, hasRecords, highlightText, label, newestOnly, overlayShown, periodText, recordBody, restateCommand, reReviewText, SELF_DECLARED, stepClaim, stepPage, type Version, whoText, type Claim } from "./logic.ts";
+import { availableText, countText, type EvidenceTarget, type Filter, isCell, isStale, newerVersion, periodUnknownText, recordsBody, type SeriesValue } from "./records.ts";
+import { FilterBar } from "./FilterBar.tsx";
+import { CellView } from "./CellView.tsx";
+import { Tables } from "./Tables.tsx";
+import { ChipLine, Transfer } from "./Transfer.tsx";
+import { type SavedView, SavedViews } from "./SavedViews.tsx";
+import { type Chosen, Questions } from "./Questions.tsx";
+import type { Chip, Sent, Tab } from "./transfer.ts";
+const Graphs = lazy(() => import("./Graphs.tsx")); // story 6.3; it imports Cytoscape only when the Graphs tab is shown
 
 type Company = { id: number; name: string; documents: Doc[] };
 type Doc = { id: number; logical_name: string; version: number; file_type: string };
@@ -24,6 +33,21 @@ async function get<T>(path: string): Promise<T> {
   if (!r.ok) throw new ApiError(data, r.status);
   return data as T;
 }
+
+/** A Tables-and-Graphs read: the filter and the pinned version in a POST body (F3). */
+async function records<T>(body: object): Promise<T> {
+  const r = await fetch("/api/records", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new ApiError(data, r.status);
+  return data as T;
+}
+
+type Count = { data_version: number; matched: number; excluded: { period_unknown: number }; empty: string | null;
+  hidden_by_archive: { text: string | null }; deleted_in_filter: { document_id: number; text: string }[] };
 
 /** A review write: the same function as its CLI command runs on the server, which answers with its refusal. */
 async function send(path: string, body: Record<string, string | number>): Promise<void> {
@@ -489,6 +513,8 @@ function Candidates({ company, docs, docName }: { company: Company; docs: DocOpt
   );
 }
 
+const NO_CHIPS: Record<Tab, Chip | null> = { tables: null, graphs: null };
+
 export function App() {
   const [health, setHealth] = useState<{ gct_version: string; data_version: number | null } | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -503,25 +529,129 @@ export function App() {
   const [reviewNotice, setReviewNotice] = useState<Notice>(null); // outlives the Reviews remount after a reload
   const items = useRef<(HTMLButtonElement | null)[]>([]);
   const docRequests = useRef(newestOnly()).current;
+  // Tables and Graphs (story 6.1, H): one filter on one pinned data version; a newer version is offered, never mixed in.
+  const [section, setSection] = useState<"evidence" | "records">("evidence");
+  const [tab, setTab] = useState<"tables" | "graphs">("tables");
+  const [filter, setFilter] = useState<Filter>({});
+  const [pinned, setPinned] = useState<number | null>(null);
+  const [newer, setNewer] = useState<number | null>(null);
+  const [count, setCount] = useState<Count | null>(null);
+  const [countFailure, setCountFailure] = useState<Failure | null>(null);
+  const [series, setSeries] = useState<SeriesValue[]>([]);
+  const [cellAt, setCellAt] = useState<EvidenceTarget | null>(null);
+  const pendingClaim = useRef<number | null>(null); // the claim openEvidence selects once its document's claims load
+  const countRequests = useRef(newestOnly()).current;
+  // Story 6.4 part B: what each tab has selected (6.2 T-G, 6.3 S5b), the chip each tab received by a transfer (never
+  // stored; dropped with a filter-bar change or a new version), and the open panel under the filter bar.
+  const [sent, setSent] = useState<Record<Tab, Sent>>({ tables: null, graphs: null });
+  const [chips, setChips] = useState<Record<Tab, Chip | null>>(NO_CHIPS);
+  const [panel, setPanel] = useState<"views" | "questions" | null>(null);
+  const changeFilter = useCallback((f: Filter) => {
+    setFilter(f);
+    setChips(NO_CHIPS);
+  }, []);
+  const sentByTables = useCallback((s: Sent) => setSent((o) => ({ ...o, tables: s })), []);
+  const sentByGraphs = useCallback((s: Sent) => setSent((o) => ({ ...o, graphs: s })), []);
+
+  const loadCompanies = async () => {
+    const { companies } = await get<{ companies: { id: number; name: string }[] }>("/api/companies");
+    setCompanies(
+      await Promise.all(
+        companies.map(async (c) => ({
+          ...c,
+          documents: (await get<{ documents: Doc[] }>(`/api/companies/${c.id}/documents`)).documents,
+        })),
+      ),
+    );
+  };
 
   useEffect(() => {
     (async () => {
       try {
-        setHealth(await get("/api/health"));
-        const { companies } = await get<{ companies: { id: number; name: string }[] }>("/api/companies");
-        setCompanies(
-          await Promise.all(
-            companies.map(async (c) => ({
-              ...c,
-              documents: (await get<{ documents: Doc[] }>(`/api/companies/${c.id}/documents`)).documents,
-            })),
-          ),
-        );
+        const h = await get<{ gct_version: string; data_version: number | null }>("/api/health");
+        setHealth(h);
+        setPinned(h.data_version);
+        await loadCompanies();
       } catch (e) {
         setFailure(failureOf(e));
       }
     })();
   }, []);
+
+  // Another writer published meanwhile: offer the new version. The pin is read when the answer arrives, so an answer
+  // that arrives after Reload does not offer the version just taken.
+  const pinnedNow = useRef(pinned);
+  pinnedNow.current = pinned;
+  const checkVersion = async () => {
+    const h = await get<{ gct_version: string; data_version: number | null }>("/api/health");
+    setHealth(h);
+    setNewer(newerVersion(pinnedNow.current, h.data_version));
+    return h.data_version;
+  };
+
+  useEffect(() => {
+    if (pinned === null) return;
+    const id = countRequests.start();
+    setCount(null);
+    setCountFailure(null);
+    // Each change asks again; an older answer that arrives late is dropped (NFR1: no blocking wait).
+    records<Count>(recordsBody(filter, pinned, "table", 0, 1)).then(
+      (c) => countRequests.isCurrent(id) && setCount(c),
+      (e) => {
+        if (!countRequests.isCurrent(id)) return;
+        if (e instanceof ApiError && isStale(e.status, e.failure.cause)) checkVersion().catch(() => setCountFailure(failureOf(e)));
+        else setCountFailure(failureOf(e));
+      },
+    );
+  }, [filter, pinned]);
+
+  useEffect(() => {
+    if (pinned === null) return;
+    records<{ series: SeriesValue[] }>({ filter: {}, data_version: pinned, shape: "values" }).then(
+      (v) => setSeries(v.series),
+      () => setSeries([]), // the count line shows why the version cannot be read
+    );
+  }, [pinned]);
+
+  const takeVersion = async (version: number) => {
+    setNewer(null);
+    setPinned(version);
+    setChips(NO_CHIPS);
+    await loadCompanies().catch((e) => setCountFailure(failureOf(e)));
+  };
+
+  // B1: a transfer switches tab; the receiving tab shows the selection with its chip, the filter and the pin stay.
+  // Focus goes to that tab: the pressed bar button is drawn again for the receiving tab, often disabled.
+  const transfer = (to: Tab, chip: Chip) => {
+    setChips((c) => ({ ...c, [to]: chip }));
+    setTab(to);
+    document.getElementById(`tab-${to}`)?.focus();
+  };
+
+  const removeChip = () => {
+    setChips((c) => ({ ...c, [tab]: null }));
+    document.getElementById(`tab-${tab}`)?.focus(); // the chip and its button are gone
+  };
+
+  // B2, B3: a saved view or a question replaces the filter and opens its tab; a saved view opens on the current
+  // version, taken here as Reload takes it.
+  const choose = ({ filter: f, section: to, chip }: Chosen) => {
+    setPanel(null);
+    setFilter(f);
+    setChips({ ...NO_CHIPS, ...(chip ? { [to]: chip } : {}) });
+    setTab(to);
+  };
+
+  const openView = async (v: SavedView) => {
+    const now = await checkVersion().catch(() => pinnedNow.current);
+    if (now !== null && now !== pinnedNow.current) await takeVersion(now);
+    choose({ filter: v.filter, section: v.section });
+  };
+
+  const showRecords = () => {
+    setSection("records");
+    checkVersion().catch(() => undefined); // the count request reports a failure itself
+  };
 
   useEffect(() => setPageBox(String(page)), [page]);
 
@@ -565,6 +695,7 @@ export function App() {
       get<{ claims: Claim[] }>(`/api/documents/${opened!.id}/claims`),
     ]);
     setHealth(h);
+    setNewer(newerVersion(pinnedNow.current, h.data_version)); // the write built a new version; Tables and Graphs offers it
     setSelected(list.claims.findIndex((c) => c.id === claims[selected].id));
     setClaims(list.claims);
   };
@@ -583,9 +714,27 @@ export function App() {
     [claims, pageCount],
   );
 
+  // F11 f: a page of a PDF opens in the Evidence section with its claim selected; a cell opens the cell view here.
+  const openEvidence = async (t: EvidenceTarget) => {
+    if (isCell(t)) return setCellAt(t);
+    setSection("evidence");
+    const at = claims.findIndex((c) => c.id === t.claim_id);
+    if (opened?.id === t.document && !candidatesOf && at >= 0) return select(at);
+    pendingClaim.current = t.claim_id ?? null;
+    await jump({ document: t.document, page: t.page ?? 1 });
+  };
+
+  useEffect(() => {
+    if (pendingClaim.current === null || claims.length === 0) return;
+    const at = claims.findIndex((c) => c.id === pendingClaim.current);
+    pendingClaim.current = null; // a claim not in the current version leaves the page open, nothing selected
+    if (at >= 0) select(at);
+  }, [claims, select]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
+      if (section === "records") return; // the arrows belong to the Evidence section only
       if (!opened || candidatesOf || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName) || e.altKey || e.ctrlKey
           || e.metaKey) return;
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
@@ -598,7 +747,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [opened, candidatesOf, pageCount, selected, claims.length, select]);
+  }, [section, opened, candidatesOf, pageCount, selected, claims.length, select]);
 
   const goTo = () => {
     const n = Number(pageBox);
@@ -624,9 +773,70 @@ export function App() {
             {health.data_version === null ? "no published version yet" : `published data version ${health.data_version}`}
           </span>
         )}
+        <div className="sections" role="group" aria-label="Section">
+          <button aria-pressed={section === "evidence"} onClick={() => setSection("evidence")}>Evidence</button>
+          <button aria-pressed={section === "records"} onClick={showRecords}>Tables and Graphs</button>
+        </div>
       </header>
 
-      <nav aria-label="Companies and documents">
+      <section className="records" aria-label="Tables and Graphs" hidden={section !== "records"}>
+        {newer !== null && (
+          <p className="notice" role="status">
+            {availableText(newer)} <button onClick={() => takeVersion(newer)}>Reload</button>
+          </p>
+        )}
+        {pinned === null ? (
+          <p className="hint">No published data yet. Run: gct publish build</p>
+        ) : (
+          <>
+            <FilterBar filter={filter} onChange={changeFilter} companies={companies} series={series} />
+            <div className="panel-buttons">
+              <button type="button" aria-expanded={panel === "views"} aria-controls="panel-views"
+                onClick={() => setPanel(panel === "views" ? null : "views")}>Saved views</button>
+              <button type="button" aria-expanded={panel === "questions"} aria-controls="panel-questions"
+                onClick={() => setPanel(panel === "questions" ? null : "questions")}>Questions</button>
+            </div>
+            {panel === "views" && <SavedViews filter={filter} tab={tab} chipShown={chips[tab] !== null}
+              onOpen={(v) => { openView(v).catch((e) => setCountFailure(failureOf(e))); }} onClose={() => setPanel(null)} />}
+            {panel === "questions" && <Questions pinned={pinned} onChoose={choose} onClose={() => setPanel(null)}
+              onStale={() => { checkVersion().catch(() => undefined); }} />}
+            <div className="count" aria-live="polite">
+              {countFailure && <Problem failure={countFailure} />}
+              {!count && !countFailure && <p className="hint">Counting the claims of data version {pinned}.</p>}
+              {count && (
+                <>
+                  <p className="count-line">{countText(count.matched, count.data_version)}</p>
+                  {count.empty && <p>{count.empty}</p>}
+                  {periodUnknownText(count.excluded.period_unknown) && <p className="meta">{periodUnknownText(count.excluded.period_unknown)}</p>}
+                  {count.hidden_by_archive.text && <p className="meta">{count.hidden_by_archive.text}</p>}
+                  {count.deleted_in_filter.map((d) => <p key={d.document_id} className="meta">{d.text}</p>)}
+                </>
+              )}
+              {chips[tab] && <ChipLine chip={chips[tab]!} onRemove={removeChip} />}
+            </div>
+            {cellAt && <CellView key={JSON.stringify(cellAt)} target={cellAt} pinned={pinned} onClose={() => setCellAt(null)} />}
+            <div className="tabs" role="tablist" aria-label="Tables or Graphs">
+              <button role="tab" id="tab-tables" aria-controls="body-tables" aria-selected={tab === "tables"}
+                onClick={() => setTab("tables")}>Tables</button>
+              <button role="tab" id="tab-graphs" aria-controls="body-graphs" aria-selected={tab === "graphs"}
+                onClick={() => setTab("graphs")}>Graphs</button>
+            </div>
+            <Transfer tab={tab} sent={sent[tab]} pinned={pinned} newer={newer} current={checkVersion} onTransfer={transfer} />
+            {/* Story 6.2 renders its table here and 6.3 its graphs, each from its own file with filter, dataVersion and
+                openEvidence (F11 f); a hidden body stays mounted, so returning shows it as it was left. */}
+            <div role="tabpanel" id="body-tables" aria-labelledby="tab-tables" hidden={tab !== "tables"}>
+              <Tables filter={filter} dataVersion={pinned} openEvidence={openEvidence} onStale={() => { checkVersion().catch(() => undefined); }}
+                selection={chips.tables?.selection ?? null} onSelectionChange={sentByTables} />
+            </div>
+            <div role="tabpanel" id="body-graphs" aria-labelledby="tab-graphs" hidden={tab !== "graphs"}>
+              <Suspense fallback={null}><Graphs filter={filter} dataVersion={pinned} openEvidence={openEvidence} onStale={() => { checkVersion().catch(() => undefined); }}
+                selection={chips.graphs?.selection ?? null} onSelectionChange={sentByGraphs} /></Suspense>
+            </div>
+          </>
+        )}
+      </section>
+
+      <nav aria-label="Companies and documents" hidden={section !== "evidence"}>
         {health?.data_version === null && <p className="hint">No published data yet. Run: gct publish build</p>}
         {companies.map((c) => (
           <section key={c.id}>
@@ -651,7 +861,7 @@ export function App() {
         ))}
       </nav>
 
-      <main>
+      <main hidden={section !== "evidence"}>
         {failure && <Problem failure={failure} />}
         {candidatesOf && <Candidates key={candidatesOf.id} company={candidatesOf} docs={docOptions} docName={docName} />}
         {!opened && !failure && !candidatesOf && <p className="hint">Choose a document on the left.</p>}
@@ -740,7 +950,7 @@ export function App() {
         )}
       </main>
 
-      <aside aria-label="Claims">
+      <aside aria-label="Claims" hidden={section !== "evidence"}>
         <h2>Claims</h2>
         {candidatesOf && <p className="hint">Choose a document on the left to see its claims.</p>}
         {opened && !candidatesOf && claims.length === 0 && <p className="hint">No claims for this document. Run: gct extract</p>}

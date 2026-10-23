@@ -41,6 +41,8 @@ BODIES = {
                                          "contributor", "capacity"),
                      ("first", "second", "counter_document", "counter_page"),
                      ("first", "second", "state", "rationale", "procedure", "contributor", "capacity")),
+    # Story 6.4: a save also needs filter, a JSON object, checked in its handler.
+    "view": ("a saved view", ("name", "section", "contributor"), (), ("name", "contributor")),
 }
 # pdfium is not thread-safe and FastAPI runs these handlers in a thread pool.
 _PDFIUM = threading.Lock()
@@ -84,6 +86,19 @@ async def _body(request: Request, kind: str) -> dict | JSONResponse:
     if missing:
         return error(400, f"The {name} field {missing[0]} is missing.",
                      f"Send every field the command needs: {', '.join(required)}.")
+    return body
+
+
+async def _object(request: Request, what: str) -> dict | JSONResponse:
+    """The JSON object of a read sent as a POST body (story 6.1), else the error as _body gives it."""
+    if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
+        return error(415, f"{what} is sent as JSON.", "Send the fields as a JSON object.")
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        return error(400, f"{what} is not a JSON object.", "Send the fields as a JSON object.")
     return body
 
 
@@ -312,6 +327,52 @@ def create_app(root: Path, token: str) -> FastAPI:
         finally:
             conn.close()
 
+    # Tables and Graphs (story 6.1): every read resolves the published version once and runs all its queries on that
+    # one file (F2), never through _query, which resolves the current version again on each call.
+    def _pinned(data_version, read) -> dict | JSONResponse:
+        from gct.stages import view
+
+        conn = store.connect(root / layout.DB_NAME)
+        try:
+            _, pconn = view.pinned(conn, root, data_version)
+        except GctError as e:
+            return error(HTTP[e.code], e.cause, e.next_action)
+        finally:
+            conn.close()
+        try:
+            return read(pconn)
+        except GctError as e:
+            return error(HTTP[e.code], e.cause, e.next_action)
+        finally:
+            pconn.close()
+
+    @app.post("/api/records")
+    async def records(request: Request):
+        body = await _object(request, "A records request")
+        if isinstance(body, JSONResponse):
+            return body
+        from gct.stages import view
+
+        unknown = sorted(set(body) - set(view.REQUEST))
+        if unknown:
+            return error(400, f"A records request has no field {unknown[0]}.", f"Send only: {', '.join(view.REQUEST)}.")
+        pin = body.get("data_version")
+        if pin is not None and (not isinstance(pin, int) or isinstance(pin, bool)):
+            return error(400, "The data version is not a whole number.", 'Send it as a JSON number, for example "data_version": 3.')
+        return await run_in_threadpool(_pinned, pin, lambda pconn: view.answer(
+            pconn, body.get("filter", {}), body.get("shape", "table"), body.get("offset", 0),
+            body.get("limit", view.LIMIT), body.get("sort"), body.get("claim_ids")))
+
+    @app.get("/api/documents/{doc_id:int}/cells")
+    def cells(doc_id: int, sheet: str | None = None, cell: str | None = None, data_version: str | None = None):
+        # Typed as text: a missing or malformed value gets gct's own refusal, not FastAPI's 422.
+        if data_version is not None and not data_version.isdigit():
+            return error(400, "The data version is not a whole number.", "Ask with data_version=N, for example 3.")
+        from gct.stages import view
+
+        return _pinned(None if data_version is None else int(data_version),
+                       lambda pconn: view.cells(pconn, root, doc_id, sheet, cell))
+
     def _write(record) -> dict | JSONResponse:
         """record(conn), the same function as the CLI command, under the workspace lock, then a new published
         version."""
@@ -398,5 +459,65 @@ def create_app(root: Path, token: str) -> FastAPI:
             conn, root, body["first"], body["second"], body["state"], body["rationale"], body["procedure"],
             body["contributor"], body["capacity"], body.get("counter_document"), body.get("counter_page"),
             body.get("counter_note"), body.get("follow_up"), body.get("closure_reason")))
+
+    # Saved views and guided questions (story 6.4 part A): the same functions and JSON as gct view list, save, remove
+    # and questions. A view is opened by sending its filter to /api/records.
+    def _save(record) -> dict | JSONResponse:
+        """record(conn), the same function as the CLI command, under the workspace lock, and nothing else: a saved
+        view is never published, so no run is opened and no version is built; the data version stays as it was."""
+        try:
+            held = lock.hold(root)
+        except GctError as e:
+            return error(409, e.cause, e.next_action)
+        conn = store.connect(root / layout.DB_NAME)
+        try:
+            r = record(conn)
+        except GctError as e:
+            return error(HTTP[e.code], e.cause, e.next_action)
+        finally:
+            conn.close()
+            lock.release(held)
+        return {"status": "ok", **r, "data_version": _data_version(root)}
+
+    @app.get("/api/views")
+    def saved_views():
+        from gct.stages import saved_view
+
+        conn = store.connect(root / layout.DB_NAME)
+        try:
+            return {"status": "ok", "data_version": _data_version(root), **saved_view.listing(conn)}
+        finally:
+            conn.close()
+
+    @app.post("/api/views")
+    async def save_view(request: Request):
+        body = await _body(request, "view")
+        if isinstance(body, JSONResponse):
+            return body
+        if not isinstance(body.get("filter"), dict):
+            return error(400, "The saved view field filter is not a JSON object.",
+                         'Send the filter as an object, for example "filter": {"company": [1]}, or {} for every claim.')
+        from gct.stages import saved_view
+
+        return await run_in_threadpool(_save, lambda conn: saved_view.save(
+            conn, body["name"], body["filter"], body.get("section", "tables"), body["contributor"]))
+
+    @app.post("/api/views/remove")
+    async def remove_view(request: Request):
+        body = await _body(request, "view")
+        if isinstance(body, JSONResponse):
+            return body
+        from gct.stages import saved_view
+
+        return await run_in_threadpool(_save, lambda conn: saved_view.remove(conn, body["name"], body["contributor"]))
+
+    @app.get("/api/questions")
+    def guided_questions(data_version: str | None = None):
+        if data_version is not None and not data_version.isdigit():
+            return error(400, "The data version is not a whole number.", "Ask with data_version=N, for example 3.")
+        from gct.stages import saved_view
+
+        return _pinned(None if data_version is None else int(data_version),
+                       lambda pconn: {"status": "ok", **saved_view.questions(pconn)})
 
     return app

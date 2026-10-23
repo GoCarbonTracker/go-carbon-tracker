@@ -328,7 +328,16 @@ def test_tie_break_and_exact_half_iou():
     assert pick(claim(3, start=None), claim(2, start=None)) == (2, "Partial", 0.0, False)
 
 
-def test_gct_commit_is_marked_dirty_by_a_changed_tracked_file_only(tmp_path):
+def scrub_git_env(monkeypatch):
+    # a GIT_DIR or GIT_INDEX_FILE exported by the caller would redirect git commands into the caller's repository
+    for var in subprocess.run(["git", "rev-parse", "--local-env-vars"], capture_output=True, text=True,
+                              check=True).stdout.split():
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_gct_commit_is_marked_dirty_by_a_changed_tracked_file_only(tmp_path, monkeypatch):
+    scrub_git_env(monkeypatch)
+
     def git(*argv):
         subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *argv],
                        cwd=tmp_path, check=True, capture_output=True)
@@ -343,3 +352,30 @@ def test_gct_commit_is_marked_dirty_by_a_changed_tracked_file_only(tmp_path):
     assert g2._git_head(tmp_path) == head
     (tmp_path / "f").write_text("b")
     assert g2._git_head(tmp_path) == head + "-dirty"
+
+
+@pytest.mark.parametrize("with_index_file", [False, True])
+def test_dirty_marking_test_leaves_a_repository_named_by_the_callers_git_env_alone(tmp_path, monkeypatch,
+                                                                                    with_index_file):
+    scrub_git_env(monkeypatch)  # before any git call, so a GIT_DIR already exported cannot hit the caller's repository
+    decoy = tmp_path / "decoy"
+    decoy.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=decoy, check=True, capture_output=True)
+    index = decoy / ".git" / "index"
+
+    def state():
+        refs = subprocess.run(["git", "--git-dir", str(decoy / ".git"), "for-each-ref",
+                               "--format=%(refname) %(objectname)"], capture_output=True, text=True,
+                              check=True).stdout
+        files = sorted(p.relative_to(decoy).as_posix() for p in (decoy / ".git").rglob("*") if p.is_file())
+        return refs, files, index.read_bytes() if index.exists() else None
+
+    before = state()
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.setenv("GIT_DIR", str(decoy / ".git"))
+    if with_index_file:
+        monkeypatch.setenv("GIT_INDEX_FILE", str(index))
+    test_gct_commit_is_marked_dirty_by_a_changed_tracked_file_only(work, monkeypatch)
+    assert state() == before
+    assert not (decoy / "f").exists()

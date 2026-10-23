@@ -7,6 +7,7 @@ import pytest
 
 from conftest import make_pdf
 from test_deletion import WHO as DELETE_WHO, scan, token, world  # noqa: F401 (world is a fixture)
+from old_code import labels_table
 from test_match import SCOPE_1, ids
 from test_restate import acme, add  # noqa: F401 (acme is a fixture)
 from test_sheet import MAP, ROWS, csv_bytes
@@ -74,6 +75,7 @@ def test_migration_17_upgrades_a_4_5_workspace_and_both_tables_are_append_only(t
     monkeypatch.setattr(store, "migrate", lambda conn, up_to=None: real(conn, 16))
     root = tmp_path / "old"
     assert gct("workspace", "init", root).code == 0
+    labels_table(root)  # story 7.1 part A (Q1): the current doc add writes it
     monkeypatch.setenv("GCT_WORKSPACE", str(root))
     gct("company", "add", "Acme")
     gct("contributor", "add", "ana", "--name", "Ana")
@@ -82,12 +84,14 @@ def test_migration_17_upgrades_a_4_5_workspace_and_both_tables_are_append_only(t
     db = sqlite3.connect(root / "workspace.db")
     claim = db.execute("SELECT claim_id FROM claim_version WHERE period_label = 'FY 2024-25'").fetchone()[0]
     assert db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 16
+    db.execute("DROP TABLE document_label")  # the upgrade below creates it (Q1)
     monkeypatch.setattr(store, "migrate", real)
     r = gct("review", "list", claim)
     assert r.code == 0 and "company confirmations: none" in r.out and "auditor reviews: none" in r.out, r.out
-    assert db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 19
-    notes = [m for (m,) in db.execute("SELECT message FROM run_event WHERE kind = 'note' ORDER BY id DESC LIMIT 3")]
-    assert notes == ["applied migration 19", "applied migration 18", "applied migration 17"]
+    assert db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 21
+    notes = [m for (m,) in db.execute("SELECT message FROM run_event WHERE kind = 'note' ORDER BY id DESC LIMIT 5")]
+    assert notes == ["applied migration 21", "applied migration 20", "applied migration 19", "applied migration 18",
+                     "applied migration 17"]
     for t in ("review_company", "review_auditor"):
         assert db.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] == 0
         cols = "claim_version_id, contributor_version_id, capacity, scope, reviewed_on, conclusion, outcome, created_at"
@@ -429,7 +433,7 @@ def test_projection_schema_11(ws, db, gct, make_file, one):
         (a,) = [dict(r) for r in conn.execute("SELECT * FROM review_auditor")]
     finally:
         conn.close()
-    assert meta["projection_schema"] == "14"
+    assert meta["projection_schema"] == "16"
     assert list(c) == list(a) == ["id", "claim_id", "claim_version_id", "contributor_name", "contributor_organisation",
                                   "contributor_version", "capacity", "scope", "reviewed_on", "conclusion", "outcome",
                                   "evidence_document_id", "evidence_page", "evidence_note", "evidence_state", "latest",

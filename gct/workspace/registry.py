@@ -6,18 +6,20 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from gct.workspace import store
+from gct.workspace import labels, store
 from gct.workspace.layout import NOT_FOUND, REFUSED, USAGE, GctError
 
 DELIMITERS = ",;\t|"
 XLSX_PARTS = {"[Content_Types].xml", "xl/workbook.xml"}
 
-DOCUMENT_SQL = """
+# privacy and availability are the stored label (story 7.1 part A).
+DOCUMENT_SQL = f"""
 SELECT d.id, c.name AS company, d.logical_name, d.version, d.sha256, d.kind, d.file_type,
-       d.privacy, d.size_bytes, d.source, d.created_at,
+       {labels.STORED_PRIVACY} AS privacy, d.size_bytes, d.source, d.created_at,
        (SELECT s.state FROM document_state s WHERE s.document_id = d.id
         ORDER BY s.id DESC LIMIT 1) AS state,
-       (SELECT s.at FROM document_state s WHERE s.document_id = d.id AND s.state = 'deleted') AS deleted_at
+       (SELECT s.at FROM document_state s WHERE s.document_id = d.id AND s.state = 'deleted') AS deleted_at,
+       {labels.STORED_AVAILABILITY} AS availability
 FROM document d JOIN company c ON c.id = d.company_id
 """
 
@@ -266,7 +268,7 @@ def find_duplicate(conn, company_id: int, digest: str) -> dict | None:
     return get_document(conn, row["id"]) if row else None
 
 
-def _register(conn, co, digest, size, file_type, logical, kind, privacy, source):
+def _register(conn, co, digest, size, file_type, logical, kind, privacy, source, availability="unknown"):
     with store.transaction(conn):
         dup = find_duplicate(conn, co["id"], digest)
         if dup:
@@ -286,25 +288,28 @@ def _register(conn, co, digest, size, file_type, logical, kind, privacy, source)
             (cur.lastrowid, stamp),
         )
         doc_id = cur.lastrowid
+        labels.intake_row(conn, doc_id, privacy, availability, stamp)
     return "ok", get_document(conn, doc_id)
 
 
-def add_document(conn, root, file, company, kind="report", privacy="private", name=None, source=None):
+def add_document(conn, root, file, company, kind="report", privacy="private", name=None, source=None,
+                 availability="unknown"):
     """Register a file. Returns (status, document) with status 'ok' or 'duplicate'."""
     co = _find_company(conn, company)
     src = Path(file)
     file_type = checked_file_type(src)
     digest, size = _store_file(Path(root), src)
-    return _register(conn, co, digest, size, file_type, name or logical_name(file), kind, privacy, source)
+    return _register(conn, co, digest, size, file_type, name or logical_name(file), kind, privacy, source, availability)
 
 
-def add_stored(conn, root, digest, company, name, kind="report", privacy="private", source=None, file_name=None):
+def add_stored(conn, root, digest, company, name, kind="report", privacy="private", source=None, file_name=None,
+               availability="unknown"):
     """Register a file already stored under files/ (a download). Returns like add_document.
     file_name (the address's name) is used only to detect the type; it defaults to name."""
     path = stored_path(Path(root), digest)
     return _register(
         conn, _find_company(conn, company), digest, path.stat().st_size, detect_file_type(path, file_name or name),
-        name, kind, privacy, source,
+        name, kind, privacy, source, availability,
     )
 
 
