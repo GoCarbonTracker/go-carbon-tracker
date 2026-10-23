@@ -106,13 +106,18 @@ def test_save_stores_the_normalised_filter_and_open_answers_what_records_answers
     assert without_view(opened(gct, gws, "g")) == records(gct, gws, flt, "--shape", "graph")
 
 
-# R2: name empty, 81 characters, with a line break, control characters only; section maps; bad filters
+# R2: name empty, 81 characters, with a line break (U+2028 and U+2029 too), control characters only, no visible
+# character (U+200B, U+FEFF); section maps; bad filters
 BAD = [
     ("", {}, [], "The saved view name is empty."),
     ("   ", {}, [], "The saved view name is empty."),
     ("x" * 81, {}, [], "The saved view name is longer than 80 characters."),
     ("a\nb", {}, [], "The saved view name has a line break or another control character."),
     ("\x01\x02", {}, [], "The saved view name has a line break or another control character."),
+    ("a b", {}, [], "The saved view name has a line break or another control character."),
+    ("a b", {}, [], "The saved view name has a line break or another control character."),
+    ("​", {}, [], "The saved view name is empty."),
+    ("﻿ ​", {}, [], "The saved view name is empty."),
     ("v", {}, ["--section", "maps"], "The section maps is not tables or graphs."),
     ("v", {"colour": [1]}, [], "The filter has no field colour."),
     ("v", {"company": []}, [], "The filter field company is not a list of one or more values."),

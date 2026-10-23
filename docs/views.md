@@ -124,7 +124,8 @@ N was permanently deleted." A filter that matches nothing today is saved, since 
     gct view remove "Scope 1 by year" --as ana
     gct view questions
 
-A name is 1 to 80 characters on one line, trimmed, and compared exactly (two names differing in case are two views).
+A name is 1 to 80 characters on one line, at least one of them visible (a name of only spaces and invisible characters
+such as U+200B is refused as empty), trimmed, and compared exactly (two names differing in case are two views).
 Saving under an existing name puts the new view first and keeps the earlier one (`earlier` counts them). Removing a view
 takes it off the list; its saves and the removal stay in the workspace, and `gct view list` says how many names are
 removed. Every save and removal names its contributor. Opening a view answers exactly what `gct view records` answers

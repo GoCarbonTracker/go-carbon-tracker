@@ -37,13 +37,13 @@ WHERE s.name = ? ORDER BY s.id DESC
 
 
 def _name(name) -> str:
-    """The name as typed, trimmed: 1 to 80 characters on one line."""
+    """The name as typed, trimmed: 1 to 80 characters on one line, at least one of them visible."""
     name = (name or "").strip()
     example = 'for example "Scope 1 by year"'
-    if any(unicodedata.category(ch) == "Cc" for ch in name):
+    if len(name.splitlines()) > 1 or any(unicodedata.category(ch) == "Cc" for ch in name):
         raise GctError(USAGE, "The saved view name has a line break or another control character.",
                        f"Give a name on one line, {example}.")
-    if not name:
+    if all(ch.isspace() or unicodedata.category(ch) == "Cf" for ch in name):
         raise GctError(USAGE, "The saved view name is empty.", f"Give a name, {example}.")
     if len(name) > MAX_NAME:
         raise GctError(USAGE, f"The saved view name is longer than {MAX_NAME} characters.",
