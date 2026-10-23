@@ -242,6 +242,31 @@ print(json.dumps({"gct": gct.__file__}))
 """
 
 
+def old_purge(tree, db, path, d) -> None:
+    """E6_BASE's purge of document d from the file at path, with the ids its deletion would pass."""
+    old_python(tree, OLD_PURGE, json.dumps({
+        "path": str(path), "doc": d, "claims": [x for (x,) in db.execute("SELECT id FROM claim WHERE document_id = ?", (d,))],
+        "versions": [x for (x,) in db.execute(deletion.VERSIONS, {"d": d})]}))
+
+
+# AC 21: E6_BASE's purge of a alone, while d survives: standalone keeps d's reviewed point and its series row, so
+# only match_candidate_rule can remove standalone's candidates; consolidated keeps its own (Codex review of 68ba933)
+def test_the_older_purge_of_the_last_rule_points_leaves_the_reviewed_point_and_no_candidate(world, db, e6_tree, tmp_path):
+    ws, docs, s, c = world["ws"], world["docs"], world["series"], world["claims"]
+    path = tmp_path / "copy.db"
+    shutil.copyfile(published.version_path(ws, 1), path)
+    old_purge(e6_tree, db, path, docs["a"])
+    conn = sqlite3.connect(path)
+    try:
+        points = conn.execute("SELECT link, claim_id FROM series_point WHERE series_id = ?", (s["std"],)).fetchall()
+        kept = conn.execute("SELECT id FROM series WHERE id = ?", (s["std"],)).fetchall()
+        left = conn.execute("SELECT claim_id, series_id, decision FROM match_candidate ORDER BY rowid").fetchall()
+    finally:
+        conn.close()
+    assert points == [("reviewed", c["d"])] and kept == [(s["std"],)]
+    assert left == [(c["d"], s["con"], "not_linked"), (c["e"], s["con"], None), (c["w"], s["p"], None)]
+
+
 # AC 21: E6_BASE's purge, which does not know match_candidate, run directly on a 16 file: the triggers leave no
 # candidate behind; the same purge on the file without its triggers does (so the check can fail)
 @pytest.mark.parametrize("triggers", [True, False])
@@ -256,10 +281,7 @@ def test_the_older_purge_on_a_16_file_leaves_no_candidate(world, db, e6_tree, tm
         conn.commit()
         conn.close()
     for k in ("d", "p", "a"):  # the waiting claim's own, a document-scoped series, the last rule points of standalone
-        d = docs[k]
-        old_python(e6_tree, OLD_PURGE, json.dumps({
-            "path": str(path), "doc": d, "claims": [x for (x,) in db.execute("SELECT id FROM claim WHERE document_id = ?", (d,))],
-            "versions": [x for (x,) in db.execute(deletion.VERSIONS, {"d": d})]}))
+        old_purge(e6_tree, db, path, docs[k])
     conn = sqlite3.connect(path)
     try:
         left = conn.execute("SELECT claim_id, series_id FROM match_candidate ORDER BY rowid").fetchall()
