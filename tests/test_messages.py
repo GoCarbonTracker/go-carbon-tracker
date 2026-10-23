@@ -819,11 +819,33 @@ def test_a_read_only_folder_is_refused_also_while_its_wal_files_exist(ws, gct, u
         conn.close()
 
 
-def test_a_report_preview_on_a_read_only_folder_names_the_folder_and_no_file_suffix(ws, gct, unwritable):
-    """R2 (granted by E7 2026-10-23): the report reader's cause, E8-D16's third FR78 fix."""
+@pytest.mark.parametrize("argv", [["report", "preview"], *(["report", name, "--format", "json"] for name in (
+    "evidence-index", "restatement-log", "gap-report", "all"))])
+def test_a_report_on_a_read_only_folder_gets_the_open_refusal_first(ws, gct, unwritable, argv):
+    """Review r1 F1 (R4, granted 2026-10-23): every report command refuses a read-only workspace folder as _open does,
+    before the lock, the upgrade check or a connection; no export, no run and no log is written."""
     gct("company", "add", "Acme")
+    gct("publish", "build")
     names = internal_names(ws)
     unwritable(ws)
+    data = assert_refusal(gct, argv, 4, names)
+    assert data["cause"] == f"The workspace folder {ws.resolve()} is read-only, so gct cannot open it.", argv
+    assert data["next_action"] == "Make the folder writable, or copy the workspace to a writable folder."
+    assert not list((ws / "exports").iterdir()) and not list((ws / "logs").iterdir())
+
+
+def test_a_report_preview_whose_database_cannot_be_read_names_the_folder_and_no_file_suffix(ws, gct, monkeypatch):
+    """R2 (granted by E7 2026-10-23): the report reader's cause, E8-D16's third FR78 fix, reached on a writable
+    folder whose database still cannot be read."""
+    from gct.workspace import store
+
+    gct("company", "add", "Acme")
+    names = internal_names(ws)
+
+    def unreadable(conn):
+        raise sqlite3.OperationalError("attempt to write a readonly database")
+
+    monkeypatch.setattr(store, "pending", unreadable)
     data = assert_refusal(gct, ["report", "preview"], 4, names)
     assert data == {"status": "error",
                     "cause": f"The workspace folder {ws.resolve()} is read-only, and building a report needs to write"

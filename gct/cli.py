@@ -1587,6 +1587,7 @@ def report_dataset(args) -> tuple[dict, dict]:
     """(dataset, preview) of the current data version under the workspace lock (released by main), from workspace.db
     opened read-only: no upgrade, no run and no file is written (7.1-P9, R3)."""
     args.root = layout.locate(args.workspace)
+    _refuse_read_only(args.root)
     args.lock = lock.hold(args.root)
     conn = published.open_version(args.root / layout.DB_NAME)
     try:
@@ -1657,6 +1658,7 @@ def cmd_report(args) -> None:
     opts = report_options(args)
     view.normalise(opts["filter"])
     args.root = layout.locate(args.workspace)  # not _open: a refused export must not have upgraded the workspace
+    _refuse_read_only(args.root)
     args.lock = lock.hold(args.root)
     conn = store.connect(args.root / layout.DB_NAME)
     _no_report_upgrade(conn)
