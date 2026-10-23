@@ -991,6 +991,9 @@ def _finish(b: _Build, mode, acct, mine) -> tuple[dict, dict]:
                           "name": d["logical_name"] if d else hidden[i]["logical_name"] if i in hidden else None,
                           "version": d and d["version"], "kind": d and d["kind"], "file_type": d and d["file_type"],
                           "availability": e["availability"], "state": state, "_company": d and d["company_id"]})
+    from gct.reports.crops import credential_documents
+
+    held = credential_documents(b.conn, b.root, [mine["docs"][i] for i in named if i in mine["docs"]])
     empty = not mine["evidence_index"]
     notices = []
     if sanitised:
@@ -1001,6 +1004,8 @@ def _finish(b: _Build, mode, acct, mine) -> tuple[dict, dict]:
         notices += [x["text"] for x in a["deleted_in_filter"]]
     if set(flt) - {"company", "document"}:
         notices.append(EXPECTATIONS_SCOPE)
+    notices += [f"Evidence images for document {d['id']} ({d['name']}) are withheld because its PDF text layer"
+                " contains a credential or could not be read." for d in documents if d["id"] in held]
     echo = copy.deepcopy(flt)  # the dataset is scrubbed in place; the preview prints flt
     if sanitised:
         companies = {d["_company"] for d in documents}

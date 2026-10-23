@@ -134,11 +134,17 @@ def _rows(plan):
             yield "evidence_index", item[3]
 
 
+def _withheld(dataset, entry):
+    """The builder's credential-withholding notice for this document, or None."""
+    prefix = f"Evidence images for document {entry['document_id']} ("
+    return next((n for n in dataset["notices"] if n.startswith(prefix)), None)
+
+
 def _check(dataset, reports, crops):
     """The three refusals (story 7.4 Design, "Refusals"), before any file is opened."""
     again = "Run the report again. If this message repeats, report it as a fault in GCT."
     ids = {e["id"] for e in dataset["evidence"]}
-    pages = {e["id"] for e in dataset["evidence"] if e["page"] is not None}
+    pages = {e["id"] for e in dataset["evidence"] if e["page"] is not None and not _withheld(dataset, e)}
     if odd := sorted(set(crops) - ids):
         raise Refusal(f"A page image was made for evidence E{odd[0]}, which this report's data does not hold.", again)
     if crops and (lacking := sorted(pages - set(crops))):
@@ -175,7 +181,7 @@ def write(dataset, reports, folder, crops) -> dict:
     titles, headings, sep = fixed["titles"], fixed["headings"], fixed["separator"]
     cols, evidence = dataset["columns"], {e["id"]: e for e in dataset["evidence"]}
     documents = {d["id"]: d for d in dataset["documents"]}
-    cap = not crops and any(e["page"] is not None for e in dataset["evidence"])
+    cap = not crops and any(e["page"] is not None and not _withheld(dataset, e) for e in dataset["evidence"])
     width, height = A4
     text_width, room = width - 2 * MARGIN, height - 2 * MARGIN - 4 * LEADING
 
@@ -261,7 +267,9 @@ def write(dataset, reports, folder, crops) -> dict:
             entry = [Paragraph(ink(f"E{i}", BOLD), style("e", BOLD, before=10)),
                      *each([f"{ink(headings[k])}: {ink(_shown(v, None, k, words))}" for k, v in where], "w")]
             binding = any(r.get("binds") is not False for r in rows)  # a non-binding record shows its location only
-            if e["page"] is not None and binding and not cap:
+            if note := _withheld(dataset, e):
+                entry.append(Paragraph(ink(note), style("w")))
+            elif e["page"] is not None and binding and not cap:
                 claims = sorted(r["claim_id"] for r in rows if r.get("claim_id") is not None)
                 alt = (fixed["image_alt"].format(claim=claims[0], document=doc_name, page=e["page"]) if claims else
                        fixed["image_alt_entry"].format(evidence=i, document=doc_name, page=e["page"]))

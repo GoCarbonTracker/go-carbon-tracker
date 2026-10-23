@@ -138,3 +138,24 @@ def test_raw_environment_credentials_still_scrub_beside_normalized_credentials(m
     monkeypatch.setenv("SYNTHETIC_KEY", "key-e\u0301-token")
     assert dataset._scrub("ﬁ | key-e\u0301-token | ①") == "ﬁ | [redacted] | ①"
     assert dataset._scrub("key-e\u0301-token | " + FULLWIDTH) == "[redacted] | [redacted]"
+
+
+def test_unknown_projected_label_with_current_shareable_label_never_reaches_renderers(small):
+    root, doc = small
+    conn = store.connect(root / layout.DB_NAME)
+    try:
+        _, path = published.current_version(conn, root)
+        with sqlite3.connect(path) as projection:
+            projection.execute("UPDATE document SET privacy = ? WHERE id = ?", ("unknown-label-8729", doc))
+            projection.execute("UPDATE claim SET metric_text = ? WHERE document_id = ?", ("UNKNOWN-ORIGIN-SEED", doc))
+        pinned = published.open_version(path)
+        try:
+            assert labels.effective(conn, pinned)[doc]["label"] == "private"
+        finally:
+            pinned.close()
+    finally:
+        conn.close()
+    out = gct("report", "all", "--format", "json,xlsx,csv,pdf,page", "--workspace", root)
+    d = json.loads((Path(out["folder"]) / "dataset.json").read_text())
+    assert d["evidence_index"] == []
+    assert "UNKNOWN-ORIGIN-SEED" not in json.dumps(d)

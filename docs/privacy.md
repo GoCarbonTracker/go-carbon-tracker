@@ -79,6 +79,8 @@ workspace path, error logs, contributor keys, the full text of readings, the lis
 checked, or the SHA-256 of a document that does not ship. Every string passes the credential scrubber in both
 modes.
 
+Credentials visible only as image pixels are not detected because GCT does not use OCR.
+
 ## Sequential ids
 
 Document, claim and record ids are kept as they are in sanitised outputs. Because they are sequential, a gap in

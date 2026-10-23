@@ -114,6 +114,12 @@ def _blocks(dataset, report) -> list[tuple]:
     return out
 
 
+def _withheld(dataset, entry):
+    """The builder's credential-withholding notice for this document, or None."""
+    prefix = f"Evidence images for document {entry['document_id']} ("
+    return next((n for n in dataset["notices"] if n.startswith(prefix)), None)
+
+
 def _check(dataset, reports, crops):
     """The four refusals (story 7.5 Design, "Refusals"), before any file is opened. A cause names tables, ids and
     fixed headings only."""
@@ -121,7 +127,7 @@ def _check(dataset, reports, crops):
     if [r for r in reports if r not in REPORTS]:
         raise Refusal("A viewer page was asked for a report this data does not hold.", again)
     ids = {e["id"] for e in dataset["evidence"]}
-    pages = {e["id"] for e in dataset["evidence"] if e["page"] is not None}
+    pages = {e["id"] for e in dataset["evidence"] if e["page"] is not None and not _withheld(dataset, e)}
     if odd := sorted(set(crops) - ids):
         raise Refusal(f"A page image was made for evidence E{odd[0]}, which this report's data does not hold.", again)
     if crops and (lacking := sorted(pages - set(crops))):
@@ -140,7 +146,7 @@ def _shown_crops(dataset, reports, cap) -> set:
     """R5.3: the page entries a binding row of a selected report cites (pair sides and sub-tables included)."""
     if cap:
         return set()
-    pages = {e["id"] for e in dataset["evidence"] if e["page"] is not None}
+    pages = {e["id"] for e in dataset["evidence"] if e["page"] is not None and not _withheld(dataset, e)}
     return {i for report in reports for t, _, rows, _ in _blocks(dataset, report) for r in _walk(t, rows)
             if r.get("binds") is not False for i in r["evidence"] if i in pages}
 
@@ -175,7 +181,9 @@ def _page(dataset, report, reports, shown, cap) -> str:
                                            [("sheet", e["sheet"]), ("cell", e["cell"])])
         text = sep.join([f"E{int(i)}"] + [f"{headings[k]}: {_shown(v, None, k, words)}" for k, v in loc])
         out = [f'<div class="evidence"><p>{esc(text)}</p>']
-        if i in shown and row.get("binds") is not False:
+        if note := _withheld(dataset, e):
+            out.append(f'<p>{esc(note)}</p>')
+        elif i in shown and row.get("binds") is not False:
             claim = row.get("claim_id")
             alt = (fixed["image_alt"].format(claim=claim, document=name, page=e["page"]) if claim is not None else
                    fixed["image_alt_entry"].format(evidence=i, document=name, page=e["page"]))
@@ -260,7 +268,7 @@ def write(dataset, reports, folder, crops) -> dict:
     binding row of those reports cites, every file opened with mode x. crops is the one dict crops.cut returned; {}
     with a page entry in the dataset is the image cap: no image, and the cap sentence on every page and in notes."""
     _check(dataset, reports, crops)
-    cap = not crops and any(e["page"] is not None for e in dataset["evidence"])
+    cap = not crops and any(e["page"] is not None and not _withheld(dataset, e) for e in dataset["evidence"])
     shown = _shown_crops(dataset, reports, cap)
     pages = {f"{r.replace('_', '-')}.html": _page(dataset, r, reports, shown, cap) for r in reports}
     folder = Path(folder)

@@ -3,10 +3,14 @@ entry of dataset["evidence"] from the stored original, with the viewer's rendere
 viewer's render cache is neither read nor written. It runs under the lock gct report holds for build, crops and
 render, never opens workspace.db or a version file and never reads a label (the builder applied them)."""
 import itertools
+import json
 import math
+import unicodedata
 from io import BytesIO
+from pathlib import Path
 
 from gct.evidence.pages import _frames, _render
+from gct.models.redact import scrub
 from gct.workspace import registry
 from gct.workspace.layout import NOT_FOUND, GctError
 
@@ -15,6 +19,52 @@ SCALE, PAGE_SCALE = 3.0, 1.5  # a band (7.4-P2), a whole page (the viewer's scal
 MARGIN = 24  # points above and below the boxes' union (7.4-P1)
 SPREAD = 1.4  # a frame wider than this times its height is a two-up spread (7.4-P1)
 OUTLINE, GROW = (220, 0, 0), 2  # 7.4-P11: the ring of pixels just outside each box
+
+
+def _credential(text):
+    normal = unicodedata.normalize("NFKC", text)
+    return scrub(text) != text or scrub(normal) != normal
+
+
+def credential_documents(conn, root, documents) -> set:
+    """PDF ids with credentials in any reading or unreadable page text. No pixels are inspected."""
+    import pdfplumber
+
+    held = set()
+    for d in documents:
+        if d["file_type"] != "pdf":
+            continue
+        readings = {}
+        for r in conn.execute("SELECT p.page_number, a.path FROM page p JOIN artifact a ON a.id = p.artifact_id"
+                              " WHERE p.document_id = ? ORDER BY p.id", (d["id"],)):
+            try:
+                text = json.loads((Path(root) / r["path"]).read_text(encoding="utf-8"))["text"]
+                if not isinstance(text, str):
+                    continue
+                if _credential(text):
+                    held.add(d["id"])
+                readings[r["page_number"]] = text
+            except (OSError, ValueError, KeyError, TypeError):
+                continue  # The stored PDF supplies text when the reading cannot.
+        if d["id"] in held:
+            continue
+        try:
+            with pdfplumber.open(registry.stored_path(Path(root), d["sha256"])) as pdf:
+                for number, page in enumerate(pdf.pages, 1):
+                    text = readings.get(number) or page.extract_text() or ""
+                    if _credential(text):
+                        held.add(d["id"])
+                        break
+                    page.close()
+        except Exception:  # Any PDF text-layer read failure must withhold the whole document.
+            held.add(d["id"])
+    return held
+
+
+def withheld(dataset, entry):
+    """The dataset notice that withholds this entry's image, or None. Notices retain the schema's evidence fields."""
+    prefix = f"Evidence images for document {entry['document_id']} ("
+    return next((n for n in dataset["notices"] if n.startswith(prefix)), None)
 
 
 def _pixels(rect, size) -> tuple[int, int, int, int]:
@@ -73,7 +123,7 @@ def cut(root, dataset) -> dict:
     """{evidence id: PNG bytes} for exactly the page entries of dataset["evidence"]; {} above LIMIT. A band at SCALE
     with every box outlined for an entry with boxes, the page's render at PAGE_SCALE unchanged for a whole-page one;
     cell entries get nothing. Each (original, page, scale) is rendered once per call."""
-    pages = [e for e in dataset["evidence"] if e["page"] is not None]
+    pages = [e for e in dataset["evidence"] if e["page"] is not None and not withheld(dataset, e)]
     if len(pages) > LIMIT:
         return {}
     missing = sorted({e["document_id"] for e in pages if not registry.stored_path(root, e["sha256"]).is_file()})

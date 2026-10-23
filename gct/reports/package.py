@@ -16,6 +16,7 @@ from pathlib import Path
 from gct import __version__
 from gct.models.redact import scrub, scrub_key
 from gct.reports import pin as pinning
+from gct.reports.crops import credential_documents
 from gct.reports.export import folder as _folder
 from gct.stages import deletion, match, sheet
 from gct.workspace import labels, layout, published, registry, runs, store
@@ -282,11 +283,14 @@ def _plan(conn, root, mode: str, include: tuple):
     _refuse_stale(conn, root, source["version"])
     ship, withheld, docs, eff = _decide(conn, root, mode, include)
     shipped = [d["id"] for d in ship["document"]]
+    held = credential_documents(conn, root, [d for d in ship["document"] if docs[d["id"]]["state"] != "deleted"])
     originals = {}
     for d in ship["document"]:
-        if docs[d["id"]]["state"] != "deleted":
+        if docs[d["id"]]["state"] != "deleted" and d["id"] not in held:
             originals[d["sha256"]] = d["size_bytes"]
-    readings = sorted({a["path"] for a in ship["artifact"] if (root / a["path"]).is_file()})
+    held_readings = {a["path"] for a in ship["artifact"] if a["document_id"] in held}
+    readings = sorted({a["path"] for a in ship["artifact"]
+                       if a["path"] not in held_readings and (root / a["path"]).is_file()})
     included = {"documents": [{"id": d["id"], "sha256": d["sha256"], "label": eff[d["id"]]["label"]}
                               for d in ship["document"]],
                 "tables": {t: len(rows) for t, rows in ship.items()},
@@ -314,11 +318,14 @@ def _plan(conn, root, mode: str, include: tuple):
                                               "included": included}, sort_keys=True).encode()).hexdigest()[:12]
     paths = sum(bool(LOCAL_PATH.search(r["item"] or "") or LOCAL_PATH.search(r["message"] or ""))
                 for r in ship["run_event"])
-    out["lines"] = _lines(conn, out, docs, shipped, names, paths)
+    file_notes = [scrub(f"Original and reading files for document {i} ({docs[i]['logical_name']}) are withheld"
+                        " because its PDF text layer contains a credential or could not be read.") for i in sorted(held)]
+    out["lines"] = [*_lines(conn, out, docs, shipped, names, paths), *file_notes]
     files = ["workspace.db", "published/v1.db", MANIFEST, *readings,
              *(registry.stored_path(Path(), s).as_posix() for s in sorted(originals))]
     withheld_files = {d["sha256"] for d in docs.values() if d["id"] not in shipped and d["state"] != "deleted"}
     return out, {"ship": ship, "names": names, "eff": eff, "files": files, "withheld_files": withheld_files,
+                 "credential_documents": held, "file_notes": file_notes,
                  "private": [i for i in shipped if eff[i]["label"] == "private" and docs[i]["state"] != "deleted"]}
 
 
@@ -437,7 +444,8 @@ def _write(root: Path, folder: Path, p: dict, w: dict) -> dict:
             if path.startswith(("files/", "artifacts/")):
                 (folder / path).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(src, folder / path)
-        if registry.verify(pk, folder):
+        if any(p["problem"] != "missing" or p.get("document_id") not in w["credential_documents"]
+               for p in registry.verify(pk, folder)):
             raise _failed("an original file does not match its document")
         published.build(pk, folder)
         pconn, own = pinning.pin(pk, folder)
@@ -460,7 +468,7 @@ def _write(root: Path, folder: Path, p: dict, w: dict) -> dict:
     at = store.now()
     manifest = {"package_schema": 1, "mode": mode, "include": list(include), "created_at": at,
                 "gct_version": __version__, "data_version": own, "source_data_version": source,
-                "text": TEXTS[mode == "complete"].format(at=at, sha=own["sha256"])}
+                "text": " ".join([TEXTS[mode == "complete"].format(at=at, sha=own["sha256"]), *w["file_notes"]])}
     (folder / MANIFEST).write_text(json.dumps(manifest, indent=1), encoding="utf-8")
     return manifest
 
@@ -511,4 +519,4 @@ def create(conn, root, mode: str, include: tuple, token: str, include_private: b
     return {"folder": folder, "mode": mode, "include": list(include), "token": token, "run_id": run_id,
             "source_data_version": manifest["source_data_version"], "data_version": own,
             "lines": [f"Wrote {kind} to {folder} from data version {v['version']} (built {v['built_at']}).",
-                      f"The package holds its own data version 1 (built {own['built_at']}).", deletion.WARNING]}
+                      f"The package holds its own data version 1 (built {own['built_at']}).", *w["file_notes"], deletion.WARNING]}
