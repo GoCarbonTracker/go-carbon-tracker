@@ -496,6 +496,57 @@ def test_an_existing_package_name_is_refused(src, gct, monkeypatch):
     assert tree(src / "exports" / stem) == first
 
 
+# D9 (review F1): a file that appears after the writer's own checks, before export.folder's check on exit, is refused
+# without its name or any part of it in the cause or the run log, for a report and a package; exports/ is left empty
+LATE = "PRIVATE-CLIENT-ACQUISITION.txt"
+
+
+@pytest.mark.parametrize("argv", [["report", "all", "--format", "json"], ["package", "create"]])
+def test_a_late_file_is_refused_without_its_name(src, gct, monkeypatch, argv):
+    last = {"write_text": Path.write_text, "write_bytes": Path.write_bytes}
+
+    def late(kind):
+        def write(path, *args, **kwargs):
+            out = last[kind](path, *args, **kwargs)
+            if path.parent.name.startswith(".incoming-") and (path.name == package.MANIFEST
+                                                              or path.name.endswith(".schema.json")):
+                last["write_text"](path.parent / LATE, "synthetic")  # the last file each writer writes
+            return out
+        return write
+
+    for kind in last:
+        monkeypatch.setattr(Path, kind, late(kind))
+    r = gct(*argv, "--confirm", preview(gct)["token"], "--json") if argv[0] == "package" else gct(*argv, "--json")
+    assert (r.code, r.data["status"]) == (4, "error"), r.data
+    conn = store.connect(src / layout.DB_NAME)
+    run = runs.show_run(conn, runs.list_runs(conn)[0]["id"])
+    conn.close()
+    logged = json.dumps([r.data, run])
+    assert run["outcome"] == "failed" and "did not match" in r.data["cause"]
+    for part in (LATE, "PRIVATE", "CLIENT", "ACQUISITION", ".txt"):
+        assert part not in logged, part
+    assert made(src) == []
+
+
+# D9: a final name that appears after that check is refused by export.folder's own check on exit, never overwritten
+def test_a_package_name_taken_during_the_write_is_refused_by_the_folder_check(src, gct, monkeypatch):
+    monkeypatch.setattr(package, "_stamp", lambda: "20261023T000000000000Z")
+    stem = "package-v2-20261023T000000000000Z-sanitised"
+    write = package._write
+
+    def taken(root, folder, p, w):
+        (root / "exports" / stem / "theirs").mkdir(parents=True)  # another writer takes the name meanwhile
+        return write(root, folder, p, w)
+
+    monkeypatch.setattr(package, "_write", taken)
+    r = create(gct)
+    assert (r.code, r.data["cause"]) == (4, f"An export named {stem} already exists; nothing was overwritten.")
+    assert made(src) == [stem] and [p.name for p in (src / "exports" / stem).rglob("*")] == ["theirs"]
+    conn = store.connect(src / layout.DB_NAME)
+    assert (runs.list_runs(conn)[0]["command"], runs.list_runs(conn)[0]["outcome"]) == ("package create", "failed")
+    conn.close()
+
+
 # AC 5: a failed check removes the .incoming- folder and records the run failed; sanitised retries with the same token
 def test_a_failed_check_writes_no_folder_and_records_the_run_failed(src, gct, monkeypatch):
     for mode in ([], ["--complete", "--include-private"]):

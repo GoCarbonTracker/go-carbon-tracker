@@ -701,7 +701,8 @@ def test_an_unlisted_or_missing_file_is_refused(ws, gct, monkeypatch):
     for fn, odd in ((extra, "sub/y.txt"), (short, "never.txt")):
         monkeypatch.setitem(export.FORMATS, "odd", {"write": fn, "crops": False})
         r = gct("report", "all", "--format", "odd", "--workspace", ws, "--json")
-        assert r.code == 4 and odd in r.data["cause"] and listing(ws) == []
+        assert r.code == 4 and odd not in r.data["cause"] and listing(ws) == []  # a file name can be private
+        assert r.data["cause"] == "An export's files did not match the files its formats listed. Nothing was exported."
 
 
 @pytest.fixture

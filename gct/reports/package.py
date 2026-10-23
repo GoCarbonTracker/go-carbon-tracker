@@ -10,13 +10,13 @@ import re
 import shutil
 import sqlite3
 from collections import Counter
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 from gct import __version__
 from gct.models.redact import scrub
 from gct.reports import pin as pinning
+from gct.reports.export import folder as _folder
 from gct.stages import deletion, sheet
 from gct.workspace import labels, layout, published, registry, runs, store
 from gct.workspace.layout import REFUSED, USAGE, GctError
@@ -330,28 +330,6 @@ def _lines(conn, p: dict, docs: dict, shipped: list, names: dict, paths: int) ->
     lines.append(f"Not in the package: {gone['run_log_lines']} run log lines (each run keeps its outcome),"
                  f" {gone['approvals']} approvals, {gone['saved_views']} saved views, {gone['page_images']} page images.")
     return [*lines, _create_line(p)]
-
-
-@contextmanager
-def _folder(root, stem: str, files=None):
-    """7.2's export.folder(root, stem, files=None), to the letter of its contract, until 7.2 is on main; then this
-    function becomes `from gct.reports.export import folder as _folder`."""
-    exports = Path(root) / "exports"
-    exports.mkdir(exist_ok=True)
-    tmp = exports / f".incoming-{stem}"
-    tmp.mkdir(exist_ok=False)
-    try:
-        yield tmp
-        if files is not None and {p.relative_to(tmp).as_posix() for p in tmp.rglob("*") if p.is_file()} != set(files):
-            raise GctError(REFUSED, "The export did not hold exactly the files it should; nothing was written.",
-                           "Run the command again.")
-        if (exports / stem).exists():
-            raise GctError(REFUSED, f"An export named {stem} already exists; nothing was overwritten.",
-                           "Run the command again.")
-        tmp.rename(exports / stem)
-    except BaseException:
-        shutil.rmtree(tmp, ignore_errors=True)
-        raise
 
 
 def _failed(cause: str) -> GctError:
