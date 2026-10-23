@@ -4506,7 +4506,7 @@
     "projection_schema": {
      "description": "The projection schema of the version file.",
      "type": "integer",
-     "minimum": 15
+     "minimum": 16
     }
    },
    "required": [
@@ -4536,7 +4536,7 @@
     "projection_schema": {
      "description": "The projection schema of the version file.",
      "type": "integer",
-     "minimum": 15
+     "minimum": 16
     },
     "history_mark": {
      "description": "The version's history mark: workspace-wide record counts, dot-separated.",

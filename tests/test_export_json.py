@@ -206,6 +206,8 @@ def test_the_schema_enums_equal_the_code_constants():
     assert d["documents"]["properties"]["availability"]["enum"] == list(labels.AVAILABILITY)
     assert d["extraction_limits"]["properties"]["type"]["enum"] == list(missing.TYPES)
     assert SCHEMA["properties"]["dataset_schema"]["const"] == dataset.DATASET_SCHEMA
+    for name in ("data_version_sanitised", "data_version_complete"):  # the oldest projection pin.pin reads
+        assert d[name]["properties"]["projection_schema"]["minimum"] == pin.SCHEMA
     assert SCHEMA["properties"]["mode"]["enum"] == list(dataset.MODES)
     assert SCHEMA["properties"]["include"]["items"]["enum"] == list(dataset.INCLUDE)
     assert list(SCHEMA["properties"]["columns"]["properties"]) == list(dataset.COLUMNS)
@@ -222,6 +224,25 @@ def test_the_schema_enums_equal_the_code_constants():
     for table, keys in dataset._KEYS.items():  # every printed column key is a row key of the schema
         props = d[table]["properties"]
         assert {k.split(".")[0] for k in keys} <= set(props), table
+
+
+def test_reports_md_names_every_key_of_the_schema():  # AC 7; words.fixed holds wording keys, not data keys
+    schema = copy.deepcopy(SCHEMA)
+    schema["$defs"]["words"]["properties"]["fixed"] = {}
+    keys = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            keys.update(node.get("properties", {}))
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(schema)
+    doc = (ROOT / "docs" / "reports.md").read_text(encoding="utf-8")
+    assert sorted(k for k in keys if f"`{k}`" not in doc) == []
 
 
 def test_gct_never_imports_jsonschema():
@@ -327,7 +348,8 @@ def mutations():
             claim_state="not-found")),
         "a missing state merged": ("complete", lambda d: first("expectations")(d).update(state="missing")),
         "a pair state code": ("sanitised", lambda d: d["restatement_log"][0].update(state="same")),
-        "a projection_schema of 14": ("sanitised", lambda d: d["data_version"].update(projection_schema=14)),
+        "a projection_schema below the pin's": ("sanitised", lambda d: d["data_version"].update(
+            projection_schema=pin.SCHEMA - 1)),
         "a version 0": ("sanitised", lambda d: d["data_version"].update(version=0)),
         "a document id as a string": ("sanitised", lambda d: d["evidence_index"][0].update(document_id="1")),
         "an unknown inclusion class": ("sanitised", lambda d: d.update(include=["names"])),
