@@ -1685,6 +1685,19 @@ def cmd_report(args) -> None:
            "\n".join(lines + report_lines(d, p)))
 
 
+def cmd_troubleshoot_export(args) -> None:
+    """gct troubleshoot export (story 8.3): opened like gct run list; no run is recorded (D-8.3-3)."""
+    from pathlib import Path
+
+    from gct.workspace import troubleshoot
+
+    conn = _open(args, write=False)
+    given = args.workspace or os.environ.get("GCT_WORKSPACE")
+    out = troubleshoot.write(conn, args.root, [Path(given).expanduser().absolute()] if given else [])
+    _print(args, {"status": "ok", **out}, f"Wrote {out['folder']} ({', '.join(out['files'])}).\nRead both files before"
+                                          " you send them to anyone; they hold no document, company or contributor name.")
+
+
 def cmd_serve(args) -> None:
     from gct.api import server  # FastAPI and uvicorn add about 30 MB to every other command's memory (AC 17)
 
@@ -2137,6 +2150,10 @@ def build_parser() -> argparse.ArgumentParser:
     g2_.add_argument("--seed", type=int, help="seed of the adjudication sample (default: drawn and printed)")
     g2_.add_argument("--against", metavar="REPORT", help="a previous report: print the scorer or extraction delta")
     g2_.set_defaults(func=cmd_measure_g2)
+
+    troubleshoot = group("troubleshoot", "help for a failed command (see docs/troubleshooting.md)")
+    troubleshoot.add_parser("export", parents=[common], help="write a sanitised troubleshooting folder under exports/"
+                            ).set_defaults(func=cmd_troubleshoot_export)
 
     serve = top.add_parser("serve", parents=[common], help="start the local service and open it in the browser")
     serve.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (default: 8765)")

@@ -582,5 +582,12 @@ As `report evidence-index`, for the three reports.
 
 The review writes (story 5.4) work the same way, each calling its command's function under the workspace lock and then building a published version; each answers like its command plus `data_version`. `POST /api/claims/{id}/company-confirmations` and `POST /api/claims/{id}/auditor-reviews` (`review company` and `review auditor`: `version`, `outcome`, `scope`, `conclusion`, `contributor`, `capacity`, optional `evidence_document`, `evidence_page`, `evidence_note`, `date`), `POST /api/claims/{id}/flags` (`flag raise` when `decision` is `raised`, `flag withdraw` when `withdrawn`: `version`, `rationale`, `contributor`, `capacity`; the answer is `{"status", "flag", "data_version"}`), `POST /api/claims/{id}/highlights` (`highlight add`: `version`, `note`, `contributor`, `capacity`) and `POST /api/adjudications` (`adjudicate record`: `first` and `second`, the two claim ids, `state` in the command's words such as `extraction-error`, `rationale`, `procedure`, `contributor`, `capacity`, optional `counter_document`, `counter_page`, `counter_note`, `follow_up`, `closure_reason`). Ids, versions and pages are JSON whole numbers, every other field a string; a field of the wrong type, a missing required field, a body that is not a JSON object (400) or that is not sent as `application/json` (415) is refused before anything runs, and every refusal of the command arrives with its own `cause` and `next_action` (404 for exit 3, 409 for exit 4, 400 for exit 2; 409 when another command holds the workspace). Nothing is written on a refusal. `GET /api/claims/{id}/history` answers like `claims history` plus `highlights` on every version (the keys of `highlight list`); `GET /api/companies/{id}/candidates` answers like `adjudicate list --company` for that company plus `company`, its id.
 
+## troubleshoot export
+- top: status, folder, files
+
+`folder` is relative to the workspace (`exports/troubleshooting-<stamp>/`); `files` is `troubleshooting.json` and `troubleshooting.txt`. What the files hold is in `docs/troubleshooting.md`.
+
 ## error
 - top: status, cause, next_action
+
+A usage error (a missing or unknown option, a value of the wrong form) prints this object too, with exit 2; its `next_action` names the command's `--help`. `--json` counts only before a `--`: after it, it is an argument, and the error prints as `error:` and `next:` lines on stderr. `gct --version` and `--help` print text only.
