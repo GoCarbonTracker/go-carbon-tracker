@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Core, StylesheetJson } from "cytoscape";
+import type { Core, LayoutOptions, NodeSingular, StylesheetJson } from "cytoscape";
 import { newestOnly } from "./logic.ts";
-import { type BodyProps, CHOICES, countText, isStale, recordsBody, type Selection } from "./records.ts";
-import { canvasLabel, degrees, documentNames, elements, type GraphAnswer, hyperedgeRows, hypergraph, type Item, layoutOf, LEGEND,
-  neighbourhood, opening, picked, pointRow, request, type Row, type SeriesAnswer, sideText, type Target, timeSeries,
-  type View, VIEWS } from "./graphs.ts";
+import { type BodyProps, CHOICES, countText, isStale, recordsBody, type Selection, seriesText } from "./records.ts";
+import { canvasLabel, degrees, documentNames, edgeName, elements, type GraphAnswer, hyperedgeRows, hypergraph, type Item, layoutOf,
+  LEGEND, neighbourhood, opening, picked, pointRow, relationText, request, type Row, type SeriesAnswer, sideText, type Target,
+  timeSeries, type View, VIEWS } from "./graphs.ts";
 import "./graphs.css";
 
 type Failure = { cause: string; next_action: string };
@@ -17,11 +17,24 @@ type Props = Omit<BodyProps, "onSelectionChange"> & {
 
 const METRIC_WORDS = Object.fromEntries(CHOICES.metric);
 
-// Node kinds by shape (and by the word in their tables), never by colour alone; one accent marks the selection.
+// A drawing is fitted to the canvas but never enlarged past this zoom, so a few nodes keep their labels in proportion.
+const MAX_FIT = 1.25;
+
+// Node kinds by shape (and by the word in their tables), never by colour alone; one accent marks the selection. A
+// label is one line, cut short, drawn only above zoom 1 (Cytoscape checks min-zoomed-font-size at power-of-two zoom
+// steps), so a large drawing shows its shapes until zoomed in; a node under the pointer or selected shows its whole
+// label at about 12 px above the others. Every label is in full in the tables. Edges are long enough for the labels.
 const STYLE: StylesheetJson = [
   { selector: "node", style: { shape: "ellipse", width: 18, height: 18, "background-color": "#fff", "border-width": 1.5,
-    "border-color": "#1d2126", label: "data(label)", "font-size": 8, color: "#1d2126", "text-wrap": "wrap",
-    "text-max-width": "160px", "text-valign": "bottom", "text-margin-y": 3, "min-zoomed-font-size": 7 } },
+    "border-color": "#1d2126", label: (n: NodeSingular) => n.data("label").split("\n")[0], "font-size": 10,
+    color: "#1d2126", "text-wrap": "ellipsis", "text-max-width": "100px", "text-valign": "bottom", "text-margin-y": 3,
+    "min-zoomed-font-size": 11 } },
+  { selector: "node.point", style: { label: "data(label)", "text-wrap": "wrap", "text-max-width": "160px" } },
+  { selector: "node.hover, node:selected", style: { label: "data(label)", "text-wrap": "wrap", "min-zoomed-font-size": 0,
+    "z-index": 10,
+    "font-size": (n: NodeSingular) => Math.max(10, 12 / n.cy().zoom()),
+    "text-max-width": (n: NodeSingular) => `${Math.max(200, 240 / n.cy().zoom())}px`,
+    "text-background-color": "#fff", "text-background-opacity": 0.9, "text-background-padding": "2px" } },
   { selector: "node.page, node.cell", style: { shape: "rectangle" } },
   { selector: "node.period", style: { shape: "round-rectangle", width: 28 } },
   { selector: "node.boundary", style: { shape: "hexagon", width: 22 } },
@@ -30,8 +43,8 @@ const STYLE: StylesheetJson = [
   { selector: "node.adjudication", style: { shape: "pentagon", width: 22, height: 22 } },
   { selector: "node.hub", style: { width: 6, height: 6, "background-color": "#5b626b", "border-width": 0 } },
   { selector: "edge", style: { width: 1, "line-color": "#c2c6cc", "curve-style": "straight" } },
-  { selector: "edge.comparison", style: { width: 2, "line-color": "#5b626b", label: "data(label)", "font-size": 8,
-    "text-background-color": "#fff", "text-background-opacity": 1, "text-background-padding": "1px" } },
+  { selector: "edge.comparison", style: { width: 2, "line-color": "#5b626b", label: "data(label)", "font-size": 10,
+    "min-zoomed-font-size": 11, "text-background-color": "#fff", "text-background-opacity": 1, "text-background-padding": "1px" } },
   { selector: "edge.unresolved", style: { "line-style": "dashed" } },
   { selector: "edge.not-compared", style: { "line-style": "dotted" } },
   { selector: "node:selected", style: { "border-color": "#0a6e8a", "border-width": 3 } },
@@ -121,6 +134,8 @@ export default function Graphs({ filter, dataVersion, openEvidence, selection, o
 
   // The two graph views draw from one answer; while another view's answer is asked, the drawing on screen stays.
   const drawnView = answer?.shape === "graph" && shown !== "series" ? shown : answer?.view;
+  // After a refused request the drawing on screen stays, and the pressed view is the one drawn.
+  const pressed = answer && (stale || failure) ? drawnView : shown;
   const items = useMemo(() => {
     if (!answer?.data.drawable) return [];
     if (answer.shape === "series") return timeSeries(answer.data);
@@ -177,8 +192,18 @@ export default function Graphs({ filter, dataVersion, openEvidence, selection, o
       if (!live || !canvas.current) return;
       cy.current?.destroy();
       const c = cytoscape({ container: canvas.current, elements: elements(items), style: STYLE, boxSelectionEnabled: false,
-        layout: { name: layoutOf(drawnView!, items), animate: false }, wheelSensitivity: 0.3 });
+        // cose: edges long enough that a few nodes' one-line labels do not run into each other (H1, H5, measured on
+        // the Tata copy: 10 nodes fit at zoom 1.25 with labels apart; 165 nodes fit at about 0.4, shapes only)
+        layout: { name: layoutOf(drawnView!, items), animate: false, idealEdgeLength: 90, nodeRepulsion: 20000 } as LayoutOptions,
+        wheelSensitivity: 0.3 });
+      if (c.zoom() > MAX_FIT) {
+        c.zoom(MAX_FIT);
+        c.center();
+      }
       c.on("select unselect", () => setChosen(c.$(":selected").map((e) => e.id())));
+      c.on("mouseover", "node", (e) => e.target.addClass("hover"));
+      c.on("mouseout", "node", (e) => e.target.removeClass("hover"));
+      c.on("zoom", () => c.$("node.hover, node:selected").nonempty() && c.style().update()); // their label size follows
       c.on("tap", "node, edge", (e) => rowOf(e.target.id())?.scrollIntoView({ block: "nearest" }));
       c.on("dbltap", "node, edge", (e) => open(byId.get(e.target.id())!));
       cy.current = c;
@@ -216,8 +241,8 @@ export default function Graphs({ filter, dataVersion, openEvidence, selection, o
   };
 
   // A row's button: focus or click selects its element, Enter or click opens its source, Space adds it to the picked.
-  const rowButton = (i: Item, text?: string) => (
-    <button type="button" className={chosen.includes(i.id) ? "link picked" : "link"} data-el={i.id}
+  const rowButton = (i: Item, text?: string, name?: string) => (
+    <button type="button" className={chosen.includes(i.id) ? "link picked" : "link"} data-el={i.id} aria-label={name}
       onFocus={() => spaced.current || pick(i.id)}
       onClick={(e) => {
         if (e.detail > 0) { // a mouse click picks this one alone; Enter keeps what Space picked
@@ -236,16 +261,19 @@ export default function Graphs({ filter, dataVersion, openEvidence, selection, o
     </button>
   );
 
-  const nodeOf = (id: string | undefined) => (id ? byId.get(id) : undefined);
   const data = answer?.data;
   const drawn = items.length > 0 && data;
   const claims = drawn ? items.filter((i) => i.kind === "claim" || i.kind === "point").length : 0;
 
   return (
-    <div className="graphs" ref={root}>
+    <div className="graphs" ref={root} onFocus={(e) => {
+      // Focus put anywhere in the tab now is where the person is: a page opened earlier no longer takes it back, also
+      // when a hide and a show of the tab fell in one ResizeObserver report and the return above never ran.
+      if (e.target !== opener.current) opener.current = null;
+    }}>
       <div className="graph-views" role="group" aria-label="Graph view">
         {VIEWS.map(([v, words]) => (
-          <button key={v} type="button" aria-pressed={shown === v} onClick={() => setView(v)}
+          <button key={v} type="button" aria-pressed={pressed === v} onClick={() => setView(v)}
             disabled={selection?.type === "series" && v !== "series"}>{words}</button>
         ))}
       </div>
@@ -268,7 +296,7 @@ export default function Graphs({ filter, dataVersion, openEvidence, selection, o
               </div>
             )}
           </div>
-          {answer.shape === "graph" && drawnView === "neighbourhood" && <NodesAndEdges items={items} rowButton={rowButton} nodeOf={nodeOf} />}
+          {answer.shape === "graph" && drawnView === "neighbourhood" && <NodesAndEdges items={items} rowButton={rowButton} byId={byId} />}
           {answer.shape === "graph" && drawnView === "hypergraph" && (
             <table className="graph-table">
               <caption>Hyperedges: each hub joins one claim to the items it is linked to</caption>
@@ -289,7 +317,8 @@ export default function Graphs({ filter, dataVersion, openEvidence, selection, o
           {answer.shape === "series" && (
             <>
               <table className="graph-table">
-                <caption>Points of {answer.data.series?.label ?? "this series"}</caption>
+                <caption>Points of {answer.data.series ? seriesText({ ...answer.data.series, company_id: 0,
+                  points: answer.data.points.length }, answer.data.series.company_name) : "this series"}</caption>
                 <thead><tr><th scope="col">Period</th><th scope="col">Value and unit as printed</th>
                   <th scope="col">Document</th><th scope="col">Page</th><th scope="col">Comparable</th></tr></thead>
                 <tbody>
@@ -335,8 +364,8 @@ function Notes({ item }: { item: Item }) {
   return item.notes.length > 0 ? <span className="notes">{item.notes.join("; ")}</span> : null;
 }
 
-function NodesAndEdges({ items, rowButton, nodeOf }: { items: Item[]; rowButton: (i: Item, text?: string) => JSX.Element;
-  nodeOf: (id: string | undefined) => Item | undefined }) {
+function NodesAndEdges({ items, rowButton, byId }: { items: Item[];
+  rowButton: (i: Item, text?: string, name?: string) => JSX.Element; byId: Map<string, Item> }) {
   const edgesAt = degrees(items);
   return (
     <>
@@ -357,9 +386,9 @@ function NodesAndEdges({ items, rowButton, nodeOf }: { items: Item[]; rowButton:
         <tbody>
           {items.filter((i) => i.group === "edges").map((i) => (
             <tr key={i.id}>
-              <th scope="row">{rowButton(i, nodeOf(i.source)?.label)}</th>
-              <td>{i.kind === "comparison" ? "compared with" : i.label}</td>
-              <td>{nodeOf(i.target)?.label}</td>
+              <th scope="row">{rowButton(i, byId.get(i.source!)?.label, edgeName(i, byId))}</th>
+              <td>{relationText(i)}</td>
+              <td>{byId.get(i.target!)?.label}</td>
               <td>{i.state ?? ""}</td>
             </tr>
           ))}

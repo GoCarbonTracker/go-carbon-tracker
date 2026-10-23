@@ -5,7 +5,7 @@ import { ariaSort, boundaryText, clearedText, COLUMNS, lastOffset, locationText,
 import "./tables.css";
 
 type Failure = { cause: string; next_action: string };
-type Answer = { data_version: number; matched: number; offset: number; rows: Row[] };
+type Answer = { data_version: number; matched: number; offset: number; rows: Row[]; sort: Sort };
 
 async function call<T>(path: string, body?: object): Promise<{ status: number; data: T | Failure }> {
   const r = await fetch(path, body === undefined ? { headers: { Accept: "application/json" } } : {
@@ -30,8 +30,10 @@ export function Tables({ filter, dataVersion, openEvidence, selection, onSelecti
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
-  const [said, setSaid] = useState("");
-  const [checks, setChecks] = useState({ key, version: dataVersion, ids: new Set<number>() });
+  const [said, setSaid] = useState({ text: "", n: 0 }); // n replaces the line, so the same words are read out again
+  const say = (text: string) => setSaid((s) => ({ text, n: s.n + 1 }));
+  const bar = JSON.stringify([filter, dataVersion]);
+  const [checks, setChecks] = useState({ key, bar, version: dataVersion, ids: new Set<number>() });
   const [cleared, setCleared] = useState<string | null>(null);
   const [focus, setFocus] = useState(0);
   const rowEls = useRef<(HTMLTableRowElement | null)[]>([]);
@@ -40,10 +42,12 @@ export function Tables({ filter, dataVersion, openEvidence, selection, onSelecti
   const requests = useRef(newestOnly()).current;
   const sent = useRef("null");
 
-  // Checks hold for one filter and one version (T6): another one clears them, with a line when any were checked.
+  // Checks hold for one filter and one version (T6): another one clears them, with a line when any were checked. A
+  // selection transferred in or removed (6.4 B1) clears them too, without a line: the chip says what is shown.
   if (checks.key !== key) {
-    setCleared(checks.ids.size ? clearedText(checks.version !== dataVersion ? "version" : "filter", dataVersion) : null);
-    setChecks({ key, version: dataVersion, ids: new Set() });
+    const why = checks.version !== dataVersion ? "version" : checks.bar !== bar ? "filter" : null;
+    setCleared(checks.ids.size && why ? clearedText(why, dataVersion) : null);
+    setChecks({ key, bar, version: dataVersion, ids: new Set() });
   }
   const chosen = checks.key === key ? checks.ids : new Set<number>();
 
@@ -52,11 +56,12 @@ export function Tables({ filter, dataVersion, openEvidence, selection, onSelecti
     setBusy(true);
     setFailure(null);
     const body = { ...recordsBody(asked.filter, dataVersion, "table", offset, PAGE), ...request(filter, sort, selection).extra };
+    const sorted = sort;
     call<Answer>("/api/records", body).then(({ status, data }) => {
       if (!requests.isCurrent(id)) return; // a later page, sort or filter was asked for meanwhile (NFR1)
       setBusy(false);
       if (status === 200) {
-        setAnswer(data as Answer);
+        setAnswer({ ...(data as Answer), sort: sorted }); // the header states the order of the rows on screen
         setFocus(0);
       } else if (isStale(status, (data as Failure).cause) && onStale) {
         onStale(); // 6.1 F11 i1: the rows on screen stay, labelled with their version
@@ -94,12 +99,12 @@ export function Tables({ filter, dataVersion, openEvidence, selection, onSelecti
 
   const check = (next: Set<number>) => {
     setCleared(null);
-    setChecks({ key, version: dataVersion, ids: next });
+    setChecks({ key, bar, version: dataVersion, ids: next });
   };
   const goTo = (to: number) => setAt({ key, offset: to });
 
   const open = async (r: Row) => {
-    setSaid("");
+    say("");
     setFailure(null);
     const l = r.evidence.location;
     let pages = 0;
@@ -111,7 +116,7 @@ export function Tables({ filter, dataVersion, openEvidence, selection, onSelecti
     }
     const t = rowTarget(r, pages);
     if (t) openEvidence(t);
-    else setSaid(NO_LOCATION);
+    else say(NO_LOCATION);
   };
 
   const onKey = (e: KeyboardEvent, i: number) => {
@@ -134,7 +139,7 @@ export function Tables({ filter, dataVersion, openEvidence, selection, onSelecti
   return (
     <div className="tables">
       {failure && <p className="problem" role="alert">{failure.cause} {failure.next_action}</p>}
-      <p className="tables-said" aria-live="polite">{said}</p>
+      <p className="tables-said" aria-live="polite"><span key={said.n}>{said.text}</span></p>
       {cleared && <p className="meta" role="status">{cleared}</p>}
       {answer.matched > 0 && (
         <>
@@ -151,14 +156,14 @@ export function Tables({ filter, dataVersion, openEvidence, selection, onSelecti
                     checked={state === "all"} onChange={() => check(togglePage(chosen, ids))} />
                 </th>
                 {COLUMNS.map((c) => (
-                  <th key={c.name} scope="col" aria-sort={ariaSort(sort, c.key)} className={c.key === "value" ? "num" : undefined}>
+                  <th key={c.name} scope="col" aria-sort={ariaSort(answer.sort, c.key)} className={c.key === "value" ? "num" : undefined}>
                     {c.key === null ? c.name : (
                       <button type="button" className="sort" onClick={() => {
-                        setSort(nextSort(sort, c.key!));
+                        setSort(nextSort(answer.sort, c.key!));
                         goTo(0);
                       }}>
                         {c.name}
-                        <span className="arrow" aria-hidden="true">{sort?.key === c.key ? (sort.dir === "asc" ? "▲" : "▼") : ""}</span>
+                        <span className="arrow" aria-hidden="true">{answer.sort?.key === c.key ? (answer.sort.dir === "asc" ? "▲" : "▼") : ""}</span>
                       </button>
                     )}
                   </th>

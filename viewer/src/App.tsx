@@ -621,9 +621,11 @@ export function App() {
   };
 
   // B1: a transfer switches tab; the receiving tab shows the selection with its chip, the filter and the pin stay.
+  // Focus goes to that tab: the pressed bar button is drawn again for the receiving tab, often disabled.
   const transfer = (to: Tab, chip: Chip) => {
     setChips((c) => ({ ...c, [to]: chip }));
     setTab(to);
+    document.getElementById(`tab-${to}`)?.focus();
   };
 
   const removeChip = () => {

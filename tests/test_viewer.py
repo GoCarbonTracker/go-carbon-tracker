@@ -384,6 +384,7 @@ def test_the_shell_counts_on_its_pinned_version_and_offers_a_newer_one(tmp_path,
     assert out["acme"] == "9 claims match in data version 1."
     assert out["evidenceHidden"] is True
     assert out["openPanels"] == 1  # review F4
+    assert out["covering"] == {"1280": [], "900": []}  # review F4: no open choice panel lies over the count line
     assert "2 claims of 1 archived document are not in this or any view." in out["lines"]
     assert out["series"] == 5
     assert out["second_writer"] == 200
@@ -431,6 +432,8 @@ def test_transfer_between_tables_and_graphs(tmp_path):
     assert b["ids"] == g["picked"] and b["line"] == g["line"]
     assert b["caption"] == "Claims matching the filter in published data version 1"
     assert b["chip"]["text"] == "2 claims from Graphs"
+    assert g["active"] == "BUTTON Graphs" and b["active"] == "BUTTON Tables"  # review L1, H4: focus on the receiving tab
+    assert b["cleared"] is None  # review L2, H3: no "the filter changed" line when only the incoming selection changed
     assert out["removed"]["active"] == "BUTTON Tables"  # focus goes to the tab when the chip goes
     assert out["removed"]["graphsChip"]["text"] == "2 claims from Tables"  # each tab keeps its own chip
     assert out["twoSeries"] == {"reason": "These claims are in 2 series; pick one.", "tab": "Tables"}
@@ -583,7 +586,7 @@ def test_guided_questions_in_a_headless_browser(tmp_path):
         assert x["matched"] == counts[x["key"]]
         count = (f"{n} series with two or more periods" if x["key"] == "metric-over-time"
                  else f"{n} claim{'' if n == 1 else 's'} in data version 1")
-        want.append({"text": x["text"], "count": count})
+        want.append({"text": x["text"], "count": count, "live": "polite"})  # review L5: the counts in the panel's region
     assert out["opened"]["questions"] == want and len(want) == 6
     assert out["opened"]["active"] == "SECTION Questions"
     assert out["escaped"] == {"open": False, "active": "BUTTON Questions"}
@@ -593,6 +596,7 @@ def test_guided_questions_in_a_headless_browser(tmp_path):
     assert len(d["nodes"]) == counts["different-values"] > 0
     first = next(x for x in q["questions"] if x["key"] == "metric-over-time")["choices"][0]
     sr = out["series"]
+    assert sr["choicesLive"] == "off"  # the series list a person opens is not read out as a change
     assert sr["expanded"] == "true" and len(sr["choices"]) == len(next(
         x for x in q["questions"] if x["key"] == "metric-over-time")["choices"])
     assert sr["choices"][0].startswith(f"{first['company']}: ") and sr["choices"][0].endswith(f", {first['periods']} periods")

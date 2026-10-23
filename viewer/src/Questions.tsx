@@ -55,40 +55,43 @@ export function Questions({ pinned, onChoose, onStale, onClose }: {
         <button type="button" onClick={onClose}>Close</button>
       </div>
       {failure && <p className="problem" role="alert">{failure.cause} {failure.next_action}</p>}
-      {!answer && !failure && <p className="hint">Counting the questions in data version {pinned}.</p>}
-      {answer && (
-        <ul className="question-list">
-          {answer.questions.map((q) => {
-            const series = q.key === SERIES_QUESTION;
-            return (
-              <li key={q.key}>
-                <button type="button" className="question" aria-expanded={series ? open : undefined}
-                  aria-controls={series ? "question-series" : undefined}
-                  onClick={() => (series ? setOpen(!open) : onChoose({ filter: q.filter, section: q.section }))}>
-                  {q.text}
-                </button>
-                <span className="question-count">{questionCount(q, answer.data_version)}</span>
-                {series && open && (
-                  <div id="question-series">
-                    {q.choices.length === 0 ? <p className="hint">{NO_CHOICES}</p> : (
-                      <ul className="question-choices" aria-label="Series with two or more periods">
-                        {q.choices.map((c) => (
-                          <li key={c.series}>
-                            <button type="button" className="link" onClick={() =>
-                              onChoose({ filter: c.filter, section: "graphs", chip: choiceChip(c, answer.data_version) })}>
-                              {choiceText(c)}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {/* The panel's polite region: the counting line, then the questions with their counts, are read out (review L5) */}
+      <div aria-live="polite">
+        {!answer && !failure && <p className="hint">Counting the questions in data version {pinned}.</p>}
+        {answer && (
+          <ul className="question-list">
+            {answer.questions.map((q) => {
+              const series = q.key === SERIES_QUESTION;
+              return (
+                <li key={q.key}>
+                  <button type="button" className="question" aria-expanded={series ? open : undefined}
+                    aria-controls={series ? "question-series" : undefined}
+                    onClick={() => (series ? setOpen(!open) : onChoose({ filter: q.filter, section: q.section }))}>
+                    {q.text}
+                  </button>
+                  <span className="question-count">{questionCount(q, answer.data_version)}</span>
+                  {series && open && (
+                    <div id="question-series" aria-live="off">
+                      {q.choices.length === 0 ? <p className="hint">{NO_CHOICES}</p> : (
+                        <ul className="question-choices" aria-label="Series with two or more periods">
+                          {q.choices.map((c) => (
+                            <li key={c.series}>
+                              <button type="button" className="link" onClick={() =>
+                                onChoose({ filter: c.filter, section: "graphs", chip: choiceChip(c, answer.data_version) })}>
+                                {choiceText(c)}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }
