@@ -41,9 +41,9 @@ def test_migration_19_applies_in_order_and_the_table_is_append_only(tmp_path, gc
     r = gct("highlight", "list", claim)
     assert r.code == 0 and "no highlights" in r.out, r.out
     assert [v for (v,) in db.execute("SELECT version FROM schema_version ORDER BY version")][old - 1:] == list(
-        range(old, 20))
-    notes = [m for (m,) in db.execute("SELECT message FROM run_event WHERE kind = 'note' ORDER BY id DESC LIMIT 1")]
-    assert notes == ["applied migration 19"]
+        range(old, 21))
+    notes = [m for (m,) in db.execute("SELECT message FROM run_event WHERE kind = 'note' ORDER BY id DESC LIMIT 2")]
+    assert notes == ["applied migration 20", "applied migration 19"]
     assert db.execute("SELECT COUNT(*) FROM highlight").fetchone()[0] == 0
     db.execute("INSERT INTO highlight (claim_version_id, contributor_version_id, capacity, note, created_at)"
                " VALUES (1, 1, 'c', 'n', 't')")

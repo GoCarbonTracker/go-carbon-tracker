@@ -109,3 +109,48 @@ The review text names, in this order, the company's and the auditor's latest out
 N", "highlights: N", "needs renewed review: N", "corrected" and "adjudications: N", or reads "no review records". The
 evidence text reads "matched", "cited: reason", "unresolved: reason" or "not checked: run gct link". No score,
 percentage or ranking is given.
+
+## Saved views and guided questions
+
+A saved view is a name, a filter and the tab it opens (Tables or Graphs). It stores the normalised filter, never the
+claims and never a data version, so it always opens on the current version and includes the claims of reports added
+since it was saved. After an archive it shows the remaining claims and the line "N claims of M archived documents are
+not in this or any view. Restore a document to include its claims."; a view naming a deleted document shows "Document
+N was permanently deleted." A filter that matches nothing today is saved, since a later report may match it.
+
+    gct view save "Scope 1 by year" --filter '{"metric": ["ghg_scope_1"]}' --section graphs --as ana
+    gct view list
+    gct view open "Scope 1 by year" [--shape table|graph|series] [--offset N] [--limit N] [--sort KEY[:desc]]
+    gct view remove "Scope 1 by year" --as ana
+    gct view questions
+
+A name is 1 to 80 characters on one line, trimmed, and compared exactly (two names differing in case are two views).
+Saving under an existing name puts the new view first and keeps the earlier one (`earlier` counts them). Removing a view
+takes it off the list; its saves and the removal stay in the workspace, and `gct view list` says how many names are
+removed. Every save and removal names its contributor. Opening a view answers exactly what `gct view records` answers
+for its filter, on the current version; a stored filter that the filter rules no longer accept is refused naming the
+field. Saving or removing a view builds no data version and opens no run, so a table or graph pinned to the current
+version stays valid. Saved views are part of the workspace only: they are never published, and deleting a document
+leaves them as they are.
+
+The local service offers `GET /api/views`, `POST /api/views` (`name`, `filter`, optional `section`, `contributor`),
+`POST /api/views/remove` (`name`, `contributor`) and `GET /api/questions` (optional `?data_version=V`, refused as a stale
+pin when it is not the current version). The viewer opens a view by sending its filter to `POST /api/records`. The
+answers are the JSON of the commands, listed in `docs/cli-json.md`.
+
+The six guided questions are fixed saved views shipped with gct; no model writes or ranks them. Each shows its count
+on the current version, 0 included:
+
+| Key | Question | Filter | Opens |
+|---|---|---|---|
+| `restated` | Which figures were restated? | `{"comparison": ["restatement"]}` | Graphs |
+| `different-values` | Where do two reports give different values for the same figure and period, with no restatement recorded? | `{"comparison": ["unresolved"]}` | Graphs |
+| `metric-over-time` | How did one figure change across reports? | `{"match": ["series"]}`; one series chosen opens `{"series": [ID]}` | Graphs, as a series |
+| `not-matched-to-source` | Which figures could not be matched to their place in the source? | `{"evidence": ["cited", "unresolved"]}` | Tables |
+| `ledgers-disagree` | Where do the company confirmation and the auditor review disagree? | `{"review": ["disagreement"]}` | Graphs |
+| `needs-renewed-review` | Which figures need renewed review after a correction? | `{"review": ["needs-re-review"]}` | Tables |
+
+`different-values` cannot leave out pairs that already have an adjudication; each row shows its adjudications.
+`metric-over-time` lists its choices, the series with two or more periods (company, label and number of periods), and
+its count is the number of choices. `not-matched-to-source` leaves out claims whose evidence is not checked yet, and
+`ledgers-disagree` counts the current version of each claim only (`gct review list` shows earlier versions).

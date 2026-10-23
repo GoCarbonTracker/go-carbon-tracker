@@ -426,6 +426,53 @@ The report is also written to `g2-report-v<N>-<run id>.json` in the workspace's 
 
 The table shape (the default). `--shape graph`, `series` and `values` answer with the keys listed in `docs/views.md`, which also lists the filter fields, every nested key, the version rule and the graph limit. `POST /api/records` answers the same objects. A stale pin, no published version or a version built by an older gct is refused (exit 4); a bad filter or option is refused naming it (exit 2); an unreadable `--filter @FILE` is refused (exit 3).
 
+## view save
+- top: status, view, data_version
+- view: name, filter, section, contributor, saved_at, earlier
+
+`view` is the saved view as `view list` shows it: the name as typed (trimmed), the normalised filter, `section`
+(`tables` or `graphs`), the contributor's name, when it was saved and `earlier`, the number of older saves under the
+same name, which are kept. `data_version` is the current version, or null before the first build; a save builds no
+version. An empty name, one over 80 characters or with a line break, a section other than tables or graphs and a filter
+the filter rules refuse (the field named) are refused with exit 2; an unknown contributor with exit 3; a locked
+workspace with exit 4. Nothing is written on a refusal. `POST /api/views` (`name`, `filter`, optional `section`,
+`contributor`) answers the same.
+
+## view list
+- top: status, data_version, views, hidden
+- views: name, filter, section, contributor, saved_at, earlier
+
+`views` are the views whose newest row is a save, by name. `hidden` is the number of names whose newest row is a
+removal. `GET /api/views` answers the same.
+
+## view open
+- top: status, view, data_version, filter, matched, total, offset, limit, rows, empty, excluded, hidden_by_archive, deleted_in_filter, not_found
+- view: name, filter, section, contributor, saved_at, earlier
+- rows: claim, company_name, document_name, evidence, review
+- excluded: period_unknown
+- hidden_by_archive: documents, claims, by_document, text
+
+The keys of a view opened in the table shape: `view` and what `view records` answers for its filter on the current
+version. A `graphs` view opens in the graph shape unless `--shape` says otherwise, with the graph keys of
+`docs/views.md`. A name never saved and a removed name are refused (exit 3); no published version, a version built by an
+older gct and a stored filter the filter rules no longer accept are refused as `view records` refuses them.
+
+## view remove
+- top: status, removed, data_version
+- removed: name, contributor, removed_at
+
+The view leaves the list; its saves and the removal stay in the workspace. A name never saved and a removed name are
+refused (exit 3). `POST /api/views/remove` (`name`, `contributor`) answers the same.
+
+## view questions
+- top: status, data_version, questions
+- questions: key, text, filter, section, matched, choices
+
+The six guided questions in a fixed order, each with its filter, the section it opens and `matched`, the claims its
+filter matches on the current version. `choices` is empty except for `metric-over-time`, where it lists the series with
+two or more periods, each `{series, company, label, periods, filter}` (`company` is the company's name and `filter` is
+`{"series": [ID]}`); that question's count is the number of its choices. `GET /api/questions` answers the same.
+
 ## serve
 - top: status, url, port
 
