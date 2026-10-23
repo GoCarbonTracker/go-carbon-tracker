@@ -81,6 +81,8 @@ KEPT = {
     # Story 6.4: a saved view is the user's name and a filter of ids, states and the user's own words, attached to no
     # document (as expected_item); a deleted document named in its filter is shown as deleted when it is opened.
     "saved_view": "id name action filter section contributor_version_id created_at",
+    # Story 7.1 part A: a document's labels are file facts of it, like document.privacy.
+    "document_label": "id document_id privacy availability contributor_version_id created_at",
 }
 VERSIONS = "SELECT v.id FROM claim_version v JOIN claim c ON c.id = v.claim_id WHERE c.document_id = :d"
 FREE = {"capacity": ":m", "rationale": ":m"}  # contributor-typed text on a record attached to the document (Codex 190)
@@ -173,6 +175,8 @@ CLEAR = {
         **{c: f"CASE WHEN {c} IS NULL THEN NULL ELSE :m END" for c in ("counter_note", "follow_up", "closure_reason")}}),
     "reviewer_flag": (f"claim_version_id IN ({VERSIONS})", FREE),
     "highlight": (f"claim_version_id IN ({VERSIONS})", {"capacity": ":m", "note": ":m"}),
+    # Story 7.1 part A: label changes only; an intake row holds no contributor text (its CHECK keeps it all null).
+    "document_label": ("document_id = :d AND contributor_version_id IS NOT NULL", FREE),
 }
 
 # The published projection (schema 12): a column naming the document, one of its claims or claim versions makes the
@@ -500,6 +504,9 @@ RECORDS = {
                     " FROM document_state_change x JOIN document_state s ON s.id = x.document_state_id"
                     " JOIN contributor_version c ON c.id = x.contributor_version_id"
                     " WHERE s.document_id = ? AND s.state <> 'deleted'",
+    "label change": "SELECT l.id, l.privacy || ', availability ' || l.availability, c.name, c.organisation, l.capacity,"
+                    " l.rationale, l.created_at FROM document_label l"
+                    " JOIN contributor_version c ON c.id = l.contributor_version_id WHERE l.document_id = ?",
 }
 
 

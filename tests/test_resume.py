@@ -44,7 +44,8 @@ def test_every_read_and_doc_add_run_records_its_selection(ws, db, gct, five, mak
     f = make_file("b.pdf", PDF + b"b")
     gct("doc", "add", f, "--company", "Acme", "--privacy", "shareable")
     assert runs.selection(db, newest_run(db)) == {"sources": [str(f)], "company": "Acme", "kind": "report",
-                                                  "privacy": "shareable", "name": None, "source": None}
+                                                  "privacy": "shareable", "availability": "unknown", "name": None,
+                                                  "source": None}
     (note,) = [m for (m,) in db.execute("SELECT message FROM run_event WHERE run_id = ? AND kind = 'note'", (newest_run(db),))]
     assert note.startswith("selection: {") and json.loads(note[len("selection: "):])["privacy"] == "shareable"
 

@@ -51,7 +51,7 @@ def test_migration_9_applies_to_a_version_8_workspace(tmp_path, gct):
     c.close()
     assert gct("contributor", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 20
+    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 21
     c.close()
 
 
@@ -534,7 +534,7 @@ def test_outputs_and_stored_confirmations_of_the_older_code_are_unchanged(ws, db
                                                                          monkeypatch):
     twin = tmp_path / "twin"
     shutil.copytree(ws, twin)
-    old = run_old(old_tree, twin, *CHANGES, now=NOW)
+    old = run_old(old_tree, twin, *CHANGES, now=NOW, newer=True)  # the workspace is at schema 21
     monkeypatch.setattr(store, "now", lambda: NOW)
     new = [gct(*argv) for argv in CHANGES]
     assert [n.code for n in new] == [0] * len(CHANGES)

@@ -450,10 +450,28 @@ def test_saved_views_and_questions_match_the_documented_keys(tmp_path, gct):
     check("view list", gct("view", "list", *w).data)
 
 
+def test_doc_label_and_the_doc_add_label_match_the_documented_keys(tmp_path, gct, make_file):
+    ws = tmp_path / "ws"
+    gct("workspace", "init", ws)
+    w = ("--workspace", ws, "--json")
+    gct("company", "add", "Acme", *w)
+    gct("company", "add", "Beta", *w)
+    gct("contributor", "add", "ana", "--name", "Ana", *w)
+    f = make_file("a.pdf", PDF)
+    check("doc add", gct("doc", "add", f, "--company", "Acme", "--availability", "public", *w).data)
+    check("doc add", gct("doc", "add", f, "--company", "Acme", "--plan", *w).data)  # duplicate, label not applied
+    check("doc add", gct("doc", "add", f, "--company", "Beta", *w).data)  # same file, another label: warning
+    who = ("--as", "ana", "--capacity", "analyst", "--rationale", "checked the website")
+    check("doc label", gct("doc", "label", 1, "--privacy", "private", *who, *w).data)
+    check("doc label", gct("doc", "label", 1, "--availability", "internal", *who, *w).data)
+    check("doc show", gct("doc", "show", 1, *w).data)
+    check("error", gct("doc", "label", 1, "--availability", "internal", *who, *w).data)
+
+
 def test_every_command_has_a_documented_section():
     assert set(spec()) == {
         "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc archive", "doc restore",
-        "doc delete",
+        "doc delete", "doc label",
         "doc pages", "read", "extract", "link", "claims list",
         "claims history", "correct",
         "infer", "infer bases", "infer scope", "infer groups", "infer accept", "infer resolve", "infer reject",

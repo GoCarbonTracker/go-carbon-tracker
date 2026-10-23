@@ -80,7 +80,7 @@ def test_batch_of_files_is_one_run(acme, gct, make_file):
     files = [make_file(n, PDF + n.encode()) for n in ("a.pdf", "b.pdf", "c.pdf")]
     r = gct("doc", "add", *files, "--company", "Acme")
     assert r.code == 0 and r.out.splitlines()[-1] == "3 registered"
-    assert r.out.splitlines()[0] == "registered 1: a.pdf (version 1, private)"
+    assert r.out.splitlines()[0] == "registered 1: a.pdf (version 1, private, availability unknown)"
     assert len(gct("run", "list", "--json").data["runs"]) == 1
     assert [(e["kind"], e["stage"], e["item"], e["outcome"]) for e in events(gct, "item")] == [
         ("item", "register", str(f), "ok") for f in files
@@ -198,7 +198,8 @@ def test_plan_stores_nothing(acme, gct, web, db, make_file, tmp_path):
     r = gct("doc", "add", a, b, web.url("/r.pdf"), "--company", "Acme", "--plan")
     assert r.code == 0
     assert r.out.splitlines() == [
-        f"would register: {a}", f"would register: {b}", f"would fetch: {web.url('/r.pdf')}",
+        f"would register: {a} (private, availability unknown)", f"would register: {b} (private, availability unknown)",
+        f"would fetch: {web.url('/r.pdf')} (private, availability unknown)",
         "2 would register, 1 would fetch. Nothing was stored.",
     ]
     assert row_counts(db) == before and files_on_disk(acme) == disk and web.hits == []

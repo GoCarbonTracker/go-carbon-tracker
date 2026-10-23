@@ -331,9 +331,9 @@ def test_migration_20_applies_in_order_and_the_table_is_insert_only(tmp_path, gc
     monkeypatch.setattr(store, "migrate", real)
     assert gct("view", "list", "--workspace", root).code == 0
     assert [v for (v,) in db.execute("SELECT version FROM schema_version ORDER BY version")][old - 1:] == list(
-        range(old, 21))
+        range(old, 22))
     notes = [m for (m,) in db.execute("SELECT message FROM run_event WHERE kind = 'note' ORDER BY id")]
-    assert notes == [f"applied migration {n}" for n in range(old + 1, 21)]
+    assert notes == [f"applied migration {n}" for n in range(old + 1, 22)]
     assert db.execute("SELECT COUNT(*) FROM saved_view").fetchone()[0] == 0
     assert gct("view", "save", "v", "--filter", "{}", "--as", "ana", "--workspace", root).code == 0
     for stmt in ("UPDATE saved_view SET name = 'x'", "DELETE FROM saved_view"):

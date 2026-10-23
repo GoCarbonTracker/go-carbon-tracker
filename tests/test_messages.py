@@ -307,6 +307,44 @@ def test_archive_refusals_have_cause_next_action_and_no_internals(ws, gct, make_
                 assert name not in text, (argv, name)
 
 
+def test_doc_label_messages_have_cause_next_action_and_no_internals(ws, db, gct, make_file):
+    gct("company", "add", "Acme")
+    gct("company", "add", "Beta")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    a = make_file("a.pdf", PDF)
+    gct("doc", "add", a, "--company", "Acme")
+    gct("doc", "add", make_file("b.pdf", PDF + b"b"), "--company", "Acme")
+    sha = db.execute("SELECT sha256 FROM document WHERE id = 2").fetchone()[0]
+    assert gct("doc", "delete", "2", "--confirm", sha[:12], *WHO).code == 0
+    names = internal_names(ws)
+    for argv, code in ((["doc", "label", "1", "--privacy", "private", *WHO], 4), (["doc", "label", "1", *WHO], 2),
+                       (["doc", "label", "2", "--privacy", "shareable", *WHO], 4),
+                       (["doc", "label", "99", "--privacy", "shareable", *WHO], 3),
+                       (["doc", "label", "1", "--privacy", "shareable", "--as", "bob", "--capacity", "c",
+                         "--rationale", "r"], 3)):
+        human = gct(*argv)
+        assert human.code == code and human.out == "", argv
+        assert human.err.startswith("error: ") and "\nnext: " in human.err, (argv, human.err)
+        machine = gct(*argv, "--json")
+        assert machine.code == code and machine.data["status"] == "error"
+        assert machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in INTERNAL_WORDS:
+                assert word not in text, (argv, word)
+            for name in names:
+                assert name not in text, (argv, name)
+    # the P2 lines of doc add and the doc label success lines name no internals either
+    outs = [gct("doc", "add", a, "--company", "Acme", "--privacy", "shareable").out,
+            gct("doc", "add", a, "--company", "Beta", "--privacy", "shareable").out,
+            gct("doc", "label", "1", "--availability", "public", *WHO).out]
+    assert "was not applied" in outs[0] and "Warning: document 1 (Acme)" in outs[1] and "it is now" in outs[2]
+    for text in outs:
+        for word in INTERNAL_WORDS:
+            assert word not in text, word
+        for name in names:
+            assert name not in text, name
+
+
 def test_delete_refusals_have_cause_next_action_and_no_internals(ws, gct, make_file):
     gct("company", "add", "Acme")
     gct("contributor", "add", "ana", "--name", "Ana")
