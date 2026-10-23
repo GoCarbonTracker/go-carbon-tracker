@@ -10,6 +10,7 @@ import json
 import re
 import shutil
 import sqlite3
+import sys
 import time
 import zipfile
 from pathlib import Path
@@ -109,8 +110,14 @@ def read_back(path) -> dict:
 # Helpers
 
 def csv_rows(path) -> list:
-    with open(path, encoding="utf-8-sig", newline="") as fh:
-        return list(csv.reader(fh, csv.excel))
+    """Every row of a CSV file. CSV has no cell limit, so the read lifts the csv module's field limit (131,072 by
+    default) and restores the process limit after."""
+    limit = csv.field_size_limit(sys.maxsize)
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as fh:
+            return list(csv.reader(fh, csv.excel))
+    finally:
+        csv.field_size_limit(limit)
 
 
 def render(d, folder, reports=REPORTS, formats=("xlsx", "csv")) -> dict:
@@ -729,6 +736,27 @@ def test_a_correction_after_a_review_shows_needs_renewed_review_joined(ws, gct):
         records = _tables_of(path)[0]["records"]
         earlier = [x for x in records[1] if x[records[0].index("Binds")] == "no"]
         assert earlier and {x[records[0].index("Version note")] for x in earlier} == {WORDS["earlier_version"]}
+
+
+def test_read_back_reads_a_csv_field_above_the_csv_modules_default_limit(ws, gct):
+    """CSV has no cell limit, so read_back reads a field longer than csv's default 131,072 characters, whole, and
+    leaves the process limit as it was (Codex review of 5f7746b)."""
+    d, _ = build(ws, mode="complete")
+    claim = d["evidence_index"][0]["claim_id"]
+    long = "r" * 131_072 + "!"
+    assert gct("correct", claim, "--value", "1,111", "--as", "ana", "--capacity", "analyst", "--rationale", long,
+               "--workspace", ws).code == 0
+    assert gct("publish", "build", "--workspace", ws).code == 0
+    r = gct("report", "evidence-index", "--format", "json,csv", "--complete", "--workspace", ws, "--json")
+    assert r.code == 0, r.out
+    folder = Path(r.data["folder"])
+    exported = json.loads((folder / "dataset.json").read_text(encoding="utf-8"))
+    want = [x["correction"] and x["correction"]["rationale"] for x in exported["evidence_index"]]
+    assert long in want
+    limit = csv.field_size_limit()
+    rows = read_back(folder / "evidence-index")["rows"]["evidence_index"]
+    assert [x["correction.rationale"] for x in rows] == [w or "" for w in want]
+    assert csv.field_size_limit() == limit
 
 
 def test_a_deletion_shows_the_new_sha256_under_the_same_number(ws, gct):
