@@ -198,15 +198,20 @@ def _finite(x):
     return x if x is None or math.isfinite(x) else None
 
 
-def _scrub(x):
-    """P9: every string through redact.scrub."""
+def _scrub(x, memo=None):
+    """P9: every string through redact.scrub, and the builder's own keys (a leading underscore) left out, in one
+    traversal. A container shared in the input (a sub-table's columns) is copied once and stays shared (AC 17)."""
     if isinstance(x, str):
         return redact.scrub(x)
-    if isinstance(x, list):
-        return [_scrub(v) for v in x]
-    if isinstance(x, dict):
-        return {k: _scrub(v) for k, v in x.items()}
-    return x
+    if not isinstance(x, (list, dict)):
+        return x
+    memo = {} if memo is None else memo
+    if id(x) not in memo:  # the input tree is alive throughout, so an id names one container
+        if isinstance(x, list):
+            memo[id(x)] = [_scrub(v, memo) for v in x]
+        else:
+            memo[id(x)] = {k: _scrub(v, memo) for k, v in x.items() if not k.startswith("_")}
+    return memo[id(x)]
 
 
 def _in(ids) -> tuple[str, str]:
@@ -870,19 +875,26 @@ def build(conn, root, *, filter=None, mode="sanitised", include=(), data_version
         b = _Build(conn, root, pconn, ident, flt, include)
         full = b.rows(pconn, "complete")
         if mode == "complete":
-            mine = full
-        else:
-            rconn = b.reduce()
-            try:
-                mine = b.rows(rconn, "sanitised")
-            finally:
-                rconn.close()
-        return _finish(b, mode, full, mine)
+            return _finish(b, mode, {"answer": full["answer"], "lines": [], "causes": None}, full)
+        # Sanitised: only the complete rows' accounting is kept (C6 and P-empty), not their row graph (AC 17).
+        present = set(full["docs"])
+        twins = _twins(b, present)
+        acct = {"answer": full["answer"], "lines": _lines(b, full),
+                "causes": [(t, r["_key"], _cause(b, t, r, present, twins)) for t, r in _flat(full)]}
+        del full
+        rconn = b.reduce()
+        try:
+            mine = b.rows(rconn, "sanitised")
+        finally:
+            rconn.close()
+        return _finish(b, mode, acct, mine)
     finally:
         pconn.close()
 
 
-def _finish(b: _Build, mode, full, mine) -> tuple[dict, dict]:
+def _finish(b: _Build, mode, acct, mine) -> tuple[dict, dict]:
+    """acct: the complete build's E6 answer, P-empty lines and, in sanitised mode, (table, key, whole-row cause) of
+    every complete row."""
     from gct.stages import view
 
     sanitised, flt, v = mode == "sanitised", b.flt, b.version
@@ -921,11 +933,9 @@ def _finish(b: _Build, mode, full, mine) -> tuple[dict, dict]:
                 withheld[cls] += 1
     if sanitised:
         shipped = {(t, r["_key"]) for t, r in rows}
-        present = set(full["docs"])
-        twins = _twins(b, present)
-        for t, r in _flat(full):
-            if (t, r["_key"]) not in shipped:
-                withheld[_cause(b, t, r, present, twins)] += 1
+        for t, key, cause in acct["causes"]:
+            if (t, key) not in shipped:
+                withheld[cause] += 1
     # Documents (C2): every document the rows name, plus the gap report's documents that ship.
     named = sorted({d for _, r in rows for d in r["_docs"]} | {r["document_id"] for r in mine["documents_checked"]})
     hidden = {r["document_id"]: r for r in b.pconn.execute("SELECT * FROM hidden_by_archive")}
@@ -944,7 +954,7 @@ def _finish(b: _Build, mode, full, mine) -> tuple[dict, dict]:
     if sanitised:
         notices += [sanitised_empty(v)] * empty + [PRIVACY_NOTICE, ARCHIVE_NOTICE]
     else:
-        a = full["answer"]
+        a = acct["answer"]
         notices += [view.empty_text(v)] * empty + [x for x in [a["hidden_by_archive"]["text"]] if x]
         notices += [x["text"] for x in a["deleted_in_filter"]]
     if set(flt) - {"company", "document"}:
@@ -968,14 +978,7 @@ def _finish(b: _Build, mode, full, mine) -> tuple[dict, dict]:
     if not sanitised:
         ident.update(history_mark=b.ident["history_mark"], labels_mark=b.ident["labels_mark"])
 
-    def clean(x):
-        if isinstance(x, list):
-            return [clean(y) for y in x]
-        if isinstance(x, dict):
-            return {k: clean(y) for k, y in x.items() if not k.startswith("_")}
-        return x
-
-    dataset = _scrub(clean({
+    dataset = _scrub({
         "dataset_schema": DATASET_SCHEMA, "gct_version": __version__, "built_at": store.now(), "mode": mode,
         "include": b.include, "data_version": ident, "filter": echo, "words": words(), "columns": columns,
         "documents": documents, "evidence_index": mine["evidence_index"], "related_claims": mine["related_claims"],
@@ -984,7 +987,7 @@ def _finish(b: _Build, mode, full, mine) -> tuple[dict, dict]:
                                   "columns": columns["unpaired_restatements"]},
         "gap_report": {k: mine[k] for k in ("candidates", "expectations", "documents_checked", "extraction_limits",
                                             "archived", "deleted")},
-        "evidence": mine["evidence"], "notices": notices}))
+        "evidence": mine["evidence"], "notices": notices})
     counts = {}
     for t, _ in rows:
         counts[t] = counts.get(t, 0) + 1
@@ -992,10 +995,10 @@ def _finish(b: _Build, mode, full, mine) -> tuple[dict, dict]:
         "included": {"documents": [{"id": d["id"], "sha256": mine["docs"][d["id"]]["sha256"] if d["id"] in mine["docs"]
                                     else None, "label": d["label"]} for d in documents], "rows": counts},
         "withheld": withheld, "history_mark": b.ident["history_mark"], "labels_mark": b.ident["labels_mark"],
-        "filter": flt, "lines": _lines(b, full) if sanitised else [],
-        "answer": {k: full["answer"][k] for k in ("matched", "total", "excluded")}
-        | {"hidden_by_archive": {k: full["answer"]["hidden_by_archive"][k] for k in ("documents", "claims")},
-           "deleted_in_filter": len(full["answer"]["deleted_in_filter"])}})
+        "filter": flt, "lines": acct["lines"],
+        "answer": {k: acct["answer"][k] for k in ("matched", "total", "excluded")}
+        | {"hidden_by_archive": {k: acct["answer"]["hidden_by_archive"][k] for k in ("documents", "claims")},
+           "deleted_in_filter": len(acct["answer"]["deleted_in_filter"])}})
     return dataset, preview
 
 

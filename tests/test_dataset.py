@@ -232,6 +232,13 @@ def test_every_row_holds_every_key_of_its_table(base, mode):
         assert d["gap_report"]["archived"] and d["gap_report"]["deleted"]
 
 
+@pytest.mark.parametrize("mode", dataset.MODES)
+def test_every_sub_table_shares_its_tables_one_columns_list(base, mode):
+    """AC 17 (review of c253740): one columns list per table, not a copy per row."""
+    d, _ = build(base, mode=mode)
+    assert {id(r["records"]["columns"]) for r in d["evidence_index"]} == {id(d["columns"]["records"])}
+
+
 def test_the_identity_is_the_pinned_file_and_the_mode_decides_the_marks(base):
     conn = store.connect(base / layout.DB_NAME)
     pconn, ident = pin.pin(conn, base)
