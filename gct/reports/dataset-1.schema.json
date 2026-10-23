@@ -307,6 +307,7 @@
      "items": {
       "properties": {
        "key": {
+        "description": "Never the label column.",
         "not": {
          "const": "label"
         }
@@ -873,6 +874,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null correction.contributor is listed in withheld.",
         "contains": {
          "const": "correction.contributor"
         }
@@ -902,6 +904,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null correction.capacity is listed in withheld.",
         "contains": {
          "const": "correction.capacity"
         }
@@ -931,6 +934,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null correction.rationale is listed in withheld.",
         "contains": {
          "const": "correction.rationale"
         }
@@ -1221,6 +1225,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null correction.contributor is listed in withheld.",
         "contains": {
          "const": "correction.contributor"
         }
@@ -1250,6 +1255,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null correction.capacity is listed in withheld.",
         "contains": {
          "const": "correction.capacity"
         }
@@ -1279,6 +1285,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null correction.rationale is listed in withheld.",
         "contains": {
          "const": "correction.rationale"
         }
@@ -1532,6 +1539,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null capacity is listed in withheld.",
         "contains": {
          "const": "capacity"
         }
@@ -1566,6 +1574,7 @@
         "then": {
          "properties": {
           "withheld": {
+           "description": "A null scope is listed in withheld.",
            "contains": {
             "const": "scope"
            }
@@ -1587,6 +1596,7 @@
         "then": {
          "properties": {
           "withheld": {
+           "description": "A null conclusion is listed in withheld.",
            "contains": {
             "const": "conclusion"
            }
@@ -1621,6 +1631,7 @@
         "then": {
          "properties": {
           "withheld": {
+           "description": "A null note is listed in withheld.",
            "contains": {
             "const": "note"
            }
@@ -1655,6 +1666,7 @@
         "then": {
          "properties": {
           "withheld": {
+           "description": "A null rationale is listed in withheld.",
            "contains": {
             "const": "rationale"
            }
@@ -2205,6 +2217,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null capacity is listed in withheld.",
         "contains": {
          "const": "capacity"
         }
@@ -2226,6 +2239,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null rationale is listed in withheld.",
         "contains": {
          "const": "rationale"
         }
@@ -2420,6 +2434,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null capacity is listed in withheld.",
         "contains": {
          "const": "capacity"
         }
@@ -2441,6 +2456,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null rationale is listed in withheld.",
         "contains": {
          "const": "rationale"
         }
@@ -2656,6 +2672,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null capacity is listed in withheld.",
         "contains": {
          "const": "capacity"
         }
@@ -2677,6 +2694,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null rationale is listed in withheld.",
         "contains": {
          "const": "rationale"
         }
@@ -2698,6 +2716,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null procedure is listed in withheld.",
         "contains": {
          "const": "procedure"
         }
@@ -3032,6 +3051,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null confirmation.capacity is listed in withheld.",
         "contains": {
          "const": "confirmation.capacity"
         }
@@ -3061,6 +3081,7 @@
      "then": {
       "properties": {
        "withheld": {
+        "description": "A null confirmation.rationale is listed in withheld.",
         "contains": {
          "const": "confirmation.rationale"
         }

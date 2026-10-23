@@ -145,7 +145,7 @@ def export_(gct, root, *argv, name="all", fmt="json"):
 
 
 def listing(root) -> list:
-    return sorted(p.relative_to(root).as_posix() for p in (root / "exports").rglob("*"))
+    return sorted(p.relative_to(root / "exports").as_posix() for p in (root / "exports").rglob("*"))
 
 
 def files(folder) -> dict:
@@ -172,13 +172,14 @@ def test_the_schema_is_a_described_draft_2020_12_schema_that_ships():
     assert SCHEMA["$id"] == "urn:gct:dataset-schema:1" and SCHEMA["title"] and SCHEMA["description"]
     missing_ = []
 
-    def walk(node, path):
+    def walk(node, path):  # an if block is a condition, not a documented property
         if isinstance(node, dict):
             for k, v in node.get("properties", {}).items():
                 if not (isinstance(v, dict) and v.get("description")):
                     missing_.append(f"{path}/properties/{k}")
             for k, v in node.items():
-                walk(v, f"{path}/{k}")
+                if k != "if":
+                    walk(v, f"{path}/{k}")
         elif isinstance(node, list):
             for i, v in enumerate(node):
                 walk(v, f"{path}/{i}")
@@ -450,8 +451,9 @@ def test_two_renders_are_byte_identical_and_two_exports_differ_only_in_built_at(
     def strings(x):
         if isinstance(x, str):
             return {x}
-        return set().union(*(strings(v) | (set(x) if isinstance(x, dict) else set())
-                             for v in (x.values() if isinstance(x, dict) else x))) if x else set()
+        if isinstance(x, dict):
+            return set(x).union(*map(strings, x.values()))
+        return set().union(*map(strings, x)) if isinstance(x, list) else set()
     assert strings(json.loads((tmp_path / "1" / "dataset.json").read_text())) == strings(d)
     conn.close()
     first = check(export_(gct, ws, "--complete")[1])
@@ -498,10 +500,10 @@ def test_every_refusal_writes_nothing(ws, gct, tmp_path, monkeypatch):
     c.execute("UPDATE meta SET value = '15' WHERE key = 'projection_schema'")
     c.commit()
     c.close()
-    before, files_before = dump(old), listing(old)
+    old_before, old_files = dump(old), listing(old)
     r = gct("report", "all", "--format", "json", "--workspace", old, "--json")
     assert r.code == 4 and r.data["next_action"] == "Build a fresh version with: gct publish build"
-    assert dump(old) == before and listing(old) == files_before
+    assert dump(old) == old_before and listing(old) == old_files
     # an unfinished deletion (K3)
     def boom(*a):
         raise OSError("held open")
@@ -521,8 +523,7 @@ def test_every_refusal_writes_nothing(ws, gct, tmp_path, monkeypatch):
         assert r.code == 4 and r.data["cause"] == "Another gct command is using this workspace."
     finally:
         lock.release(held)
-    assert dump(old) == before | {} and True  # the lock refusal opened nothing either
-    assert listing(old) == files_before
+    assert dump(old) == old_before and listing(old) == old_files  # the lock refusal wrote nothing either
 
 
 def test_a_renderer_failure_leaves_a_failed_run_and_no_folder(ws, gct, monkeypatch):
@@ -533,8 +534,7 @@ def test_a_renderer_failure_leaves_a_failed_run_and_no_folder(ws, gct, monkeypat
     monkeypatch.setitem(export.FORMATS, "broken", {"write": broken, "crops": False})
     files_before = listing(ws)
     r = gct("report", "all", "--format", "json,broken", "--workspace", ws)
-    assert r.code == 1 and listing(ws)[:-1] == files_before[:0] + listing(ws)[:-1]
-    assert [p for p in listing(ws) if not p.startswith("logs")] == [p for p in files_before if not p.startswith("logs")]
+    assert r.code == 1 and listing(ws) == files_before == []  # no folder and no .incoming-* (the log is in logs/)
     rows = report_runs(ws)
     assert rows[0][2:5] == ("note", "report", "all json,broken") and rows[-1][2:] == ("finished", None, None,
                                                                                     "RuntimeError", "failed")
@@ -701,27 +701,34 @@ def test_the_shared_folder_writer(tmp_path):
         assert not (root / "exports" / "s4").exists() and not (root / "exports" / ".incoming-s4").exists()
 
 
+# A renderer's refusal: any exception with string cause and next_step. The dummy renderer is its own module, made from
+# this source, which imports nothing from gct.workspace (C4).
+REFUSING = '''
 class CellRefusal(Exception):
-    """A renderer's refusal: any exception with string cause and next_step (no gct.workspace import)."""
     cause = "The evidence index has a cell longer than the format can hold (claim 3, column Metric as printed)."
     next_step = "Export that report as JSON instead: gct report evidence-index --format json"
 
 
-def test_a_renderer_refusal_is_the_commands_refusal(ws, gct, monkeypatch):
-    def refuses(dataset_, reports, folder, crops):
-        open(folder / "part.txt", "x").write("x")
-        raise CellRefusal()
+def write(dataset, reports, folder, crops):
+    open(folder / "part.txt", "x").write("x")
+    raise CellRefusal()
+'''
 
-    monkeypatch.setitem(export.FORMATS, "strict", {"write": refuses, "crops": False})
+
+def test_a_renderer_refusal_is_the_commands_refusal(ws, gct, monkeypatch):
+    mod = types.ModuleType("render_refusing")
+    exec(REFUSING, mod.__dict__)
+    assert [n for n in ast.walk(ast.parse(REFUSING)) if isinstance(n, (ast.Import, ast.ImportFrom))] == []
+    cause, step = mod.CellRefusal.cause, mod.CellRefusal.next_step
+    monkeypatch.setitem(export.FORMATS, "strict", {"write": mod.write, "crops": False})
     human = gct("report", "all", "--format", "json,strict", "--workspace", ws)
     machine = gct("report", "all", "--format", "strict", "--workspace", ws, "--json")
     assert human.code == machine.code == layout.REFUSED
-    assert human.err == f"error: {CellRefusal.cause}\nnext: {CellRefusal.next_step}\n" and human.out == ""
-    assert machine.data == {"status": "error", "cause": CellRefusal.cause, "next_action": CellRefusal.next_step}
+    assert human.err == f"error: {cause}\nnext: {step}\n" and human.out == ""
+    assert machine.data == {"status": "error", "cause": cause, "next_action": step}
     assert listing(ws) == []
     finished = [x for x in report_runs(ws) if x[2] == "finished"]
-    assert [x[5:] for x in finished] == [(CellRefusal.cause, "failed")] * 2
-    assert "gct.workspace" not in Path(__file__).read_text().split("class CellRefusal")[1].split("def test_a_rend")[0]
+    assert [x[5:] for x in finished] == [(cause, "failed")] * 2
 
 
 # AC 9: leakage (section G steps 1 to 5)
@@ -781,23 +788,24 @@ def test_the_sanitised_ids_and_filter_echo(w, env, gct, tmp_path):
     hidden = sorted(s for s, docs in rule.items() if docs <= private)[0]
     shown = sorted(s for s, docs in rule.items() if docs - private)[0]
     pconn.close()
-    flt = {"company": [1, 2, 3], "document": sorted(eff), "series": [hidden, shown], "text": "Scope 1"}
-    data, folder = export_(gct, root, "--filter", json.dumps(flt))
-    d = check(folder)
+    flt = {"company": [1, 2, 3], "document": sorted(eff), "text": "Scope 1"}
+    d = check(export_(gct, root, "--filter", json.dumps(flt))[1])
     shipped_docs = {x["id"] for x in d["documents"]}
     assert shipped_docs and not shipped_docs & private
     shipped_companies = {x["company"] for x in d["documents"]} | {r["company"] for r in d["evidence_index"]}
     assert d["filter"]["company"] == [c for c in flt["company"] if names[c] in shipped_companies] == [1, 2]
     assert d["filter"]["document"] == [i for i in flt["document"] if i in active and i not in private
                                        and i in shipped_docs]
-    with sqlite3.connect(root / "published" / f"v{ident['version']}.db") as c:
-        claim_series = dict(c.execute("SELECT id, series_id FROM claim").fetchall())
-    shipped_series = {claim_series[r["claim_id"]] for r in d["evidence_index"]} | {
-        r["series_id"] for r in d["restatement_log"]}
-    assert d["filter"]["series"] == [s for s in flt["series"] if s in shipped_series] and hidden not in shipped_series
     assert d["filter"]["text"] is None and d["filter"]["withheld"] == ["text"]
+    folder = export_(gct, root, "--filter", json.dumps(flt))[1]
     text = (folder / "dataset.json").read_text()
     assert names[3] not in text and "Scope 1" in text  # the text appears as claim wording, never as the filter
+    s = check(export_(gct, root, "--filter", json.dumps({"series": [hidden, shown]}))[1])
+    with sqlite3.connect(root / "published" / f"v{ident['version']}.db") as c:
+        claim_series = dict(c.execute("SELECT id, series_id FROM claim").fetchall())
+    shipped_series = {claim_series[r["claim_id"]] for r in s["evidence_index"]} | {
+        r["series_id"] for r in s["restatement_log"]}
+    assert s["filter"]["series"] == [x for x in (hidden, shown) if x in shipped_series] == [shown]
     for t, r in rows_of(d):
         assert not set(r["documents"]) & private and r.get("document_id") not in private, (t, r["id"])
     assert not {e["document_id"] for e in d["evidence"]} & private
@@ -897,9 +905,12 @@ def test_a_deletion_keeps_earlier_exports_and_report_run_lines(ws, gct, make_fil
     after = check(export_(gct, ws, "--complete")[1])
     assert after["data_version"]["version"] == first["data_version"]["version"]
     assert after["data_version"]["sha256"] != first["data_version"]["sha256"]  # purged in place under one number
-    assert 1 in {x["document_id"] for x in after["gap_report"]["deleted"]}
-    assert {x["name"] for x in after["documents"] if x["id"] == 1} <= {None}
-    assert all(r["document_id"] != 1 for r in after["evidence_index"])
+    assert all(r["document_id"] != 1 for r in after["evidence_index"]) and 1 not in {x["id"] for x in after["documents"]}
+    assert gct("publish", "build", "--workspace", ws).code == 0
+    rebuilt = check(export_(gct, ws, "--complete")[1])
+    assert [x for x in rebuilt["gap_report"]["deleted"] if x["document_id"] == 1][0]["deleted_at"]
+    assert [x["name"] for x in rebuilt["documents"] if x["id"] == 1] == [None]  # id and date only (R4-13)
+    assert report_runs(ws)[:len(lines)] == lines and files(folder) == kept
 
 
 def test_missing_states_non_binding_records_and_empty_results(exports_, ws, gct):
@@ -911,6 +922,7 @@ def test_missing_states_non_binding_records_and_empty_results(exports_, ws, gct)
     assert {r["earlier"] for t, r in rows_of(d) if t == "records" and r["binds"]} == {None}
     for argv in ((), ("--complete",)):
         e = check(export_(gct, ws, "--filter", json.dumps({"document": [5]}), *argv)[1])  # the deleted document
-        assert e["evidence_index"] == e["restatement_log"] == e["documents"] == []
+        assert e["evidence_index"] == e["restatement_log"] == []
+        assert {x["state"] for x in e["documents"]} <= ({"archived", "deleted"} if argv else set())
         v = e["data_version"]["version"]
         assert e["notices"][0] == (view.empty_text(v) if argv else dataset.sanitised_empty(v))
