@@ -801,6 +801,19 @@ def test_a_read_only_workspace_folder_is_refused_for_reading_and_writing_command
                         "next_action": "Make the folder writable, or copy the workspace to a writable folder."}, argv
 
 
+def test_a_report_preview_on_a_read_only_folder_names_the_folder_and_no_file_suffix(ws, gct, unwritable):
+    """R2 (granted by E7 2026-10-23): the report reader's cause, E8-D16's third FR78 fix."""
+    gct("company", "add", "Acme")
+    names = internal_names(ws)
+    unwritable(ws)
+    data = assert_refusal(gct, ["report", "preview"], 4, names)
+    assert data == {"status": "error",
+                    "cause": f"The workspace folder {ws.resolve()} is read-only, and building a report needs to write"
+                             " two small files beside the workspace database.",
+                    "next_action": "Make the folder writable, or build the report from a writable copy of the"
+                                   " workspace."}
+
+
 def test_an_unwritable_logs_folder_gives_the_short_message_and_no_traceback(ws, gct, monkeypatch, unwritable):
     monkeypatch.setattr(registry, "list_companies", lambda *a, **k: 1 / 0)
     unwritable(ws / "logs")

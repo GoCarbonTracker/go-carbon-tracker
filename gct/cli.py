@@ -1595,8 +1595,8 @@ def report_dataset(args) -> tuple[dict, dict]:
         try:
             _no_report_upgrade(conn)
         except sqlite3.OperationalError:
-            raise GctError(layout.REFUSED, f"The working database in {args.root} cannot be read: SQLite adds its -wal"
-                                           " and -shm files beside it to read it, and that folder is read-only.",
+            raise GctError(layout.REFUSED, f"The workspace folder {args.root} is read-only, and building a report needs"
+                                           " to write two small files beside the workspace database.",
                            "Make the folder writable, or build the report from a writable copy of the workspace.") from None
         return dataset.build(conn, args.root, **report_options(args))
     finally:
