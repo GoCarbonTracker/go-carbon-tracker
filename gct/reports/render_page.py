@@ -37,7 +37,7 @@ class Refusal(Exception):
 
 def esc(s: str) -> str:
     """The one way a string reaches the page. U+0000 is written as U+FFFD, which is what a browser shows for it."""
-    return html.escape(s.replace("\0", "�"), quote=True)
+    return html.escape(s.replace("\0", "\N{REPLACEMENT CHARACTER}"), quote=True)
 
 
 def _dotted(row, key):
