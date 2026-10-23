@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = ["fastapi>=0.115", "uvicorn>=0.30", "pdfplumber>=0.11", "pypdfium2>=5.9"]
+dependencies = ["fastapi>=0.115", "uvicorn>=0.30", "pdfplumber>=0.11", "pypdfium2>=5.9", "openpyxl>=3.1.5"]
 
 [project.optional-dependencies]
 dev = ["pytest", "jsonschema>=4.26"]
