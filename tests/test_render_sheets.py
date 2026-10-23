@@ -449,13 +449,13 @@ def test_printed_words_never_codes_and_the_guard_passes(outs):
 # AC 8, 9: cell safety
 
 SEEDS = ['=HYPERLINK("http://example.invalid","GCT-FORMULA-CANARY")', "+1+1", "-2+3", "@SUM(A1)", "a;=1+1", "#N/A",
-         "", "\tleading tab", "\rleading return", "x\r\ny", "nu\x00l", "be\x07ll", "non￾char", "non￿char",
+         "", "\tleading tab", "\rleading return", "x\r\ny", "nu\x00l", "be\x07ll", "non\U0000FFFEchar", "non\U0000FFFFchar",
          "-12.5", "-1,234", "\t-1"]
 NAMES = ("=x", "-x")  # two shareable documents' names
 
 
 def step1(s):
-    return re.sub("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]", "�", s)
+    return re.sub("[\x00-\x08\x0b\x0c\x0e-\x1f\U0000FFFE\U0000FFFF]", "\N{REPLACEMENT CHARACTER}", s)
 
 
 def as_xlsx(s):

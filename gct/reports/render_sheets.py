@@ -9,7 +9,8 @@ import re
 MAX_ROWS = 1_048_576  # rows of an XLSX sheet, band and heading included
 MAX_CELL = 32_767  # UTF-16 units of an XLSX cell
 NEXT_STEP = "Export CSV or JSON for this selection, or narrow the filter."
-CONTROL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
+CONTROL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\U0000FFFE\U0000FFFF]")
+U_FFFD = "\N{REPLACEMENT CHARACTER}"
 NUMBER = re.compile(r"[+-]?\d[\d,]*(\.\d+)?")
 # The sub-tables C3 nests in each list's rows: named here, since an empty list shows no nesting and its sub-table
 # sheets are still written. unpaired_restatements (top level) belongs to the restatement log; pair lists get the pair
@@ -64,7 +65,7 @@ def _cell(value, row, key, fmt, words) -> tuple:
         return v, 0, 0
     if not v:
         return None, 0, 0
-    v, replaced = CONTROL.subn("�", v)
+    v, replaced = CONTROL.subn(U_FFFD, v)
     if fmt == "xlsx":
         return v.replace("\r\n", "\n").replace("\r", "\n"), replaced, 0
     prefix = v[0] in "\t\r" or (v[0] in "=+-@" and not NUMBER.fullmatch(v))
