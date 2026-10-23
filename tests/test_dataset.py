@@ -408,6 +408,32 @@ def test_evidence_entries_are_the_shipped_rows_locations_with_cells_read_from_th
 
 # AC 9, C3c, B (missing evidence): the gap report
 
+def test_identical_csvs_under_two_names_each_carry_their_cell_evidence(tmp_path):
+    """C3d, AC 9 (review of c253740): a CSV's one sheet is named after its own document, so two shareable CSVs with the
+    same bytes under different names and companies each get header, row and marked, in both modes."""
+    root = tmp_path / "ws"
+    gate_fixture.gct("workspace", "init", root)
+    run(root, "contributor", "add", "ana", "--name", "Ana")
+    for company, name in (("Alpha", "alpha.csv"), ("Beta", "beta.csv")):
+        run(root, "company", "add", company)
+        src = tmp_path / name
+        src.write_text("Metric,Value,Unit,Period,Boundary\nTotal volume of water withdrawal,700,kL,FY 2024-25,"
+                       "Standalone\n")
+        doc = run(root, "doc", "add", src, "--company", company, "--kind", "evidence", "--privacy",
+                  "shareable")["items"][0]["document"]["id"]
+        run(root, "sheet", "map", doc, "--sheet", Path(name).stem, "--metric", "Metric", "--value", "Value", "--unit",
+            "Unit", "--period", "Period", "--boundary", "Boundary", "--year-end", "03-31", "--boundary-is",
+            "standalone", *WHO)
+    for step in ("read", "extract", "infer", "match", "link", ("publish", "build")):
+        run(root, *((step,) if isinstance(step, str) else step))
+    for mode in dataset.MODES:
+        cells = [e for e in build(root, mode=mode)[0]["evidence"] if e["cell"] is not None]
+        assert len(cells) == 2 and len({e["sha256"] for e in cells}) == 1 and len({e["sheet"] for e in cells}) == 2
+        for e in cells:
+            assert e["header"] == ["Metric", "Value", "Unit", "Period", "Boundary"], (mode, e)
+            assert e["row"] and e["marked"] is not None, (mode, e)
+
+
 def test_the_gap_report_states_the_documents_checked_and_the_limits(base):
     d, _ = build(base)
     checked = {r["document_id"]: r for r in d["gap_report"]["documents_checked"]}

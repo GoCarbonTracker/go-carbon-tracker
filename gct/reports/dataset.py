@@ -8,6 +8,7 @@ import copy
 import json
 import math
 import sqlite3
+from pathlib import PurePosixPath
 
 from gct import __version__
 from gct.models import redact
@@ -253,12 +254,16 @@ class _Build:
         return {i: self._keys[table][i] for i in ids if i in self._keys.get(table, {})}
 
     def book(self, doc) -> dict:
-        """The workbook of a spreadsheet, read once per build (one sheet.read_book per stored file)."""
+        """The workbook of a spreadsheet, read once per build (one sheet.read_book per stored file). A CSV's one sheet
+        is named after the document asking (sheet.read_book), so documents sharing a file each find their own."""
         from gct.stages import sheet
 
         if doc["sha256"] not in self._books:
-            self._books[doc["sha256"]] = dict(sheet._book(self.root, dict(doc)))
-        return self._books[doc["sha256"]]
+            self._books[doc["sha256"]] = sheet._book(self.root, dict(doc))
+        book = self._books[doc["sha256"]]
+        if doc["file_type"] == "csv":
+            return {PurePosixPath(doc["logical_name"]).stem: book[0][1]}
+        return dict(book)
 
     # C5a: the reduced copy.
     def reduce(self) -> sqlite3.Connection:
