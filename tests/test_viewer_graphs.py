@@ -150,7 +150,11 @@ def test_graphs_in_a_headless_browser(gws, srv, tmp_path):
     assert all(r.startswith("GET ") or r == "POST /api/records" for r in out["requests"]), out["requests"]
     assert out["before"] == [] and out["after"] == 1
     assert out["shell"] == out["graph"] == "14 claims match in data version 1."
-    assert out["acme"] == {"shell": "9 claims match in data version 1.", "graph": "9 claims match in data version 1."}
+    # G2: the same filter shows the same count and data version in Tables (story 6.2) and in Graphs
+    tables = "Claims matching the filter in published data version 1"
+    assert out["tablesAll"] == {"rows": "Rows 1 to 14 of 14", "caption": tables}
+    assert out["acme"] == {"shell": "9 claims match in data version 1.", "graph": "9 claims match in data version 1.",
+                           "tables": {"rows": "Rows 1 to 9 of 9", "caption": tables}}
     assert out["role"] == "img"
     assert out["label"] == "Graph of 14 claims in data version 1; every node and edge is in the tables below"
     assert out["tablesMatch"] is True  # the Nodes and Edges tables list exactly the canvas's elements
