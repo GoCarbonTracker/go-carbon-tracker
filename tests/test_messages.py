@@ -801,6 +801,24 @@ def test_a_read_only_workspace_folder_is_refused_for_reading_and_writing_command
                         "next_action": "Make the folder writable, or copy the workspace to a writable folder."}, argv
 
 
+def test_a_read_only_folder_is_refused_also_while_its_wal_files_exist(ws, gct, unwritable):
+    """Review r1 F2: a connection held open across the chmod keeps -wal and -shm beside the database, so connecting
+    succeeds; the refusal must not depend on that."""
+    from gct.workspace import store
+
+    gct("company", "add", "Acme")
+    conn = store.connect(ws / "workspace.db")
+    try:
+        unwritable(ws)
+        assert (ws / "workspace.db-wal").exists() and (ws / "workspace.db-shm").exists()
+        for argv in (["company", "list"], ["company", "add", "Beta"]):
+            data = assert_refusal(gct, argv, 4)
+            assert data["cause"] == f"The workspace folder {ws.resolve()} is read-only, so gct cannot open it.", argv
+        assert conn.execute("SELECT COUNT(*) FROM company").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
 def test_a_report_preview_on_a_read_only_folder_names_the_folder_and_no_file_suffix(ws, gct, unwritable):
     """R2 (granted by E7 2026-10-23): the report reader's cause, E8-D16's third FR78 fix."""
     gct("company", "add", "Acme")

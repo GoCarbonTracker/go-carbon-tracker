@@ -23,26 +23,24 @@ def _print(args, payload: dict, text: str) -> None:
     print(json.dumps(payload) if args.json else text)
 
 
-def _writable(folder) -> bool:
-    """A write probe (create and remove a file), not os.access: permissions are not the only way a folder refuses."""
+def _refuse_read_only(root) -> None:
+    """D-8.3-5: refuses a workspace folder gct cannot write, before any lock, upgrade or connection (WAL mode writes
+    -wal and -shm beside the database even to read it, and files left from another connection hide that). A write
+    probe (create and remove a file), not os.access: permissions are not the only way a folder refuses."""
     try:
-        with tempfile.TemporaryFile(dir=folder):
-            return True
+        with tempfile.TemporaryFile(dir=root):
+            return
     except OSError:
-        return False
+        raise GctError(layout.REFUSED, f"The workspace folder {root} is read-only, so gct cannot open it.",
+                       "Make the folder writable, or copy the workspace to a writable folder.") from None
 
 
 def _open(args, write=True):
     """Locate and upgrade the workspace. A writing command holds the workspace lock until main() returns;
     a read-only one takes it only for an upgrade."""
     args.root = layout.locate(args.workspace)
-    try:
-        conn = store.connect(args.root / layout.DB_NAME)
-    except sqlite3.OperationalError:  # WAL mode writes -wal and -shm beside the database, even to read it
-        if _writable(args.root):
-            raise
-        raise GctError(layout.REFUSED, f"The workspace folder {args.root} is read-only, so gct cannot open it.",
-                       "Make the folder writable, or copy the workspace to a writable folder.") from None
+    _refuse_read_only(args.root)
+    conn = store.connect(args.root / layout.DB_NAME)
     if write or store.pending(conn):
         args.lock = lock.hold(args.root)
     applied = store.migrate(conn)
