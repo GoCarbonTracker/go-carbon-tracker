@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 
 from gct import __version__
-from gct.workspace import store
+from gct.workspace import labels, store
 from gct.workspace.layout import REFUSED, GctError
 
 ACTIVE = "(SELECT s.state FROM document_state s WHERE s.document_id = d.id ORDER BY s.id DESC LIMIT 1)"
@@ -138,7 +138,9 @@ FROM sheet_mapping m JOIN contributor_version c ON c.id = m.contributor_version_
 WHERE {ACTIVE} IN ('registered', 'restored') ORDER BY m.id
 """
 COMPANY_COLUMNS = "id, name, sector_ref, sector_version"
-DOCUMENT_COLUMNS = "id, company_id, logical_name, version, sha256, kind, file_type, privacy, size_bytes"
+# privacy is the stored label (story 7.1 part A); labels.effective applies P3 when a report reads the version.
+DOCUMENT_COLUMNS = ("id, company_id, logical_name, version, sha256, kind, file_type,"
+                    f" {labels.STORED_PRIVACY} AS privacy, size_bytes")
 # The newest version of each claim of an active document.
 NEWEST_CLAIMS = f"""
 FROM claim c JOIN claim_version v ON v.id = (SELECT MAX(id) FROM claim_version WHERE claim_id = c.id)
@@ -183,7 +185,9 @@ def history_mark(conn: sqlite3.Connection) -> str:
                   "metric_assignment", "match_review", "restatement", "document_state_change",
                   # A sheet extraction can change a spreadsheet claim's state without adding a version (story 4.3).
                   "sheet_mapping", "claim_note", "attempt WHERE stage = 'sheet'", "review_company", "review_auditor",
-                  "adjudication", "reviewer_flag", "highlight")
+                  "adjudication", "reviewer_flag", "highlight",
+                  # A relabel changes the projected document.privacy (story 7.1 part A).
+                  "document_label")
     )
 
 

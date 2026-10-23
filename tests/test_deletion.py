@@ -116,11 +116,11 @@ def test_migration_16_applies_after_15_and_its_tables_are_append_only(tmp_path, 
     c.close()
     assert gct("doc", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-6:] == [15, 16, 17, 18, 19, 20]
+    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-7:] == [15, 16, 17, 18, 19, 20, 21]
     (run,) = runs.list_runs(c)
     assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == [
         "applied migration 16", "applied migration 17", "applied migration 18", "applied migration 19",
-        "applied migration 20"]
+        "applied migration 20", "applied migration 21"]
     c.close()
     db.execute("INSERT INTO company (name, created_at) VALUES ('Acme', 't')")
     db.execute("INSERT INTO document (company_id, logical_name, version, sha256, kind, file_type, privacy, size_bytes,"
@@ -380,7 +380,7 @@ def test_purge_removes_the_documents_page_rows_links_and_accepted_entries(ws, db
 # Story 7.1 part B, B8: a projection-14 file built by the code before 15, retained as the previous version
 def test_a_projection_14_file_of_the_older_code_is_purged_and_restored(ws, db, gct, world, old_tree):
     a, d = world["a"], world["d"]
-    (r,) = run_old(old_tree, ws, ("publish", "build", "--json"))
+    (r,) = run_old(old_tree, ws, ("publish", "build", "--json"), newer=True)  # the workspace is at schema 21
     assert r["code"] == 0 and json.loads(r["out"])["version"] == 3
     assert gct("publish", "build").code == 0
     assert sorted(p.name for p in (ws / "published").iterdir()) == ["v3.db", "v4.db"]
@@ -464,7 +464,7 @@ def test_retained_reviews_carry_the_marker_and_shared_records_stay(ws, db, gct, 
     assert r["action"] == "registered" and r["document"]["id"] not in (a, d, world["e"])
     assert gct("claims", "list", "--doc", r["document"]["id"], "--json").data["claims"] == []
     lst = gct("doc", "list").out
-    assert f"{d}  Acme  {marker}  v1  private  deleted {when[:10]}" in lst
+    assert f"{d}  Acme  {marker}  v1  private  unknown  deleted {when[:10]}" in lst
     act = gct("doc", "list", "--active", "--json").data
     assert d not in {x["id"] for x in act["documents"]} and act["hidden_deleted"] == 1
 
@@ -565,7 +565,7 @@ def test_migrations_13_to_16_apply_in_order_to_a_4_1_workspace(tmp_path, gct):
     c = store.connect(root / layout.DB_NAME)
     (run,) = runs.list_runs(c)
     assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == [
-        f"applied migration {n}" for n in (13, 14, 15, 16, 17, 18, 19, 20)]
+        f"applied migration {n}" for n in (13, 14, 15, 16, 17, 18, 19, 20, 21)]
     assert {"restatement", "document_state_change", "sheet_mapping", "claim_note", "document_deletion"} <= {
         t for (t,) in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     c.close()

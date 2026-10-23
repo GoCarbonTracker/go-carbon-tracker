@@ -16,7 +16,7 @@ step; delete only what must not stay in the workspace.
   deletion, so do not quote the document in them.
 - `gct doc show ID` shows the deletion: who, when and why, the steps done, any step still pending, and the records
   made on the document itself (page acceptances, boundary page declarations, spreadsheet column mappings, earlier
-  archive and restore records), each with the marker. `gct doc list` shows `deleted` with the date; `--active` hides
+  archive and restore records, label changes), each with the marker. `gct doc list` shows `deleted` with the date; `--active` hides
   deleted documents and counts them. `gct sheet show` and `gct sheet map` refuse a deleted spreadsheet.
 
 A document can be deleted when it is `registered`, `restored` or `archived`. A deleted document is refused with the
@@ -93,6 +93,7 @@ quotes the page. The classification lives in `gct/stages/deletion.py` (`KEPT`, `
 | `expected_item` | none | nothing (the expectation is the user's wording) | `metric_text`, `period_label` |
 | `saved_view` | none | nothing (a view is the user's name and a filter, attached to no document; one naming the deleted document says "Document N was permanently deleted." when opened) | `name`, `filter`, `section` |
 | `page_acceptance` | acceptances of its pages | `capacity`, `rationale` (`cleared with document N`) | `page_number`, `content_type` |
+| `document_label` | its label changes (`gct doc label`); the row written when it was registered holds no contributor text and is neither counted nor cleared | `capacity`, `rationale` (`cleared with document N`) | `privacy`, `availability` |
 | `gap_confirmation` | confirmations whose checked set names it | `capacity`, `rationale` (`cleared with document N`) | `documents_checked` (document ids, file hashes, reading ids) |
 | `run_event` | the register and fetch lines of its own add runs that name one of its addresses, the register and fetch failure lines of its addresses in any add run for its company, the selection notes of its own add runs, its `sheet` stage lines, and free-text messages that hold its logical name or source (one row per kind below) | `item`, `message` of those register and fetch lines; `message` of the rest (`cleared with document N`) | `kind`, `stage`, `method`, `outcome`, costs; every other `item` (ids and paths that retry reads back); another document's register line and another run's selection note |
 | `attempt` | fetch attempts whose `item` or `output` holds its logical name or source; its `sheet` attempts (item `N:sheet position`); attempts of any stage whose `error` holds its name or source | `item`, `output` of those fetch attempts; the `sheet` name inside a sheet attempt's JSON output; `error` (`cleared with document N`) | `stage`, `input_version`, `config_version`, `method`, `rung`, `outcome`, costs; the `item` and `output` of every other stage (page ids, document ids and counts) and the rest of a sheet output (counts and claim ids) |

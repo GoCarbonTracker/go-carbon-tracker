@@ -69,9 +69,9 @@ def test_migrations_17_and_18_apply_in_order(tmp_path, gct):
     c.close()
     assert gct("doc", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-5:] == [16, 17, 18, 19, 20]
+    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-6:] == [16, 17, 18, 19, 20, 21]
     (run,) = runs.list_runs(c)
-    assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == ["applied migration 17", "applied migration 18", "applied migration 19", "applied migration 20"]
+    assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == ["applied migration 17", "applied migration 18", "applied migration 19", "applied migration 20", "applied migration 21"]
     assert [c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("adjudication", "reviewer_flag")] == [0, 0]
     c.close()
 

@@ -13,7 +13,7 @@ from gct.measure import g2
 from gct.models import adapters, policy
 from gct.stages import (adjudicate, archive, correct, deletion, extract, highlight, infer, link, match, missing, read,
                         restate, review, saved_view, sheet, view)
-from gct.workspace import intake, layout, lock, published, registry, runs, store
+from gct.workspace import intake, labels, layout, lock, published, registry, runs, store
 from gct.workspace.layout import GctError
 
 
@@ -40,7 +40,8 @@ def _open(args, write=True):
 
 
 def _doc_line(d: dict) -> str:
-    return (f"{d['id']}  {d['company']}  {d['logical_name']}  v{d['version']}  {d['privacy']}  {d['state']}"
+    return (f"{d['id']}  {d['company']}  {d['logical_name']}  v{d['version']}  {d['privacy']}  {d['availability']}"
+            f"  {d['state']}"
             + (f" {d['deleted_at'][:10]}" if d["deleted_at"] else ""))
 
 
@@ -70,13 +71,19 @@ def cmd_company_list(args) -> None:
     _print(args, {"status": "ok", "companies": companies}, text)
 
 
-def _item_line(i: dict) -> str:
-    d = i["document"]
+def _label_text(x: dict) -> str:
+    return f"{x['privacy']}, availability {x['availability']}"
+
+
+def _item_line(i: dict, label: dict) -> str:
+    d, note = i["document"], f"\n{i['cause']}" if i["cause"] else ""
     if i["action"] == "registered":
-        return f"registered {d['id']}: {d['logical_name']} (version {d['version']}, {d['privacy']})"
+        return f"registered {d['id']}: {d['logical_name']} (version {d['version']}, {_label_text(d)}){note}"
     if i["action"] == "duplicate":
         line = f"duplicate of {d['id']}: {i['source']}" if d else f"duplicate: {i['source']}"
-        return line + (f"\nIt is archived. {i['next_action']}" if i["next_action"] else "")
+        return line + note + (f"\nIt is archived. {i['next_action']}" if i["next_action"] else "")
+    if i["action"] in ("would register", "would fetch"):
+        return f"{i['action']}: {i['source']} ({_label_text(label)}){note}"
     if i["cause"]:
         return f"{i['action']}: {i['source']} — {i['cause']}"
     return f"{i['action']}: {i['source']}"
@@ -84,24 +91,29 @@ def _item_line(i: dict) -> str:
 
 def cmd_doc_add(args) -> int:
     conn = _open(args, write=not args.plan)
+    label = intake.label(args.kind, args.privacy, args.availability)
     if args.plan:
-        return _doc_add_out(args, intake.plan(conn, args.sources, args.company, args.name), plan=True)
-    _, items = intake.add(conn, args.root, args.sources, args.company, args.kind, args.privacy, args.name, args.source)
-    return _doc_add_out(args, items)
+        return _doc_add_out(args, intake.plan(conn, args.sources, args.company, args.name, args.kind, args.privacy,
+                                              args.availability), label, plan=True)
+    _, items = intake.add(conn, args.root, args.sources, args.company, args.kind, args.privacy, args.name, args.source,
+                          availability=args.availability)
+    return _doc_add_out(args, items, label)
 
 
-def _doc_add_out(args, items, plan=False, head=None, extra=None) -> int:
-    """Print doc add items. head is a first text line and extra more top-level keys (resume and retry)."""
+def _doc_add_out(args, items, label, plan=False, head=None, extra=None) -> int:
+    """Print doc add items with the batch's label. head is a first text line and extra more top-level keys (resume
+    and retry)."""
     summary = ", ".join(f"{n} {a}" for a, n in Counter(i["action"] for i in items).items())
-    text = "\n".join([*([head] if head else []), *map(_item_line, items),
+    text = "\n".join([*([head] if head else []), *(_item_line(i, label) for i in items),
                       f"{summary}. Nothing was stored." if plan else summary])
     bad = [i["source"] for i in items if i["action"] in ("refused", "failed")]
     if plan or not bad:
-        _print(args, {"status": "ok", **(extra or {}), "items": items}, text)
+        _print(args, {"status": "ok", **(extra or {}), "label": label, "items": items}, text)
         return 0
     cause = f"{len(bad)} of {len(items)} items were not added."
     next_action = "Check these and add them again: " + ", ".join(bad)
-    _print(args, {"status": "partial", "cause": cause, "next_action": next_action, **(extra or {}), "items": items}, text)
+    _print(args, {"status": "partial", "cause": cause, "next_action": next_action, **(extra or {}), "label": label,
+                  "items": items}, text)
     if not args.json:
         print(f"error: {cause}\nnext: {next_action}", file=sys.stderr)
     return layout.REFUSED
@@ -116,6 +128,15 @@ def cmd_doc_list(args) -> None:
         text += f"\n{n} {state} document{'s' * (n > 1)} hidden. Show every document with: gct doc list"
     _print(args, {"status": "ok", "documents": shown, "hidden_by_archive": hidden["archived"],
                   "hidden_deleted": hidden["deleted"]}, text)
+
+
+def cmd_doc_label(args) -> None:
+    r = labels.change(_open(args), args.id, args.privacy, args.availability, args.as_, args.capacity, args.rationale)
+    c, org = r["change"], f", {r['change']['organisation']}" if r["change"]["organisation"] else ""
+    _print(args, {"status": "ok", **r},
+           f"Document {args.id} ({r['document']['logical_name']}) was {_label_text(r['old'])}; it is now"
+           f" {_label_text(r['new'])}.\nlabel change by {c['contributor']}{org} ({c['capacity']}) at {c['created_at']}:"
+           f" {c['rationale']}")
 
 
 def _change_line(c: dict) -> str:
@@ -1385,7 +1406,8 @@ def _replay(args, conn, r: dict, sel: dict, note: str, head: str) -> int:
         run_id, docs = getattr(stage, r["command"])(conn, args.root, sel["ids"], sel["company"], [note])
         return out(args, docs, head.format(run_id), {"run_id": run_id, "of_run": r["id"]})
     run_id, items = intake.add(conn, args.root, notes=[note], **sel)
-    return _doc_add_out(args, items, head=head.format(run_id), extra={"run_id": run_id, "of_run": r["id"]})
+    label = intake.label(sel.get("kind", "report"), sel.get("privacy"), sel.get("availability", "unknown"))
+    return _doc_add_out(args, items, label, head=head.format(run_id), extra={"run_id": run_id, "of_run": r["id"]})
 
 
 def cmd_run_resume(args) -> int:
@@ -1573,7 +1595,10 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("sources", nargs="+", metavar="SOURCE", help="a file, a folder (its direct children) or an http(s) URL")
     add.add_argument("--company", required=True)
     add.add_argument("--kind", choices=("report", "evidence"), default="report")
-    add.add_argument("--privacy", choices=("private", "shareable"), default="private")
+    add.add_argument("--privacy", choices=labels.PRIVACY, default=None,
+                     help="the label (default: shareable for a report with --availability public, else private)")
+    add.add_argument("--availability", choices=labels.AVAILABILITY, default="unknown",
+                     help="whether the document is published by its company (default: unknown)")
     add.add_argument("--name", help="logical name (default: the file's base name)")
     add.add_argument("--source", help="where the file came from, free text (a URL stores the URL)")
     add.add_argument("--plan", action="store_true", help="show what would happen to each item and store nothing")
@@ -1585,6 +1610,14 @@ def build_parser() -> argparse.ArgumentParser:
     show = doc.add_parser("show", parents=[common], help="show one document")
     show.add_argument("id", type=int)
     show.set_defaults(func=cmd_doc_show)
+    lab = doc.add_parser("label", parents=[common], help="change a document's privacy label or availability")
+    lab.add_argument("id", type=int)
+    lab.add_argument("--privacy", choices=labels.PRIVACY)
+    lab.add_argument("--availability", choices=labels.AVAILABILITY)
+    lab.add_argument("--as", dest="as_", required=True, metavar="KEY", help="the contributor making this record")
+    lab.add_argument("--capacity", required=True, help="the capacity you act in, as you describe it")
+    lab.add_argument("--rationale", required=True, help="why")
+    lab.set_defaults(func=cmd_doc_label)
     pages = doc.add_parser("pages", parents=[common], help="show how each page of one document was read")
     pages.add_argument("id", type=int)
     pages.set_defaults(func=cmd_doc_pages)
