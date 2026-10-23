@@ -1142,11 +1142,118 @@ def test_an_archived_shareable_documents_restatement_ships(tmp_path):
       gate_fixture.QUOTE, *gate_fixture.WHO)
     g("doc", "archive", doc, *gate_fixture.WHO)
     out = packages(g, root)
+    parity(out)
+    assert len(out["sanitised"][0]["workspace"]["restatement"]) == 1
+
+
+def parity(out) -> None:
+    """All-shareable parity: the sanitised package keeps exactly the complete package's match_review and restatement
+    rows, with the same keys, and withholds none as selection_recomputed."""
     san, p = out["sanitised"]
     for t in package.SERIES_NAMED:
         assert [(r["id"], r["series_key"]) for r in san["workspace"][t]] == [
             (r["id"], r["series_key"]) for r in out["complete"][0]["workspace"][t]], t
-    assert len(san["workspace"]["restatement"]) == 1 and p["withheld"]["selection_recomputed"] == 0
+    assert p["withheld"]["selection_recomputed"] == 0
+
+
+# Round 2, F3: history. A review and a restatement recorded against the standalone series stay after both rule claims
+# are resolved to consolidated (the key is no longer formed), in the sanitised package as in the complete one
+def test_rows_naming_a_series_their_claims_formed_earlier_ship_in_an_all_shareable_package(tmp_path):
+    root = tmp_path / "w" / "ws"
+    root.parent.mkdir()
+    shared = gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", v] for v in ("100", "110", "120")], ["FY 2024-25"],
+                               lines=[(40, 150, gate_fixture.NOTE)])
+    g, doc, claims = small(root, shared)
+    g("restate", "record", "--original", claims[0], "--restated", claims[1], "--page", 1, "--quote",
+      gate_fixture.QUOTE, *gate_fixture.WHO)
+    g("infer", "reject", "--claim", claims[2], "--field", "boundary", *gate_fixture.WHO)
+    g("match", "link", claims[2], "--series", g("series", "list")["series"][0]["id"], *gate_fixture.WHO)
+    for c in claims[:2]:
+        g("infer", "resolve", c, "--field", "boundary", "--boundary", "consolidated", *gate_fixture.WHO)
+    g("doc", "archive", doc, *gate_fixture.WHO)
+    out = packages(g, root)
+    parity(out)
+    ws = out["sanitised"][0]["workspace"]
+    assert len(ws["match_review"]) == len(ws["restatement"]) == 1 and '"standalone"' in ws["restatement"][0]["series_key"]
+
+
+# Round 2, F1: synthetic tokens only. TOKEN1 is typed into three metric corrections (one with squeezed spaces), so
+# the unmapped series key holds it lowercased inside series_key[1]; TOKEN2 is in the boundary statement, so it reaches
+# basis, inference, inference.group_key and series_key[3]; TOKEN3 is typed as a unit, which a unit as printed key
+# (here a restatement's) holds lowercased with its spaces removed. Both packages hold none of them in any form; the
+# sanitised one keeps both rows (their keys built from the written text, series of the package's own version 1).
+TOKENS = {f"CRED-KEY-0{n}": f"GCTSYNTHTOKEN{n}{'q' * 20}" for n in (1, 2, 3)}
+
+
+def test_a_credential_in_a_claim_text_reaches_no_key_in_either_package(tmp_path):
+    from gct.stages import match
+    t1, t2, t3 = TOKENS.values()
+    root = tmp_path / "w" / "ws"
+    root.parent.mkdir()
+    shared = gate_fixture.page([["Mystery water recycled", "kL", "100", "110", "120"],
+                                [gate_fixture.SCOPE_1, "tCO2e", "200", "210", "220"]], ["FY 2024-25"] * 3,
+                               boundary=f"Reporting boundary: Report is prepared on a consolidated basis combining the"
+                                        f" information of Bearer {t2}.", lines=[(40, 150, gate_fixture.NOTE)])
+    g, doc, claims = small(root, shared)
+    rows = g("claims", "list", "--doc", doc)["claims"]
+    water = [c["id"] for c in rows if c["metric_text"].startswith("Mystery")]
+    scope = [c["id"] for c in rows if c["metric_text"] == gate_fixture.SCOPE_1]
+    for n, c in enumerate(water):
+        g("correct", c, "--metric", f"Bearer {'   ' if n else ''}{t1}", *gate_fixture.WHO)
+    for c in scope:
+        g("correct", c, "--unit", f"Bearer {t3}", *gate_fixture.WHO)
+    g("infer")
+    for group in g("infer", "groups", "--state", "proposed")["groups"]:
+        g("infer", "accept", group["id"], *gate_fixture.WHO)
+    g("match")
+    for c, printed in ((water[2], False), (scope[2], True)):
+        g("infer", "reject", "--claim", c, "--field", "boundary", *gate_fixture.WHO)
+        sid = next(s["id"] for s in g("series", "list")["series"] if s["document_id"] == doc
+                   and s["unit_family"].startswith("printed:") == printed)
+        g("match", "link", c, "--series", sid, *gate_fixture.WHO)
+    seeds = [{"name": n, "kind": "credential", "expect": "never", "value": v} for n, v in TOKENS.items()]
+    source = sqlite3.connect(root / layout.DB_NAME)
+    review, flat = (k for (k,) in source.execute("SELECT series_key FROM match_review ORDER BY id"))
+    source.close()
+    assert set(leakage.found(root / layout.DB_NAME, seeds)) == set(TOKENS)  # each token is in the source
+    assert t1.lower() in review and t2 in review  # lowercased inside the metric, verbatim in the detail
+    assert f"printed:bearer{t3.lower()}" in flat  # lowercased, its space removed
+    out = packages(g, root)
+    for mode, (back, p) in out.items():
+        assert len(back["workspace"]["match_review"]) == 2, mode
+        folder = root / "exports" / next(n for n in made(root) if n.endswith(mode))
+        for db in (folder / layout.DB_NAME, folder / "published" / "v1.db"):  # the original PDF prints TOKEN2
+            assert leakage.found(db, seeds) == {}, (mode, db)
+        text = (dump_text(folder / layout.DB_NAME) + dump_text(folder / "published" / "v1.db")).casefold()
+        assert not [t for t in TOKENS.values() if t.casefold() in text], mode
+        conn = store.connect(folder / layout.DB_NAME)
+        formed = {s["key"] for s in match.compute(conn)["series"].values()}
+        conn.close()
+        assert back["workspace"]["match_review"] and {r["series_key"] for r in back["workspace"]["match_review"]} <= (
+            formed), mode
+    assert out["sanitised"][1]["withheld"]["selection_recomputed"] == 0
+
+
+# The candidate keys package.series_keys builds cover every key match.compute forms, on the source (stored keys) and
+# on both packages (written keys): the check that ties its copy of the key shape to match.py
+def test_series_keys_cover_what_match_compute_forms(rw, tmp_path, monkeypatch, gct):
+    from gct.stages import match
+    src = copy(rw, tmp_path / "w", monkeypatch)
+
+    def rows(db) -> dict:
+        conn = store.connect(db)
+        try:
+            return {t: [dict(r) for r in conn.execute(f"SELECT * FROM {t}")] for t in (
+                "claim", "claim_version", "metric_assignment", "inference", "inference_review")}
+        finally:
+            conn.close()
+
+    for db in (src / layout.DB_NAME, src / create(gct).data["folder"] / layout.DB_NAME,
+               src / create(gct, "--complete", "--include-private").data["folder"] / layout.DB_NAME):
+        conn = store.connect(db)
+        formed = {s["key"] for s in match.compute(conn)["series"].values()}
+        conn.close()
+        assert formed and formed <= set(package.series_keys(rows(db))), db
 
 
 # F2: an unmapped metric's series key holds its document id inside the metric ("doc:N:..."); ID_TEXT declares it, so

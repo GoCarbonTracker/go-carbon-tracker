@@ -5,7 +5,9 @@ module holds no document-naming map and computes no label. COLUMNS decides how a
 whether it ships. gct package preview shows the plan and its token; gct package create recomputes the plan under the
 workspace lock, refuses another token and writes exports/package-v<N>-<stamp>-<mode>/."""
 import hashlib
+import itertools
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -14,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from gct import __version__
+from gct.models import redact
 from gct.models.redact import scrub
 from gct.reports import pin as pinning
 from gct.reports.export import folder as _folder
@@ -183,7 +186,8 @@ def _refuse_stale(conn, root, version: int) -> None:
 
 
 def _decide(conn, root, mode: str, include: tuple):
-    """({table: [shipped rows]}, Counter of withheld rows by cause, {document id: document}, effective labels)."""
+    """({table: [shipped rows]}, Counter of withheld rows by cause, {document id: document}, effective labels,
+    {stored series key: written series key} for the keys the shipped rows explain)."""
     docs = {d["id"]: d for d in registry.list_documents(conn)}
     eff = labels.effective(conn)
     keys = {t: {f["from"]: f["table"] for f in conn.execute(f"PRAGMA foreign_key_list({t})")} for t in COLUMNS}
@@ -200,13 +204,13 @@ def _decide(conn, root, mode: str, include: tuple):
                 ship[t].append(row)
             elif cause := _cause(conn, t, named, docs, eff):
                 withheld[cause] += 1
+    explained = series_keys(ship)
     if mode == "sanitised":
         ship.update(dict.fromkeys(COMPLETE_ONLY, []))
         # A decision or restatement names a series by its key, which holds the boundary text and ids its claims and
-        # inferences give; it ships only when the shipped rows themselves form that series
-        formed = _formed(conn, ship)
+        # inferences give; it ships only when shipped rows explain that key
         for t in SERIES_NAMED:
-            kept = [r for r in ship[t] if r["series_key"] in formed]
+            kept = [r for r in ship[t] if r["series_key"] in explained]
             withheld["selection_recomputed"] += len(ship[t]) - len(kept)
             ship[t] = kept
         pointed = {t: set() for t in REFERENCED}
@@ -217,27 +221,86 @@ def _decide(conn, root, mode: str, include: tuple):
         for t in REFERENCED:
             ship[t] = [r for r in ship[t] if r["id"] in pointed[t]]
         ship["run_event"] = [r for r in ship["run_event"] if r["kind"] == "finished" and r["run_id"] in pointed["run"]]
-    return ship, withheld, docs, eff
+    return ship, withheld, docs, eff, explained
 
 
-def _formed(conn, ship: dict) -> set:
-    """The keys of the series the shipped rows form: match.compute on an in-memory copy of them (the source's tables,
-    no triggers, foreign keys off). Archive is a lifecycle state, so an archived document's claims count here: its
-    archived document_state rows are left out of the copy (P3)."""
-    mem = sqlite3.connect(":memory:")
-    mem.row_factory = sqlite3.Row
-    try:
-        for (sql,) in conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"):
-            mem.execute(sql)
-        for t, rows in ship.items():
-            rows = [r for r in rows if t != "document_state" or r["state"] != "archived"]
-            if rows:
-                cols = rows[0].keys()
-                mem.executemany(f"INSERT INTO {t} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
-                                [tuple(r) for r in rows])
-        return {s["key"] for s in match.compute(mem)["series"].values()}
-    finally:
-        mem.close()
+def series_keys(ship: dict) -> dict:
+    """{key as stored: key as written} for every series key the given rows explain: the key match.compute builds
+    (match.py compute, _series) from one claim and one of its recorded states, pooled over all of its versions, each
+    metric assignment, every boundary and period value an inference or inference review gave it, archived documents
+    included (archive is a lifecycle state). A unit as printed key counts when two claims give it. Each key is built
+    twice from the same state, once from the stored text and once from the text the package writes (scrub), so a
+    credential in a claim's text never survives lowercased into a key.
+    ponytail: states that never held at the same time are combined, so this explains a superset of the series that
+    ever existed; every part of a key still comes from a shipped row. tests/test_package.py checks that it covers what
+    match.compute forms."""
+    versions, assigned, states = {}, {}, {"boundary": {}, "period": {}}
+    for v in ship["claim_version"]:
+        versions.setdefault(v["claim_id"], []).append(v)
+    for a in ship["metric_assignment"]:
+        assigned.setdefault(a["claim_version_id"], []).append(a)
+    claim_of = {v["id"]: v["claim_id"] for v in ship["claim_version"]}
+    for t in ("inference", "inference_review"):
+        for r in ship[t]:
+            if r["claim_version_id"] not in claim_of:
+                continue
+            value = (r["boundary"], r["boundary_detail"]) if r["field"] == "boundary" else r["period_kind"]
+            if (value[0] if r["field"] == "boundary" else value) is not None:
+                states[r["field"]].setdefault(claim_of[r["claim_version_id"]], set()).add(value)
+    out, printed = {}, {}
+    for c in ship["claim"]:
+        row, doc = match._row(c["locator"]), c["document_id"]
+        for v in versions.get(c["id"], []):
+            for a, (b, detail), kind in itertools.product(assigned.get(v["id"], []), states["boundary"].get(
+                    c["id"], ()), states["period"].get(c["id"], ())):
+                if b == "unknown":
+                    continue
+                both = []
+                for f in (lambda s: s, scrub):
+                    label = match.label_of(f(v["metric_text"]))
+                    metric = a["metric_key"] or (label and row and f"doc:{doc}:p{c['page_number']}:{row}:{label}")
+                    if not metric:
+                        break
+                    head = [c["company_id"], metric, b, f(detail) if b == "subsidiary_set" else None]
+                    family = a["unit_key"]
+                    ok = family is not None and (a["metric_key"] is None or family in match.ACCEPTS[a["metric_key"]])
+                    unit = match.unit_text_of(f(v["unit_text"] or "")) or "-"
+                    both.append((head + [family, doc if a["metric_key"] is None else None, kind] if ok else None,
+                                 head + [f"printed:{unit}", doc, kind, f"p{c['page_number']}:{row}"] if row else None))
+                if len(both) < 2:
+                    continue
+                (key, flat), (written, written_flat) = both
+                if key:
+                    out[_json(key)] = _json(written)
+                if flat:
+                    printed.setdefault(_json(flat), (_json(written_flat), set()))[1].add(c["id"])
+    out.update({k: w for k, (w, claims) in printed.items() if len(claims) > 1})
+    return out
+
+
+def _json(key: list) -> str:
+    return json.dumps(key, ensure_ascii=False)  # as match._series stores a key
+
+
+_ANY_CASE = re.compile(redact.PATTERNS.pattern, re.I)
+
+
+def _scrub_key(text):
+    """A complete package's series key that no shipped state explains (or one deletion cleared): scrub on each text
+    part, in any case, since a key holds text lowercased.
+    ponytail: a credential match.unit_text_of stripped of its spaces is not caught; keys the rows explain never reach
+    here."""
+    if not text:
+        return text
+
+    def part(s):
+        s = _ANY_CASE.sub(redact.MARK, scrub(s))
+        for name in redact._names():
+            if value := os.environ.get(name):
+                s = re.sub(re.escape(value), redact.MARK, s, flags=re.I)
+        return s
+
+    return _json([part(x) if isinstance(x, str) else x for x in json.loads(text)])
 
 
 def _cause(conn, table: str, named, docs: dict, eff: dict) -> str | None:
@@ -273,7 +336,7 @@ def _plan(conn, root, mode: str, include: tuple):
     pconn, source = pinning.pin(conn, root)
     pconn.close()
     _refuse_stale(conn, root, source["version"])
-    ship, withheld, docs, eff = _decide(conn, root, mode, include)
+    ship, withheld, docs, eff, explained = _decide(conn, root, mode, include)
     shipped = [d["id"] for d in ship["document"]]
     originals = {}
     for d in ship["document"]:
@@ -311,7 +374,8 @@ def _plan(conn, root, mode: str, include: tuple):
     files = ["workspace.db", "published/v1.db", MANIFEST, *readings,
              *(registry.stored_path(Path(), s).as_posix() for s in sorted(originals))]
     withheld_files = {d["sha256"] for d in docs.values() if d["id"] not in shipped and d["state"] != "deleted"}
-    return out, {"ship": ship, "names": names, "eff": eff, "files": files, "withheld_files": withheld_files,
+    return out, {"ship": ship, "names": names, "eff": eff, "explained": explained, "files": files,
+                 "withheld_files": withheld_files,
                  "private": [i for i in shipped if eff[i]["label"] == "private" and docs[i]["state"] != "deleted"]}
 
 
@@ -377,6 +441,8 @@ def _row(table: str, row, mode: str, include: tuple, ctx: dict) -> tuple:
     out = []
     for col in row.keys():
         v = row[col]
+        if table in SERIES_NAMED and col == "series_key":  # built from the written text, never scrubbed after
+            v = ctx["explained"].get(v) or _scrub_key(v)
         v = scrub(v) if isinstance(v, str) else v
         cls = COLUMNS[table][col]
         if mode == "sanitised":
@@ -411,7 +477,8 @@ def _write(root: Path, folder: Path, p: dict, w: dict) -> dict:
     """Write the package into folder (empty), check it against the plan and write the manifest."""
     mode, include, ship = p["mode"], tuple(p["include"]), w["ship"]
     layout.init_workspace(folder)
-    ctx = {"eff": w["eff"], "names": w["names"], "ship": ship, "who": {r["id"]: r for r in ship["contributor_version"]},
+    ctx = {"eff": w["eff"], "names": w["names"], "ship": ship, "explained": w["explained"],
+           "who": {r["id"]: r for r in ship["contributor_version"]},
            "file_types": {d["id"]: d["file_type"] for d in ship["document"]}}
     pk = store.connect(folder / layout.DB_NAME)
     try:
