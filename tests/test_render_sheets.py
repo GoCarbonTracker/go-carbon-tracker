@@ -566,7 +566,15 @@ def test_a_cell_or_a_sheet_too_big_for_xlsx_is_refused_before_any_file(outs, tmp
     next(x for r in ok["evidence_index"] for x in r["records"]["rows"])["conclusion"] = "a" * 32_767
     (tmp_path / "ok").mkdir()
     rs.write_xlsx(ok, ["evidence_index"], tmp_path / "ok", {})
-    # a sheet over the row limit, the gap report's (third report): nothing of the first two is written either
+    # a cell only the third report (the gap report) prints: the first two reports' files are not written either (R3.1)
+    third = copy.deepcopy(d)
+    third["gap_report"]["extraction_limits"][0]["reason"] = "a" * 32_768
+    (tmp_path / "third").mkdir()
+    with pytest.raises(rs.Refusal) as e:
+        rs.write_xlsx(third, list(REPORTS), tmp_path / "third", {})
+    assert e.value.cause.startswith("The Extraction limits table of the gap-report report has a value longer")
+    assert list((tmp_path / "third").iterdir()) == []
+    # a sheet over the row limit
     rows = 1 + len(d["notices"]) + 1 + 1 + len(d["documents"])
     monkeypatch.setattr(rs, "MAX_ROWS", rows - 1)
     (tmp_path / "rows").mkdir()
