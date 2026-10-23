@@ -479,8 +479,8 @@ def test_superseded_and_every_xref_section_are_read(tmp_path):
                    update={4: _stream(b"/Filter /FlateDecode", zlib.compress(b"BT /F1 12 Tf 72 700 Td (clean) Tj ET")),
                            6: b"<< /Title (clean) >>", 8: ahx(f"({new})".encode())})
     result = found(put(tmp_path, {"a.pdf": pdf}), [text_seed(s) for s in (content, info, old, new)])
-    assert where(result, content, "a.pdf: raw stream 1")
-    assert where(result, info, "a.pdf: string tokens")
+    assert where(result, content, "a.pdf: object 4 at byte")  # the superseded copy, parsed as an object
+    assert where(result, info, "a.pdf: object 6 at byte") and where(result, info, "a.pdf: string tokens")
     assert where(result, old, "a.pdf: object 7 stream") and where(result, new, "a.pdf: object 8 stream")
     assert not where(result, content, "a.pdf: page 1 text")  # the page shows the new content only
 
@@ -619,3 +619,161 @@ def test_symbolic_links_are_refused(tmp_path):
     with pytest.raises(ValueError, match="symbolic links") as e:
         found(folder, [text_seed("GCT-LEAK-FIX-LINKED-07")])
     assert all(str(folder / n) in str(e.value) for n in ("dir", "file.txt", "dangling"))
+
+
+# --- review fix round 2 (Xiao's second review, /tmp/xiao-7-7-a-review-r2/) ------------------------------------------
+
+MARKER_SEED = {"name": "GCT-LEAK-FIX-MARKER-08", "kind": "image", "expect": "complete_only", "value": None}
+
+
+def image_object(img, dct=False, extra=b""):
+    data = jpeg(img) if dct else zlib.compress(img.tobytes())
+    mode = {"RGB": b"/DeviceRGB", "L": b"/DeviceGray"}[img.mode]
+    return _stream(RGB_IMAGE % (*img.size, 8, mode) + extra + (b"/Filter /DCTDecode" if dct else b"/Filter /FlateDecode"),
+                   data)
+
+
+def test_superseded_and_orphan_objects_are_parsed_as_objects(tmp_path):
+    """B1 (round 2): a copy an incremental update superseded, or an object no xref section lists, is parsed as an
+    object: an uncompressed content stream with a hex or an octal seed, a Flate one in a coded font (interpreted with
+    its page's resources), an AHx one, a Flate and a DCT image in the marker colour, an orphan image after %%EOF, and
+    an inline marker image inside an undrawn form."""
+    s = {k: f"GCT-LEAK-FIX-{k}-08" for k in ("HEX", "OCTAL", "CODED", "AHX")}
+    clean = _stream(b"", b"BT /F1 12 Tf 72 700 Td (clean) Tj ET")
+    hexed = b"<%s>" % s["HEX"].encode().hex().encode()
+    octal = b"(" + b"".join(b"\\%03o" % c for c in s["OCTAL"].encode()) + b")"
+    font, codes = coded(s["CODED"])
+
+    def replaced(content, font=b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", new=clean):
+        """A page whose content object 4 an incremental update replaced by new."""
+        return assemble([
+            b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> "
+            b"/Contents 4 0 R >>", content, font], update={4: new})
+    files = {
+        "hex.pdf": replaced(_stream(b"", b"BT /F1 12 Tf 72 700 Td " + hexed + b" Tj ET")),
+        "octal.pdf": replaced(_stream(b"", b"BT /F1 12 Tf 72 700 Td " + octal + b" Tj ET")),
+        "coded.pdf": replaced(_stream(b"/Filter /FlateDecode", zlib.compress(b"BT /F1 12 Tf 72 700 Td " + codes + b" Tj ET")),
+                              font, _stream(b"/Filter /FlateDecode", zlib.compress(b"BT /F1 12 Tf 72 700 Td <01> Tj ET"))),
+        "ahx.pdf": replaced(ahx(b"BT /F1 12 Tf 72 700 Td (%s) Tj ET" % s["AHX"].encode())),
+    }
+    draw = b"q 40 0 0 40 72 600 cm /Im1 Do Q"
+    page = b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im1 5 0 R >> >> /Contents 4 0 R >>"
+    head = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", page,
+            _stream(b"", draw)]
+    mark, grey = picture(MARKER), picture(GREY)
+    for name, dct in (("flate-image.pdf", False), ("dct-image.pdf", True)):
+        files[name] = assemble(head + [image_object(mark, dct)], update={5: image_object(grey, dct)})
+    files["orphan.pdf"] = assemble(head + [image_object(grey)]) + b"9 0 obj\n" + image_object(mark) + b"\nendobj\n"
+    inline = b"q 40 0 0 40 0 0 cm BI /W 40 /H 40 /CS /RGB /BPC 8 ID\n" + mark.tobytes() + b"\nEI Q"
+    files["form.pdf"] = page_pdf(b"BT /F1 12 Tf 72 700 Td (clean) Tj ET", extra=[_stream(
+        b"/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Filter /FlateDecode", zlib.compress(inline))])
+    for name, pdf in files.items():
+        result = found(put(tmp_path / name.removesuffix(".pdf"), {name: pdf}), [text_seed(v) for v in s.values()]
+                       + [MARKER_SEED])
+        assert result, name
+        expect = {"hex.pdf": (s["HEX"], "object 4 at byte"), "octal.pdf": (s["OCTAL"], "object 4 at byte"),
+                  "coded.pdf": (s["CODED"], "object 4 at byte"), "ahx.pdf": (s["AHX"], "object 4 at byte"),
+                  "flate-image.pdf": ("GCT-LEAK-FIX-MARKER-08", "object 5 at byte"),
+                  "dct-image.pdf": ("GCT-LEAK-FIX-MARKER-08", "object 5 at byte"),
+                  "orphan.pdf": ("GCT-LEAK-FIX-MARKER-08", "object 9 at byte"),
+                  "form.pdf": ("GCT-LEAK-FIX-MARKER-08", "object 6 form inline image 1: marker colour")}[name]
+        assert where(result, expect[0], f"{name}: {expect[1]}"), (name, result)
+    coded_places = found(tmp_path / "coded", [text_seed(s["CODED"])])[s["CODED"]]
+    assert any(p.endswith("form text") for p in coded_places)  # only interpretation reads coded text
+
+
+def dark_pdf(first: bytes, mode="RGB", smask=False) -> bytes:
+    """A clean page with one clean 120 by 80 image, A85 and Flate as reportlab writes it, whose pixel bytes begin with
+    first (as Xiao's real/dark* reportlab files: dark pixels that read as a PCX, PPM, BMP, JPEG or TIFF signature)."""
+    channels = {"RGB": 3, "L": 1}[mode]
+    pixels_ = (first + b"\xff" * (120 * 80 * channels))[:120 * 80 * channels]
+    cs = {"RGB": b"/DeviceRGB", "L": b"/DeviceGray"}[mode]
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> "
+            b"/XObject << /Im1 6 0 R >> >> /Contents 4 0 R >>",
+            _stream(b"/Filter [/ASCII85Decode /FlateDecode]", _a85(zlib.compress(
+                b"BT /F1 12 Tf 72 700 Td (clean chart) Tj ET\nq 120 0 0 80 72 400 cm /Im1 Do Q"))),
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            _stream(RGB_IMAGE % (120, 80, 8, cs) + (b"/SMask 7 0 R " if smask else b"")
+                    + b"/Filter [/ASCII85Decode /FlateDecode]", _a85(zlib.compress(pixels_)))]
+    if smask:
+        objs.append(_stream(RGB_IMAGE % (120, 80, 8, b"/DeviceGray") + b"/Filter [/ASCII85Decode /FlateDecode]",
+                            _a85(zlib.compress((b"BM" + b"\xff" * 9600)[:9600]))))
+    return assemble(objs)
+
+
+def test_clean_pixels_that_start_with_a_file_signature_are_not_images(tmp_path):
+    """B2: decoded stream bytes are never offered to Pillow, so clean reportlab-style images whose pixels begin with
+    a PCX, PPM, BMP, JPEG or TIFF signature give {} and no Unreadable (Xiao's real/dark and real/dark2 files)."""
+    files = {"dark_pcx.pdf": dark_pdf(bytes((10, 0, 0))), "p6_ppm.pdf": dark_pdf(bytes((80, 54, 200))),
+             "pf_ppm.pdf": dark_pdf(bytes((80, 102, 120))), "slate_bmp.pdf": dark_pdf(bytes((66, 77, 90))),
+             "gray_bm.pdf": dark_pdf(bytes((66, 77)), "L"), "jpeg_sig.pdf": dark_pdf(bytes((255, 216, 255))),
+             "tiff_sig.pdf": dark_pdf(bytes((73, 73, 42, 0, 8, 0))),
+             "smask_bm.pdf": dark_pdf(b"\n" * 6, smask=True)}
+    # Two more clean cases: a non-image stream (an ICC profile, a font) whose bytes begin with a JPEG signature, and
+    # stream data that reads like an object header (the object scan skips stream data).
+    blank = b"BT /F1 12 Tf 72 700 Td (clean) Tj ET"
+    files["signature_stream.pdf"] = page_pdf(blank, extra=[_stream(b"/N 3", b"\xff\xd8\xff\xe0 clean profile bytes")])
+    files["header_in_stream.pdf"] = page_pdf(blank, extra=[_stream(b"", b"99 0 obj\n<< /A (x")])
+    assert found(put(tmp_path, files), [text_seed("GCT-LEAK-FIX-NOPE-09"), MARKER_SEED]) == {}
+
+
+def test_an_embedded_file_is_decoded_as_its_own_file(tmp_path):
+    """An /EmbeddedFile stream is the one PDF stream decoded by its type: a zip attached to a PDF is read member by
+    member."""
+    seed = "GCT-LEAK-FIX-ATTACHED-13"
+    attached = zipped({"note.txt": seed.encode() * 3})
+    pdf = page_pdf(b"BT /F1 12 Tf 72 700 Td (clean) Tj ET", extra=[
+        _stream(b"/Type /EmbeddedFile /Filter /FlateDecode", zlib.compress(attached))])
+    result = found(put(tmp_path, {"a.pdf": pdf}), [text_seed(seed)])
+    assert result == {seed: ["a.pdf: object 6 stream > note.txt: raw bytes", "a.pdf: object 6 stream > note.txt: text"]}
+
+
+def test_only_strong_signatures_are_opened_as_images(tmp_path):
+    """I1 (round 2): text that begins like a weak image signature (P1, P6, SIMPLE, DDS, an EPS header) is text, with
+    no Unreadable; a PNG whose header is broken is reported as unreadable."""
+    texts = {"p1.txt": b"P1 notes\nall clean\n", "p6.txt": b"P6 2 2 255\nxx", "simple.txt": b"SIMPLE  =   T / ok\n",
+             "dds.txt": b"DDS |notes\n", "fig.eps": b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 10 10\nshowpage\n",
+             "bm.csv": b"BMI,score\n21,3\n"}
+    assert found(put(tmp_path / "texts", texts), [text_seed("GCT-LEAK-FIX-NOPE-10"), MARKER_SEED]) == {}
+    broken = bytearray(png(picture(MARKER)))
+    broken[29] ^= 0xFF  # the IHDR CRC
+    with pytest.raises(Unreadable) as e:
+        found(put(tmp_path / "png", {"a.png": bytes(broken)}), [MARKER_SEED])
+    assert [p.split(" (")[0] for p in e.value.places] == ["a.png"]
+
+
+def test_comments_and_odd_hex_in_string_tokens(tmp_path):
+    """M1 and M2: a "(" inside a % comment does not swallow the tokens after it (a superseded UTF-16BE /Info /Title
+    found by the raw token pass), and an odd-length hex string gets its final 0 without losing the rest of the file."""
+    title, odd, later = "GCT-LEAK-FIX-TITLE-11", "GCT-LEAK-FIX-ODD-10", "GCT-LEAK-FIX-LATER-11"
+    pdf = assemble([b"<< /Type /Catalog /Pages 2 0 R >>\n% made by tool (beta", b"<< /Type /Pages /Kids [] /Count 0 >>",
+                    b"<< /Title %s >>" % _utf16(title)], info=3, update={3: b"<< /Title (clean) >>"})
+    odd_hex = odd.encode().hex()[:-1].encode()  # "...3130" written "...313": the final 0 is implied
+    pdf2 = page_pdf(b"BT /F1 12 Tf 72 700 Td <%s> Tj ET (%s) Tj" % (odd_hex, later.encode()))
+    result = found(put(tmp_path, {"a.pdf": pdf, "b.pdf": pdf2}), [text_seed(v) for v in (title, odd, later)])
+    assert where(result, title, "a.pdf: string tokens")
+    assert where(result, odd, "b.pdf: object 4 stream string tokens")
+    assert where(result, later, "b.pdf: object 4 stream string tokens")
+
+
+def test_guards_name_the_page_images_xref_section_and_data_uri(tmp_path, monkeypatch):
+    """I2 (round 2): when listing a page's images or an xref section's objects raises, or a data: URI does not
+    decode, Unreadable names that place and the rest of the file is read."""
+    import pdfplumber.page
+    from pdfminer.pdfdocument import PDFXRef
+
+    seed = "GCT-LEAK-FIX-REST-12"
+    put(tmp_path, {"a.pdf": page_pdf(b"BT /F1 12 Tf 72 700 Td (%s) Tj ET" % seed.encode()),
+                   "b.html": b'<!doctype html><a href="data:text/plain;base64,QUJDR">x</a>'})  # 5 characters
+
+    def refuse(*a, **k):
+        raise RuntimeError("refused by the test")
+    monkeypatch.setattr(pdfplumber.page.Page, "images", property(refuse))
+    monkeypatch.setattr(PDFXRef, "get_objids", refuse)
+    with pytest.raises(Unreadable) as e:
+        found(tmp_path, [text_seed(seed)])
+    assert [p.split(" (")[0] for p in e.value.places] == ["a.pdf: page 1 images", "a.pdf: xref section 1",
+                                                          "b.html > data URI 1"], e.value.places
+    assert where(e.value.found, seed, "a.pdf: page 1 text")

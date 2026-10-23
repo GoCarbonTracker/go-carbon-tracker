@@ -1,19 +1,21 @@
 """Story 7.7 part A: the leakage scanner. found(path, seeds) looks for every seed inside output files the way an
 outsider would, from the files alone: raw bytes, decoded text (CSV and text by BOM, HTML with tags removed, XML
-element text inside zips, PDF page text, metadata, every PDF object and string token, raw and superseded PDF
-streams, undrawn form and appearance streams) and decoded images (exact pixel hash and the marker colour). Every text
+element text inside zips, PDF page text, metadata, every PDF object and string token, superseded and unlisted PDF
+objects, undrawn form and appearance streams) and decoded images (exact pixel hash and the marker colour). Every text
 part is also searched with \\u escapes and HTML entities undone and with soft hyphens and zero-width characters
 dropped. It reads the path and writes nothing there; SQLite copies go to a temporary folder outside it.
 
 Loud by design: a symbolic link under the path is refused, and a part the scanner cannot read (a broken object, zip
 member, image or database) does not stop the rest of the scan; at the end found raises Unreadable naming every such
-place, so it never returns a result for a scan that skipped a part.
+place, so it never returns a result for a scan that skipped a part. Only bytes with a strong image signature (PNG,
+JPEG, GIF, WebP, TIFF) are opened as images, and a PDF stream's decoded data never is.
 
 Known ceilings (not decoded; recorded in the TASK-0224 worker notes): Indexed and 16-bit PDF images (reported as
 unreadable, so a scan meeting one raises); UTF-16LE text without a BOM; free-page overflow chains and UTF-16
 databases (only the dump and raw bytes are searched); a marker under MIN_PIXELS pixels, so a private crop's marker
 rectangle must stay above about 7 by 7 pixels at the smallest scale a renderer draws it. Test code only."""
 import base64
+import bisect
 import hashlib
 import html
 import io
@@ -23,12 +25,11 @@ import sqlite3
 import tempfile
 import urllib.parse
 import zipfile
-import zlib
 from pathlib import Path
 from types import SimpleNamespace
 from xml.etree import ElementTree
 
-from PIL import Image, ImageChops, ImageSequence, UnidentifiedImageError
+from PIL import Image, ImageChops, ImageSequence
 
 MARKER, TOLERANCE, MIN_PIXELS = (0, 200, 120), 8, 50  # 7.1 G: the private-image marker colour
 TEXT_KINDS = {"document_text", "contributor", "credential", "path"}
@@ -40,11 +41,11 @@ U_ESCAPE = re.compile(r"\\u([0-9A-Fa-f]{4})")
 TAG = re.compile(r"<[^>]*>")
 INVISIBLE = dict.fromkeys((0xAD, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF))  # soft hyphen, zero-width, BOM
 STREAM = re.compile(rb"stream\r?\n(.*?)endstream", re.S)
-PDF_STRING = re.compile(rb"\(|(?<!<)<([0-9A-Fa-f\s]*)>")
+PDF_STRING = re.compile(rb"%[^\r\n]*|\(|(?<!<)<([0-9A-Fa-f\s]*)>")
+OBJECT = re.compile(rb"(?<![0-9])(\d+)\s+(\d+)\s+obj\b")  # an object header anywhere in the file
 ESCAPES = {ord("n"): 10, ord("r"): 13, ord("t"): 9, ord("b"): 8, ord("f"): 12}
 MODES = {"DeviceRGB": "RGB", "RGB": "RGB", "DeviceGray": "L", "G": "L", "DeviceCMYK": "CMYK", "CMYK": "CMYK"}
-Image.init()
-SIGNED = [f for f, (_, accept) in Image.OPEN.items() if accept is not None]  # formats Pillow knows by their bytes
+IMAGE_SIGNATURES = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a", b"II*\0", b"MM\0*")  # and RIFF WEBP
 
 
 class Unreadable(Exception):
@@ -161,19 +162,24 @@ def _guard(place, parts):
         yield _bad(place, e)
 
 
-def _blob(data: bytes, place: str, tmp: str, wal: Path | None = None):
+def _blob(data: bytes, place: str, tmp: str, wal: Path | None = None, typed=True):
     """Every part of one file or embedded file: its hash, its raw bytes as Latin-1, then its type's parts. The type is
-    decided by the bytes, never the extension."""
+    decided by the bytes, never the extension. A PDF stream's decoded data (typed=False) is only ever text: pixel
+    bytes can begin with any file signature."""
     yield "hash", place, hashlib.sha256(data).hexdigest()
     yield "text", f"{place}: raw bytes", data.decode("latin-1")
-    if b"%PDF-" in data[:1024]:
+    if not typed:
+        decoders = [_text]
+    elif b"%PDF-" in data[:1024]:
         decoders = [_pdf]
     elif data.startswith(b"PK\x03\x04"):
         decoders = [_zip]
     elif data.startswith(b"SQLite format 3\0"):
         decoders = [_sqlite]
+    elif data.startswith(IMAGE_SIGNATURES) or data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        decoders = [_image]
     else:
-        decoders = [_image, _text]
+        decoders = [_text]
     for decode in decoders:
         yield from _guard(place, decode(data, place, tmp, wal))
 
@@ -219,17 +225,13 @@ def _zip(data, place, tmp, wal):
 
 
 def _pdf(data, place, tmp, wal):
-    """The raw file's string tokens and every raw stream segment inflated (superseded and unreferenced objects
-    included), then through pdfplumber: page text (also reversed), inline images, the metadata, and every object of
-    every xref section. Each page, image and object is read on its own."""
+    """The raw file's string tokens (stream data blanked, comments skipped), then through pdfplumber: page text (also
+    reversed), inline images, the metadata, every object of every xref section, and every other object body in the
+    file (a copy an incremental update superseded, or one no xref section lists), each parsed as an object at its
+    byte position. Each part is read on its own."""
     import pdfplumber
 
     yield "text", f"{place}: string tokens", _tokens(STREAM.sub(b"stream\nendstream", data))
-    for i, m in enumerate(STREAM.finditer(data), 1):
-        raw = _inflate(m[1])
-        if raw is not None:
-            yield "text", f"{place}: raw stream {i} string tokens", _tokens(raw)
-            yield from _blob(raw, f"{place}: raw stream {i}", tmp)
     with pdfplumber.open(io.BytesIO(data)) as pdf:
         for n, page in enumerate(pdf.pages, 1):
             where = f"{place}: page {n}"
@@ -243,7 +245,15 @@ def _pdf(data, place, tmp, wal):
                 yield from _guard(f"{where} inline image {k}", _pdf_image(stream, f"{where} inline image {k}"))
         yield from _guard(f"{place}: metadata", iter([("text", f"{place}: metadata",
                                                          "\0".join(map(str, pdf.metadata.values())))]))
-        for x, xref in enumerate(pdf.doc.xrefs, 1):
+        live, doc, resources = set(), pdf.doc, {}  # (objid, byte position) of the copy getobj returns
+        try:  # content stream objid -> its page's resources, to interpret a superseded copy of a page's content
+            for page in pdf.pages:
+                refs = page.page_obj.attrs.get("Contents")
+                for ref in refs if isinstance(refs, list) else [refs]:
+                    resources.setdefault(getattr(ref, "objid", None), page.page_obj.resources)
+        except Exception as e:  # noqa: BLE001
+            yield _bad(f"{place}: page resources", e)
+        for x, xref in enumerate(doc.xrefs, 1):
             try:
                 objids = list(xref.get_objids())
             except Exception as e:  # noqa: BLE001
@@ -251,7 +261,37 @@ def _pdf(data, place, tmp, wal):
                 continue
             for objid in objids:
                 where = f"{place}: object {objid}"
-                yield from _guard(where, _pdf_object(pdf.doc, objid, where, tmp))
+                yield from _guard(where, _pdf_object(lambda objid=objid: doc.getobj(objid), where, tmp))
+                live |= {(objid, _newest_pos(doc, objid))}
+        streams = [m.span(1) for m in STREAM.finditer(data)]
+        starts = [a for a, _ in streams]
+        for m in OBJECT.finditer(data):
+            objid, pos = int(m[1]), m.start(1)
+            k = bisect.bisect_right(starts, pos) - 1
+            if (objid, pos) in live or k >= 0 and pos < streams[k][1]:  # the live copy, or text inside a stream
+                continue
+            where = f"{place}: object {objid} at byte {pos}"
+            yield from _guard(where, _pdf_object(lambda m=m: _parse_at(doc, m), where, tmp, resources.get(objid)))
+
+
+def _newest_pos(doc, objid):
+    """The byte position of the copy getobj returns (the first xref section listing it), None in an object stream."""
+    for xref in doc.xrefs:
+        try:
+            strmid, index, _ = xref.get_pos(objid)
+        except KeyError:
+            continue
+        return None if strmid is not None else index
+
+
+def _parse_at(doc, m):
+    """The object whose "N G obj" header starts at m, parsed as pdfminer parses a listed one."""
+    from pdfminer.pdftypes import PDFStream
+
+    obj = doc._getobj_parse(m.start(1), int(m[1]))  # the reviewer's route: pdfminer has no public call for it
+    if isinstance(obj, PDFStream):
+        obj.set_objid(int(m[1]), int(m[2]))
+    return obj
 
 
 def _page_text(page, where):
@@ -260,21 +300,14 @@ def _page_text(page, where):
     yield "text", f"{where} text reversed", text[::-1]  # bottom-to-top text comes out last character first
 
 
-def _inflate(segment):
-    """A raw stream segment inflated (Flate, or A85 then Flate as reportlab writes); None when it is neither."""
-    segment = segment.rstrip(b"\r\n")
-    for prepare in (lambda s: s, lambda s: base64.a85decode(s.strip().removesuffix(b"~>"))):
-        try:
-            return zlib.decompressobj().decompress(prepare(segment)) or None
-        except (zlib.error, ValueError):
-            continue
-    return None
-
-
 def _tokens(data: bytes) -> str:
-    """Every literal (...) and hex <...> string in PDF bytes, escapes undone (octal included), UTF-16BE by its BOM."""
+    """Every literal (...) and hex <...> string in PDF bytes, escapes undone (octal included), UTF-16BE by its BOM;
+    a % comment outside a string is skipped (its "(" opens nothing); an odd-length hex string gets its final 0."""
     strings, pos = [], 0
     while m := PDF_STRING.search(data, pos):
+        if m[0][:1] == b"%":
+            pos = m.end()
+            continue
         if m[0] == b"(":
             s, pos = _literal(data, m.end())
         else:
@@ -313,12 +346,13 @@ def _literal(data, i):
     return bytes(out), i
 
 
-def _pdf_object(doc, objid, where, tmp):
-    """One object: its strings and names; a stream decoded (an image to pixels; any other stream as its own file
-    with its string tokens; a form or appearance stream, drawn or not, also interpreted for its text)."""
+def _pdf_object(get, where, tmp, resources=None):
+    """One object (get() reads it): its strings and names; a stream decoded (an image to pixels; an embedded file as
+    its own file; any other stream as text with its string tokens; a form or appearance stream, drawn or not, and a
+    superseded page content stream with its page's resources, also interpreted for text and inline images)."""
     from pdfminer.pdftypes import PDFStream, resolve1
 
-    obj = doc.getobj(objid)
+    obj = get()
     yield "text", where, "\0".join(_pdf_strings(obj))
     if isinstance(obj, PDFStream):
         subtype = getattr(resolve1(obj.get("Subtype")), "name", None)
@@ -327,26 +361,43 @@ def _pdf_object(doc, objid, where, tmp):
             return
         data = obj.get_data()
         yield "text", f"{where} stream string tokens", _tokens(data)
-        yield from _blob(data, f"{where} stream", tmp)
-        if subtype == "Form" or "BBox" in obj.attrs:
-            yield "text", f"{where} form text", _form_text(obj)
+        embedded = getattr(resolve1(obj.get("Type")), "name", None) == "EmbeddedFile"
+        yield from _blob(data, f"{where} stream", tmp, typed=embedded)
+        if subtype == "Form" or "BBox" in obj.attrs or resources is not None:
+            yield from _form(obj, where, resources)
 
 
-def _form_text(stream) -> str:
-    """The text a form XObject or appearance stream would draw, interpreted with its own resources."""
-    from pdfminer.converter import TextConverter
-    from pdfminer.layout import LAParams
+def _form(stream, where, resources=None):
+    """The text and inline images a stream would draw, interpreted with resources (by default its own: a form
+    XObject or appearance stream)."""
+    from pdfminer.converter import PDFPageAggregator
+    from pdfminer.layout import LAParams, LTContainer, LTImage, LTTextContainer
     from pdfminer.pdfinterp import PDFPageInterpreter, PDFResourceManager
     from pdfminer.pdftypes import resolve1
 
-    out, manager = io.StringIO(), PDFResourceManager()
-    device = TextConverter(manager, out, laparams=LAParams())
+    manager = PDFResourceManager()
+    device = PDFPageAggregator(manager, laparams=LAParams())
     box = [float(v) for v in resolve1(stream.get("BBox"))] if stream.get("BBox") else [0, 0, 1000, 1000]
     page = SimpleNamespace(pageid=0, mediabox=box, cropbox=box, rotate=0)
     device.begin_page(page, (1, 0, 0, 1, 0, 0))
-    PDFPageInterpreter(manager, device).render_contents(resolve1(stream.get("Resources")) or {}, [stream])
+    own = resolve1(stream.get("Resources")) or {}
+    PDFPageInterpreter(manager, device).render_contents(own if resources is None else resources, [stream])
     device.end_page(page)
-    return out.getvalue()
+    texts, inline = [], []
+
+    def walk(item):
+        if isinstance(item, LTTextContainer):
+            texts.append(item.get_text())
+        elif isinstance(item, LTImage):
+            inline.extend([item.stream] if item.stream.objid is None else [])  # a drawn XObject is its own object
+        elif isinstance(item, LTContainer):
+            for child in item:
+                walk(child)
+
+    walk(device.get_result())
+    yield "text", f"{where} form text", "\n".join(texts)
+    for k, s in enumerate(inline, 1):
+        yield from _guard(f"{where} form inline image {k}", _pdf_image(s, f"{where} form inline image {k}"))
 
 
 def _pdf_strings(obj):
@@ -408,10 +459,8 @@ def _sqlite(data, place, tmp, wal):
 
 
 def _image(data, place, tmp, wal):
-    """Any image Pillow recognises by its bytes, every frame."""
-    try:
-        img = Image.open(io.BytesIO(data), formats=SIGNED)
-    except UnidentifiedImageError:
-        return
+    """A PNG, JPEG, GIF, WebP or TIFF file (strong signature), every frame; one that does not decode raises, so it is
+    reported as unreadable."""
+    img = Image.open(io.BytesIO(data))
     for i, frame in enumerate(ImageSequence.Iterator(img)):
         yield "image", place if i == 0 else f"{place} frame {i + 1}", frame.copy()
