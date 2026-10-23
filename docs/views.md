@@ -71,6 +71,26 @@ reference names, as the Evidence view does; its evidence text says "unresolved: 
 `resolved` is false and `reason` says why ("unresolved: ..." when no page is named, "no page: ..." for a
 spreadsheet's declared mapping). A location is never made up.
 
+## Tables
+
+The Tables tab of the viewer shows the claims the filter selects on the pinned version, 200 rows a page, with First,
+Previous, Next, Last and "Rows A to B of N". Each page is one `POST /api/records` request with the `table` shape; a
+new page replaces the rows on screen, so every row shown is from the version the caption names. A filter change, a
+sort change or a new version goes back to the first page.
+
+The columns are Company, Document, Location ("page P" or "sheet S, cell C"), Metric wording ("no metric wording"
+when none), Value with its unit as printed, Period, Boundary, Evidence, Review and Claim state. Evidence and Review
+print the row's evidence and review texts. Stored words are printed with spaces ("fiscal year", "subsidiary set").
+Pressing a column header sorts by it, ascending first, then descending; Review cannot be sorted. With no column
+chosen the order is company, document and page.
+
+Checked rows stay checked across the pages of one filter and one version; a filter change or a new version clears
+them and says so. The table is one Tab stop: the arrow keys move between rows, Space checks a row and Enter opens its
+evidence. A PDF row opens its page in the Evidence section with the claim selected (its box drawn when it has one);
+a spreadsheet row opens the cell view; a row with no page or cell, or a page outside its document, opens nothing and
+says "This claim has no source location to open." When another writer has published meanwhile, the next page is
+refused and the viewer offers the new version with Reload; the rows on screen keep their own version until then.
+
 ## Keys
 
 Graph node ids are `claim:N`, `page:D:P`, `cell:D:SHEET!CELL`, `period:START..END`, `boundary:VALUE[:DETAIL]`,
@@ -109,6 +129,35 @@ The review text names, in this order, the company's and the auditor's latest out
 N", "highlights: N", "needs renewed review: N", "corrected" and "adjudications: N", or reads "no review records". The
 evidence text reads "matched", "cited: reason", "unresolved: reason" or "not checked: run gct link". No score,
 percentage or ranking is given.
+
+## Graphs
+
+The Graphs tab of the viewer draws the claims of one `graph` or `series` answer in three views. Neighbourhood and
+Hypergraph are drawn from the same `graph` answer, so switching between them sends no request; Time series asks the
+`series` shape. The tab sends the shared filter and the pinned version, and states the count and version of the answer
+it drew, in the words of the count line above it.
+
+- Neighbourhood: each claim node joined to its page or cell, its known period and boundary, its series, its review
+  records and adjudications, and an edge labelled with the comparison state between two compared claims of the answer.
+- Hypergraph: one small hub per claim, joined to the claim and to each member of its hyperedge. Members are the same
+  shared nodes as in the neighbourhood view, so a page of three claims is one node with three hub edges.
+- Time series: one node per point, a column per period in order, a row per document (a restatement in a later report
+  sits in the original's column), points of one period and document stacked by claim id. The value and unit are
+  printed on the point; there is no value axis.
+
+Over the graph limit, or with no single series for the time series, the tab shows the answer's `reason` and draws
+nothing. Every drawn element is also a row of a table under the canvas (Nodes and Edges, Hyperedges, or Points and
+Comparisons); a row's button selects its element on focus, opens its source on Enter or a click, and Space adds it to
+the selection. A double-click on the canvas opens the source too. A page target is opened only when its page lies
+inside the document; a location that does not resolve shows its reason and opens nothing. Labels use printed wording
+and plain words only.
+
+Layout: Cytoscape's built-in `cose` (no animation), except above 250 nodes, where `breadthfirst` is used, and the
+time series, which is placed by its own positions. Measured in headless Chrome on 2026-10-23 (Apple silicon laptop,
+fixture of `tests/test_viewer_graphs.py`): `cose` alone took about 1.0 s at 230 nodes, 1.5 s at 283, 2.2 s at 334,
+5.2 to 6.4 s for the 500-claim neighbourhood graph (538 nodes, 1,100 edges) and about 20 s for its hypergraph (1,038
+nodes); `breadthfirst` took 74 ms and 131 ms on those two. With the 250-node rule, the 500-claim neighbourhood graph
+was drawn about 0.7 s after the filter changed and its hypergraph about 0.4 s after the view switched.
 
 ## Saved views and guided questions
 

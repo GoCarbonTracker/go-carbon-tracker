@@ -209,11 +209,16 @@ PROJECTION = {
     "evidence_ref": {"claim_version_id": "version", "document_id": "document",
                      **dict.fromkeys(("id", "page_number", "source_match", "source_match_reason"), "kept"),
                      **dict.fromkeys(("boxes", "sheet", "cell"), "content")},
-    "expected_item": {"accepted": "content", **dict.fromkeys(
-        ("id", "company_id", "metric_text", "period_label", "found", "claims", "state", "reasons"), "kept")},
-    "expected_item_document": {"expected_item_id": "kept", "document_id": "document"},
+    # Story 7.1 part B (projection schema 15): accepted holds acceptance ids and counts only.
+    "expected_item": dict.fromkeys(
+        ("id", "company_id", "metric_text", "period_label", "found", "claims", "state", "reasons", "accepted"), "kept"),
+    "expected_item_document": {"expected_item_id": "kept", "document_id": "document", "state": "kept"},
     "gap_confirmation": {**dict.fromkeys(("id", "expected_item_id", "contributor_name", "contributor_organisation",
-                                          "current", "created_at"), "kept"), "capacity": "content", "rationale": "content"},
+                                          "current", "created_at", "documents_checked"), "kept"),
+                         "capacity": "content", "rationale": "content"},
+    "page": {"document_id": "document", **dict.fromkeys(
+        ("page_number", "read_state", "rung", "method", "words", "tables", "flags", "width", "height", "limit_text",
+         "limit_tables", "limit_figures"), "kept")},
     "page_acceptance": {"document_id": "document", **dict.fromkeys(
         ("id", "page_number", "content_type", "contributor_name", "contributor_organisation", "current", "created_at"),
         "kept"), "capacity": "content", "rationale": "content"},

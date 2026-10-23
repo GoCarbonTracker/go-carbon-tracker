@@ -157,6 +157,296 @@ const shellStale = async () => {
   return { notice, reloaded };
 };
 
+// Story 6.2, the Tables tab: page-side helpers kept on window.T, so the steps between real key presses stay short.
+const tablesHelpers = () => {
+  const wait = async (fn, what) => {
+    for (let i = 0; i < 100; i++) {
+      const v = fn();
+      if (v) return v;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`timed out waiting for ${what}: ${document.querySelector(".tables-paging")?.innerText}, busy `
+      + `${table()?.getAttribute("aria-busy")}: ${document.querySelector(".records")?.innerText.slice(0, 400)}`);
+  };
+  const table = () => document.querySelector("table.claims-table");
+  const rows = () => [...document.querySelectorAll("tr.claim-row")];
+  const idOf = (tr) => Number(tr.querySelector("input.select-row").getAttribute("aria-label").match(/^Select claim (\d+):/)[1]);
+  const T = {
+    wait, table, rows, idOf,
+    ids: () => rows().map(idOf),
+    row: (id) => rows().find((tr) => idOf(tr) === id),
+    header: (name) => [...table().querySelectorAll("th")].find((h) => h.textContent.replace(/[▲▼]/g, "").trim() === name),
+    sorts: () => [...table().querySelectorAll("th[aria-sort]")].map((h) => `${h.textContent.replace(/[▲▼]/g, "").trim()} ${h.getAttribute("aria-sort")}`),
+    paging: () => document.querySelector(".tables-paging span")?.innerText ?? null,
+    button: (word) => [...document.querySelectorAll(".tables-paging button")].find((b) => b.textContent === word),
+    disabled: () => [...document.querySelectorAll(".tables-paging button")].filter((b) => b.disabled).map((b) => b.textContent),
+    caption: () => table()?.querySelector("caption").innerText ?? null,
+    count: () => document.querySelector(".selection-count span")?.innerText ?? null,
+    checked: () => rows().filter((tr) => tr.querySelector("input.select-row").checked).map(idOf),
+    cleared: () => document.querySelector(".tables [role=status]")?.innerText ?? null,
+    settled: () => !!table() && table().getAttribute("aria-busy") === "false",
+    section: (name) => [...document.querySelectorAll(".sections button")].find((b) => b.textContent === name).click(),
+    scroll: () => document.querySelector(".records").scrollTop,
+    active: () => {
+      const a = document.activeElement;
+      if (a?.classList.contains("claim-row")) return `row ${idOf(a)}`;
+      return `${a?.tagName} ${(a?.getAttribute("aria-label") ?? a?.textContent ?? "").replace(/[▲▼]/g, "").trim().slice(0, 40)}`;
+    },
+    wording: (text) => {
+      const el = document.querySelector(".filter-bar input[name=text]");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, text);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    },
+    tick: (field, words) => [...[...document.querySelectorAll(".choices")].find((d) => d.querySelector("summary").innerText
+      .startsWith(field)).querySelectorAll("label")].find((l) => l.textContent.trim() === words).querySelector("input").click(),
+  };
+  window.T = T;
+  return true;
+};
+
+// One step in the page; the helpers are put in again when the page has been (re)loaded since.
+const tablesStep = (fn) => run(`() => { if (!window.T) (${tablesHelpers})(); return (${fn})(); }`);
+const tablesReady = async () => {
+  for (let i = 0; i < 100 && !(await run(() => !!document.querySelector(".sections button"))); i++) {
+    await new Promise((ok) => setTimeout(ok, 100)); // the new tab can still be about:blank
+  }
+};
+
+// A real key press through the DevTools protocol (Tab moves focus only this way).
+const KEYS = { Enter: [13, "\r"], " ": [32, " "], Tab: [9, ""], ArrowDown: [40, ""], ArrowUp: [38, ""], Escape: [27, ""] };
+const press = async (key) => {
+  const [code, text] = KEYS[key];
+  const base = { key, code: key === " " ? "Space" : key, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code };
+  await send("Input.dispatchKeyEvent", { type: text ? "keyDown" : "rawKeyDown", ...base, ...(text ? { text } : {}) });
+  await send("Input.dispatchKeyEvent", { type: "keyUp", ...base });
+  await new Promise((ok) => setTimeout(ok, 150));
+};
+
+// G2 Tables part on tests/gate_fixture.py: counts and version, the Value sort both ways, the keyboard, a row's page with
+// its box, a spreadsheet row's cell view, the Evidence selection left alone, a filter change clearing the checks.
+const tablesGate = async () => {
+  const out = {};
+  const step = tablesStep;
+  await tablesReady();
+  out.evidenceBefore = await step(async () => {
+    (await T.wait(() => [...document.querySelectorAll("button.doc")].find((b) => b.textContent.includes("acme-2025.pdf")),
+      "the document list")).click();
+    (await T.wait(() => document.querySelectorAll("button.claim")[1], "the claims")).click();
+    return (await T.wait(() => document.querySelector("button.claim[aria-pressed=true]"), "the selected claim")).textContent;
+  });
+  Object.assign(out, await step(async () => {
+    T.section("Tables and Graphs");
+    await T.wait(() => T.settled(), "the table");
+    const own = T.rows().flatMap((tr) => [3, 6, 7, 8, 9, 10].map((i) => tr.cells[i].innerText));
+    return {
+      countLine: document.querySelector(".count-line").innerText, caption: T.caption(), paging: T.paging(),
+      disabled: T.disabled(), ids: T.ids(), sortsBefore: T.sorts(), companies: [...new Set(T.rows().map((tr) => tr.cells[1].innerText))],
+      reviewButton: !!T.header("Review").querySelector("button"), selectHeader: T.table().querySelector("input.select-page").getAttribute("aria-label"),
+      headers: [...T.table().querySelectorAll("thead th")].map((h) => `${h.getAttribute("scope")} ${h.innerText}`),
+      own: [T.caption(), T.paging(), ...[...T.table().querySelectorAll("thead th")].map((h) => h.innerText), ...own].join("\n"),
+      tableText: T.table().innerText,
+      labels: T.rows().map((tr) => tr.querySelector("input.select-row").getAttribute("aria-label")),
+      rowTabStops: T.rows().map((tr) => tr.tabIndex),
+      inRowTabStops: T.rows().flatMap((tr) => [...tr.querySelectorAll("input, button")].map((x) => x.tabIndex)),
+    };
+  }));
+  // Enter, then Space on the Value header, then a click: ascending, descending, ascending.
+  const sorted = async () => step(async () => {
+    await new Promise((r) => setTimeout(r, 200));
+    await T.wait(() => T.settled(), "the sorted rows");
+    return { sorts: T.sorts(), ids: T.ids() };
+  });
+  await step(() => T.header("Value").querySelector("button").focus());
+  await press("Enter");
+  out.valueAsc = await sorted();
+  await press(" ");
+  out.valueDesc = await sorted();
+  await step(() => T.header("Value").querySelector("button").click());
+  out.valueAgain = await sorted();
+  // Tab from the Tables tab into the table: the header controls, then one row.
+  await step(() => document.getElementById("tab-tables").focus());
+  out.tabStops = [];
+  for (let i = 0; i < 15 && !out.tabStops.at(-1)?.startsWith("row"); i++) {
+    await press("Tab");
+    out.tabStops.push(await step(() => T.active()));
+  }
+  await press("ArrowDown");
+  out.afterDown = await step(() => T.active());
+  out.scrollBefore = await step(() => T.scroll()); // after the focus move, which may scroll the row into view
+  await press(" ");
+  out.afterSpace = await step(() => ({ count: T.count(), checked: T.checked(), scroll: T.scroll(), active: T.active() }));
+  await press("ArrowUp");
+  await press("ArrowUp"); // stops at the first row
+  out.afterUp = await step(() => T.active());
+  out.afterClick = await step(() => {
+    const first = T.row(T.checked()[0]);
+    const other = T.rows().find((tr) => tr.cells[1].innerText !== first.cells[1].innerText);
+    other.querySelector("input.select-row").click();
+    return { count: T.count(), checked: T.checked(), companies: T.checked().map((id) => T.row(id).cells[1].innerText) };
+  });
+  out.evidenceAfterKeys = await step(async () => {
+    T.section("Evidence");
+    const text = document.querySelector("button.claim[aria-pressed=true]")?.textContent ?? null; // still hidden: no innerText
+    T.section("Tables and Graphs");
+    return text;
+  });
+  // Enter on Beta's 2,000 row (page 1, a box): the Evidence section with that claim selected and its box drawn.
+  await step(async () => {
+    await T.wait(() => T.settled(), "the table again");
+    T.row(T.rows().map(T.idOf).find((id) => T.row(id).cells[5].innerText.startsWith("2,000"))).focus();
+  });
+  out.boxRow = await step(() => T.active());
+  await press("Enter");
+  out.opened = await step(async () => {
+    await T.wait(() => !document.querySelector("main").hidden && document.querySelector("rect.box-selected"), "the page with its box");
+    return {
+      doc: document.querySelector("button.doc[aria-current=true]").innerText,
+      selected: document.querySelector("button.claim[aria-pressed=true]").innerText,
+      boxes: document.querySelectorAll("rect.box-selected").length, recordsHidden: document.querySelector(".records").hidden,
+    };
+  });
+  out.back = await step(async () => {
+    T.section("Tables and Graphs");
+    await T.wait(() => T.settled(), "the table after Evidence");
+    return { sorts: T.sorts(), ids: T.ids(), checked: T.checked(), count: T.count() };
+  });
+  // The spreadsheet row: the cell view, no page read; Escape closes it and focus is back on the row.
+  out.cellRow = await step(() => {
+    window.before = performance.getEntriesByType("resource").length;
+    const tr = T.rows().find((r) => r.cells[3].innerText.startsWith("sheet"));
+    tr.focus();
+    return T.active();
+  });
+  await press("Enter");
+  out.cell = await step(async () => {
+    const v = await T.wait(() => document.querySelector(".cell-view td.marked") && document.querySelector(".cell-view"), "the cell view");
+    return {
+      heading: v.querySelector("h2").innerText, marked: v.querySelector("td.marked").innerText,
+      reads: performance.getEntriesByType("resource").slice(window.before).map((e) => new URL(e.name).pathname),
+    };
+  });
+  await press("Escape");
+  out.afterEscape = await step(() => ({ open: !!document.querySelector(".cell-view"), active: T.active() }));
+  out.cleared = await step(async () => {
+    T.tick("Company", "Acme");
+    await T.wait(() => T.cleared() && T.settled() && T.ids().length < 14, "the Acme rows");
+    return { cleared: T.cleared(), count: T.count(), sorts: T.sorts(), companies: [...new Set(T.rows().map((tr) => tr.cells[1].innerText))] };
+  });
+  out.requests = await step(() => performance.getEntriesByType("resource").map((e) => e.name));
+  return out;
+};
+
+// Paging on a workspace of more than two pages: First, Next, Last and the rows line; checks kept across pages; a late
+// page dropped (the test delays offset 200); a filter change while loading; no match; another writer's publish.
+const tablesPaging = async () => {
+  const out = {};
+  const step = tablesStep;
+  await tablesReady();
+  const shown = () => step(() => ({ paging: T.paging(), disabled: T.disabled(), caption: T.caption(), count: T.count(), checked: T.checked() }));
+  const go = (word, rows) => step(`async () => {
+    T.button(${JSON.stringify(word)}).click();
+    await T.wait(() => T.settled() && T.paging() === ${JSON.stringify(rows)}, ${JSON.stringify(rows)});
+  }`);
+  await step(async () => {
+    T.section("Tables and Graphs");
+    await T.wait(() => T.settled(), "the table");
+    T.rows()[0].querySelector("input.select-row").click();
+  });
+  out.first = await shown();
+  await go("Next", "Rows 201 to 400 of 420");
+  await step(() => T.rows()[5].querySelector("input.select-row").click());
+  out.second = await shown();
+  await go("Last", "Rows 401 to 420 of 420");
+  await step(() => T.rows()[19].querySelector("input.select-row").click());
+  out.last = await shown();
+  await go("First", "Rows 1 to 200 of 420");
+  out.backFirst = await shown();
+  // Keyboard paging: Enter on Next twice; at the last page focus moves to Previous.
+  await step(() => T.button("Next").focus());
+  await press("Enter");
+  await step(() => T.wait(() => T.settled() && T.paging() === "Rows 201 to 400 of 420", "page 2"));
+  await press("Enter");
+  await step(() => T.wait(() => T.settled() && T.paging() === "Rows 401 to 420 of 420", "page 3"));
+  out.keyboardEnd = await step(() => ({ active: T.active(), disabled: T.disabled() }));
+  await go("First", "Rows 1 to 200 of 420");
+  // Next (offset 200, delayed by the test) then Last before it answers: Last stays.
+  out.late = await step(async () => {
+    T.button("Next").click();
+    await new Promise((r) => setTimeout(r, 100));
+    T.button("Last").click();
+    await T.wait(() => T.settled() && T.paging() === "Rows 401 to 420 of 420", "the last page");
+    await new Promise((r) => setTimeout(r, 2500)); // the delayed page 2 answers meanwhile
+    return { paging: T.paging(), busy: T.table().getAttribute("aria-busy") };
+  });
+  // On the last page, Next (delayed) then a filter change: page 1 of the new filter, checks cleared with the line.
+  out.filtered = await step(async () => {
+    T.button("Previous").click();
+    await new Promise((r) => setTimeout(r, 100));
+    T.wording("Measure 1");
+    await T.wait(() => T.settled() && T.cleared() && T.paging()?.endsWith("of 222"), "the filtered rows");
+    await new Promise((r) => setTimeout(r, 2500));
+    return { paging: T.paging(), cleared: T.cleared(), count: T.count(), checked: T.checked() };
+  });
+  out.nothing = await step(async () => {
+    T.wording("no such wording");
+    await T.wait(() => !T.table() && document.querySelector(".count")?.innerText.includes("No claims match"), "no match");
+    return { table: !!T.table(), paging: !!document.querySelector(".tables-paging"), count: document.querySelector(".count").innerText };
+  });
+  await step(async () => {
+    T.wording("");
+    await T.wait(() => T.settled() && T.paging() === "Rows 1 to 200 of 420", "every row again");
+    T.rows()[2].querySelector("input.select-row").click();
+  });
+  out.beforeWriter = await shown();
+  return out;
+};
+
+const tablesStale = async () => {
+  const step = tablesStep;
+  const out = {};
+  out.notice = await step(async () => {
+    T.button("Next").click();
+    return (await T.wait(() => document.querySelector(".notice"), "the newer-version notice")).innerText;
+  });
+  out.stale = await step(async () => {
+    await T.wait(() => T.settled(), "the table to settle");
+    return { paging: T.paging(), caption: T.caption(), checked: T.checked(), alert: document.querySelector(".tables [role=alert]")?.innerText ?? null };
+  });
+  out.reloaded = await step(async () => {
+    document.querySelector(".notice button").click();
+    await T.wait(() => T.settled() && T.caption()?.endsWith("version 2") && T.cleared() && document.querySelector(".count-line"),
+      "the table on version 2");
+    return { paging: T.paging(), caption: T.caption(), cleared: T.cleared(), count: T.count(), countLine: document.querySelector(".count-line")?.innerText };
+  });
+  return out;
+};
+
+// The viewer fixture's page-999 claim: Enter opens nothing and says so; the page count is read, no page is.
+const tablesNoLocation = async () => {
+  await tablesReady();
+  await tablesStep(async () => {
+    T.section("Tables and Graphs");
+    await T.wait(() => T.settled(), "the table");
+    T.rows().find((tr) => tr.cells[3].innerText === "page 999").focus();
+  });
+  await press("Enter");
+  const out = await tablesStep(async () => {
+    const said = await T.wait(() => document.querySelector(".tables-said").innerText, "the no-location line");
+    return {
+      said, evidenceHidden: document.querySelector("main").hidden, cell: !!document.querySelector(".cell-view"),
+      reads: performance.getEntriesByType("resource").map((e) => new URL(e.name).pathname).filter((p) => p.startsWith("/api/documents")),
+    };
+  });
+  // The document is gone by the next read (the test answers 404): its cause in the Tables alert line, nothing opened.
+  await tablesStep(() => T.rows().find((tr) => tr.cells[3].innerText === "page 1").focus());
+  await press("Enter");
+  out.gone = await tablesStep(async () => ({
+    alert: (await T.wait(() => document.querySelector(".tables [role=alert]"), "the alert line")).innerText,
+    evidenceHidden: document.querySelector("main").hidden, rows: T.rows().length, active: T.active().startsWith("row"),
+  }));
+  return out;
+};
+
 const run = async (fn) => {
   let r;
   for (let i = 0; i < 50; i++) {
@@ -196,6 +486,290 @@ if (mode === "stale") {
     body: JSON.stringify({ value: "1,235", contributor: "ana", capacity: "analyst", rationale: "other tab" }),
   });
   out = { ...first, second_writer: w.status, ...(await run(shellStale)) };
+} else if (mode?.startsWith("graphs")) {
+  // Story 6.3: the Graphs tab on tests/gate_fixture.py (graphs, graphs-stale) or the 500-claim fixture of
+  // tests/test_viewer_graphs.py (graphs-limit). Canvas clicks and keys go through the DevTools Input domain, every
+  // request the page sends is logged, and the page helpers live in window.g.
+  const requests = [];
+  ws.addEventListener("message", (m) => {
+    const d = JSON.parse(m.data);
+    if (d.method === "Network.requestWillBeSent") requests.push(`${d.params.request.method} ${new URL(d.params.request.url).pathname}`);
+  });
+  await send("Network.enable", {});
+  const call = (fn, arg) => run(`() => (${fn})(${JSON.stringify(arg ?? null)})`);
+  const mouse = async ({ x, y }, clicks, between) => {
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+    for (let c = 1; c <= clicks; c++) {
+      if (c > 1 && between) await between();
+      await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: c });
+      await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: c });
+    }
+  };
+  const KEYS = { Tab: ["Tab", 9, ""], Enter: ["Enter", 13, "\r"], Space: ["Space", 32, " ", " "], ArrowDown: ["ArrowDown", 40, ""], ArrowUp: ["ArrowUp", 38, ""] };
+  const key = async (k) => {
+    const [code, keyCode, text, name = k] = KEYS[k];
+    await send("Input.dispatchKeyEvent", { type: "keyDown", key: name, code, windowsVirtualKeyCode: keyCode, text });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key: name, code, windowsVirtualKeyCode: keyCode });
+  };
+  await run(async () => {
+    // the new tab may still show about:blank: wait for the viewer, whose window then holds the helpers
+    for (let i = 0; i < 200 && !document.querySelector(".shell"); i++) await new Promise((r) => setTimeout(r, 50));
+    const wait = async (fn, what) => {
+      for (let i = 0; i < 200; i++) {
+        const v = fn();
+        if (v) return v;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      throw new Error(`timed out waiting for ${what}: ${document.querySelector(".records")?.innerText.slice(0, 1500)}`);
+    };
+    const byText = (sel, text) => [...document.querySelectorAll(sel)].find((b) => b.textContent.trim() === text);
+    const choices = (field) =>
+      [...document.querySelectorAll(".choices")].find((d) => d.querySelector("summary").innerText.startsWith(field));
+    const tick = (field, starts) => [...choices(field).querySelectorAll("label")]
+      .find((l) => l.textContent.trim().startsWith(starts)).querySelector("input").click();
+    const canvas = () => document.querySelector(".graphs .canvas");
+    const cy = () => canvas()?._cyreg?.cy; // Cytoscape keeps its instance on its container
+    const shell = () => document.querySelector(".count-line")?.innerText ?? "";
+    const graph = () => document.querySelector(".graph-count")?.innerText ?? "";
+    const loaded = (re) => performance.getEntriesByType("resource").filter((e) => re.test(e.name)).map((e) => e.name);
+    const where = (id) => { // the element's place on the screen, for a mouse event
+      canvas().scrollIntoView({ block: "center" });
+      const el = cy().getElementById(id);
+      if (el.isEdge()) cy().fit(el.connectedNodes(), 60); // an edge to a leaf node, drawn large: tap near the leaf
+      const [a, b] = el.isEdge() ? [el.source().renderedPosition(), el.target().renderedPosition()] : [];
+      const p = el.isNode() ? el.renderedPosition() : { x: a.x + 0.7 * (b.x - a.x), y: a.y + 0.7 * (b.y - a.y) };
+      const r = canvas().getBoundingClientRect();
+      return { x: r.left + p.x, y: r.top + p.y };
+    };
+    const evidence = () => ({ shown: !document.querySelector("main").hidden,
+      page: document.querySelector("main .page img")?.alt ?? null, box: !!document.querySelector("main rect.box-selected"),
+      claim: document.querySelector("aside button.claim[aria-pressed=true]")?.textContent ?? null });
+    const section = (words) => byText(".sections button", words).click();
+    const view = (words) => byText(".graph-views button", words).click();
+    const row = (id) => document.querySelector(`.graphs [data-el="${CSS.escape(id)}"]`);
+    const ids = (sel) => [...document.querySelectorAll(`.graphs ${sel} [data-el]`)].map((b) => b.dataset.el);
+    const drawn = (n) => cy() && cy().nodes().length > 0 && (n === undefined || cy().nodes(".claim, .point").length === n);
+    window.g = { wait, byText, tick, cy, shell, graph, loaded, where, evidence, section, view, row, ids, drawn };
+  });
+  const open = () => call(async () => {
+    await g.wait(() => g.evidence().shown && g.evidence().page && g.evidence().box, "the page with the box");
+    return g.evidence();
+  });
+  const back = () => call(async () => {
+    g.section("Tables and Graphs");
+    await g.wait(() => !document.querySelector(".records").hidden && g.cy(), "the Graphs tab again");
+    await new Promise((r) => setTimeout(r, 300)); // the tab body sees itself shown and puts focus back
+    return { el: document.activeElement?.dataset?.el ?? null, nodes: g.cy().nodes().length };
+  });
+  if (mode === "graphs") {
+    const first = await run(async () => {
+      g.section("Tables and Graphs");
+      await g.wait(() => g.shell(), "the count");
+      await new Promise((r) => setTimeout(r, 500));
+      const before = g.loaded(/cytoscape/);
+      (await g.wait(() => g.byText(".tabs button", "Graphs"), "the tabs")).click();
+      await g.wait(() => g.drawn(), "the neighbourhood graph");
+      const c = g.cy(), canvas = document.querySelector(".graphs .canvas");
+      const [nodes, edges] = [g.ids("table:nth-of-type(1)"), g.ids("table:nth-of-type(2)")];
+      // G2: the Tables tab (story 6.2) for the same filter: its rows line and the version in its caption
+      const tables = async (was) => {
+        g.byText(".tabs button", "Tables").click();
+        const line = () => document.querySelector(".tables-paging span")?.textContent ?? "";
+        await g.wait(() => line() && line() !== was && !document.querySelector(".claims-table[aria-busy=true]"), "the Tables tab");
+        const out = { rows: line(), caption: document.querySelector(".claims-table caption").textContent };
+        (await g.wait(() => g.byText(".tabs button", "Graphs"), "the tabs")).click();
+        await g.wait(() => g.drawn(), "the Graphs tab");
+        return out;
+      };
+      const tablesAll = await tables("");
+      g.tick("Company", "Acme");
+      await g.wait(() => g.shell().includes("9 claims") && g.drawn(9), "Acme's graph");
+      const acme = { shell: g.shell(), graph: g.graph(), tables: await tables(tablesAll.rows) };
+      g.tick("Company", "Acme");
+      await g.wait(() => g.shell().includes("14 claims") && g.drawn(14), "every claim again");
+      const text = document.querySelector(".graphs").innerText;
+      return { before, after: g.loaded(/cytoscape/).length, shell: g.shell(), graph: g.graph(), tablesAll, acme,
+        role: canvas.getAttribute("role"), label: canvas.getAttribute("aria-label"),
+        tablesMatch: JSON.stringify(nodes.sort()) === JSON.stringify(c.nodes().map((n) => n.id()).sort())
+          && JSON.stringify(edges.sort()) === JSON.stringify(c.edges().map((e) => e.id()).sort()),
+        claimNodes: c.nodes(".claim").map((n) => n.id()).sort(), legend: document.querySelector(".legend").innerText,
+        archived: document.querySelector(".count").innerText, text, grabbable: c.nodes()[0].grabbable() };
+    });
+    // A node and an edge by mouse: one tap selects and marks the row, a double-click opens the page with the box.
+    const tap = async (id) => {
+      await mouse(await call((i) => g.where(i), id), 1);
+      return call(async (i) => {
+        await g.wait(() => g.cy().$(":selected").length, "a selection");
+        return { selected: g.cy().$(":selected").map((e) => e.id()), picked: g.row(i)?.classList.contains("picked") };
+      }, id);
+    };
+    // The second click goes only once Cytoscape has handled the first as a tap.
+    const dbl = async (id) => {
+      await call(() => { window.tapped = false; g.cy().one("tap", () => { window.tapped = true; }); });
+      await mouse(await call((i) => g.where(i), id), 2, () => call(() => g.wait(() => window.tapped, "the first tap")));
+    };
+    const nodeTap = await tap("claim:1");
+    await dbl("claim:1");
+    const node = await open();
+    const nodeBack = await back();
+    const edgeTap = await tap("claim:1>company:1");
+    await dbl("claim:1>company:1");
+    const edge = await open();
+    await back();
+    // Keyboard only: Tab onto the edge's row in the Edges table, Enter opens it; back again, focus is on that row.
+    await call((i) => {
+      const all = [...document.querySelectorAll(".graphs button")];
+      all[all.indexOf(g.row(i)) - 1].focus();
+    }, "claim:1>company:1");
+    await key("Tab");
+    const focused = await call(() => ({ el: document.activeElement.dataset.el, visible: document.activeElement.matches(":focus-visible"),
+      selected: g.cy().$(":selected").map((e) => e.id()) }));
+    await key("Enter");
+    const keyboard = await open();
+    const returned = await back();
+    await key("ArrowDown");
+    await key("ArrowDown");
+    const arrows = await call(() => {
+      g.section("Evidence");
+      return g.evidence();
+    });
+    // P1: Space on two claim rows picks both, Tab past the rows between keeps what Space picked, Space again drops only
+    // the second.
+    // The picked rows (what Graphs hands to onSelectionChange) are logged once per change.
+    await call(async () => {
+      g.section("Tables and Graphs");
+      await g.wait(() => g.cy(), "the graph");
+      const picks = () => [...new Set([...document.querySelectorAll(".graphs .picked")].map((b) => b.dataset.el))].sort();
+      window.picks = [];
+      new MutationObserver(() => {
+        const now = picks();
+        if (JSON.stringify(now) !== JSON.stringify(window.picks.at(-1))) window.picks.push(now);
+      }).observe(document.querySelector(".graphs"), { attributes: true, attributeFilter: ["class"], subtree: true });
+      const all = [...document.querySelectorAll(".graphs button")];
+      all[all.indexOf(g.row("claim:1")) - 1].focus();
+    });
+    const selected = () => call(() => g.cy().$(":selected").map((e) => e.id()).sort());
+    const focus = () => call(() => document.activeElement.dataset.el);
+    await key("Tab");
+    await key("Space");
+    for (let i = 0; i < 40 && (await focus()) !== "claim:2"; i++) await key("Tab"); // past the rows of claim 1's items
+    await key("Space");
+    const both = await selected();
+    await key("Space");
+    const spaced = { picks: await call(() => window.picks), both, after: await selected(), focus: await focus() };
+    const rest = await call(async () => {
+      g.section("Tables and Graphs");
+      await g.wait(() => g.cy(), "the graph");
+      const said = async (id) => {
+        const was = document.querySelector(".graph-said")?.innerText;
+        g.row(id).click();
+        return g.wait(() => document.querySelector(".graph-said")?.innerText !== was
+          && document.querySelector(".graph-said")?.innerText, `what ${id} says`);
+      };
+      g.row("cell:3:acme-meter!B2").click();
+      const cell = (await g.wait(() => document.querySelector(".cell-view .marked[aria-current]"), "the marked cell")).innerText;
+      g.byText(".cell-view button", "Close").click();
+      const auditor = await said("auditor:1");
+      const seriesNode = await said("series:2b7f0c7666c0");
+      const stillHere = !document.querySelector(".records").hidden;
+      g.row("comparison:2:5").click();
+      const sides = [...(await g.wait(() => document.querySelector(".graph-choice"), "the two sides")).querySelectorAll("button")]
+        .map((b) => b.innerText);
+      g.view("Hypergraph");
+      const asked = g.loaded(/\/api\/records/).length;
+      await g.wait(() => g.cy()?.nodes(".hub").length, "the hypergraph");
+      const c = g.cy();
+      const hyper = { hubs: c.nodes(".hub").length, claims: c.nodes(".claim").length, rows: g.ids("tbody th").length,
+        member: c.edges("[source = 'hub:1']").map((e) => e.target().id()).sort(), sameRequest: g.loaded(/\/api\/records/).length === asked };
+      g.view("Time series");
+      const noSeries = await g.wait(() => document.querySelector(".graph-reason")?.innerText, "the series reason");
+      const noCanvas = !document.querySelector(".graphs .canvas");
+      const series = async (label) => {
+        g.tick("Series", label);
+        await g.wait(() => g.cy()?.nodes(".point").length, `the time series of ${label}`);
+        const c = g.cy();
+        const rows = (n) => [...document.querySelectorAll(".graphs table")[n].querySelectorAll("tbody tr")].map((r) => r.innerText);
+        const out = { points: rows(0), comparisons: rows(1), nodes: c.nodes().length,
+          edges: c.edges().map((e) => [e.source().id(), e.target().id(), e.data("label"), e.hasClass("unresolved")]),
+          x: Object.fromEntries(c.nodes().map((n) => [n.id(), [n.position("x"), n.position("y")]])) };
+        g.tick("Series", label);
+        await g.wait(() => !g.cy(), "the series cleared");
+        return out;
+      };
+      const scope1 = await series("Acme: Scope 1 emissions, 4 points");
+      const energy = await series("Acme: total energy, 4 points");
+      g.view("Neighbourhood");
+      g.tick("Company", "Acme");
+      g.tick("Company", "Beta"); // two filter changes at once: only the newest answer is drawn
+      await g.wait(() => g.drawn() && g.graph() === g.shell(), "the newest graph");
+      const graphText = document.querySelector(".graphs").innerText;
+      return { cell, auditor, seriesNode, stillHere, sides, hyper, noSeries, noCanvas, scope1, energy,
+        newest: { shell: g.shell(), graph: g.graph() }, graphText };
+    });
+    out = { ...first, nodeTap, node, nodeBack, edgeTap, edge, focused, keyboard, returned, arrows, spaced, ...rest, requests };
+  } else if (mode === "graphs-stale") {
+    await run(async () => {
+      g.section("Tables and Graphs");
+      (await g.wait(() => g.byText(".tabs button", "Graphs"), "the tabs")).click();
+      await g.wait(() => g.drawn(), "the graph");
+    });
+    const origin = new URL(url).origin;
+    const auth = { Authorization: `Bearer ${new URL(url).searchParams.get("token")}` };
+    const w = await fetch(`${origin}/api/claims/1/corrections`, {
+      method: "POST",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ value: "1,236", contributor: "ana", capacity: "analyst", rationale: "other tab" }),
+    });
+    out = { second_writer: w.status, ...(await run(async () => {
+      g.view("Time series"); // a request of the Graphs tab alone: refused, the shell offers the new version
+      const notice = (await g.wait(() => document.querySelector(".notice"), "the notice")).innerText;
+      await new Promise((r) => setTimeout(r, 300));
+      // F11 i1: the drawing on screen stays, labelled with its own version; nothing of the new version is drawn
+      const kept = { drawn: g.drawn(14), graph: g.graph(), hint: document.querySelector(".graphs .hint")?.innerText ?? null };
+      g.view("Neighbourhood");
+      document.querySelector(".notice button").click();
+      await g.wait(() => !document.querySelector(".notice") && g.drawn() && g.graph().includes("version 2")
+        && g.shell().includes("version 2"), "the graph of version 2");
+      return { notice, kept, graph: g.graph(), shell: g.shell() };
+    })) };
+  } else {
+    out = await run(async () => {
+      g.section("Tables and Graphs");
+      (await g.wait(() => g.byText(".tabs button", "Graphs"), "the tabs")).click();
+      const limit = await g.wait(() => document.querySelector(".graph-reason")?.innerText, "the limit text");
+      const limitCanvas = !!document.querySelector(".graphs .canvas, .graphs table");
+      const started = performance.now();
+      g.tick("Document", "Big: big.pdf");
+      await g.wait(() => g.drawn(500), "500 claims");
+      const firstDraw = performance.now() - started;
+      const c = g.cy();
+      const layout = c.options().layout.name;
+      const t = performance.now();
+      c.layout({ name: "cose", animate: false }).run(); // how long cose alone holds the page
+      const cose = performance.now() - t;
+      const neighbourhood = { nodes: c.nodes().length, edges: c.edges().length, claims: c.nodes(".claim").length };
+      const h0 = performance.now();
+      g.view("Hypergraph");
+      await g.wait(() => g.cy()?.nodes(".hub").length === 500, "the 500-claim hypergraph");
+      const hyperDraw = performance.now() - h0;
+      return { limit, limitCanvas, layout, firstDraw, cose, neighbourhood, hyperDraw, hyperLayout: g.cy().options().layout.name,
+        hubs: g.cy().nodes(".hub").length, shell: g.shell(), graph: g.graph() };
+    });
+  }
+} else if (mode === "tables") {
+  if (process.argv[5] === "paging") {
+    out = await tablesPaging();
+    const origin = new URL(url).origin;
+    const auth = { Authorization: `Bearer ${new URL(url).searchParams.get("token")}` };
+    const { claims } = await (await fetch(`${origin}/api/documents/1/claims`, { headers: auth })).json();
+    const w = await fetch(`${origin}/api/claims/${claims[0].id}/corrections`, {
+      method: "POST",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ value: "2", contributor: "ana", capacity: "analyst", rationale: "other tab" }),
+    });
+    out = { ...out, second_writer: w.status, ...(await tablesStale()) };
+  } else if (process.argv[5] === "nolocation") out = await tablesNoLocation();
+  else out = await tablesGate();
 } else if (mode === "filterbar") {
   out = await run(async () => {
     for (let i = 0; i < 50 && !window.out; i++) await new Promise((r) => setTimeout(r, 100));
