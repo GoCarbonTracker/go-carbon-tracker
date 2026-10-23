@@ -191,6 +191,37 @@ def test_highlight_messages_have_cause_next_action_and_no_internals(ws, db, gct,
         assert r.code == 0 and not any(w in r.out for w in [*INTERNAL_WORDS, *names]), r.out
 
 
+def test_saved_view_messages_have_cause_next_action_and_no_internals(tmp_path, gct):
+    import gate_fixture
+
+    root = gate_fixture.build(tmp_path / "gws")
+    names = internal_names(root)
+    assert "saved_view" in names and "contributor_version_id" in names
+    w = ["--workspace", root]
+    assert gct("view", "save", "gone", "--filter", "{}", "--as", "ana", *w).code == 0
+    assert gct("view", "remove", "gone", "--as", "ana", *w).code == 0
+    cases = [(["save", "", "--filter", "{}", "--as", "ana"], 2), (["save", "x" * 81, "--filter", "{}", "--as", "ana"], 2),
+             (["save", "a\nb", "--filter", "{}", "--as", "ana"], 2),
+             (["save", "v", "--filter", "{}", "--section", "maps", "--as", "ana"], 2),
+             (["save", "v", "--filter", '{"colour": [1]}', "--as", "ana"], 2),
+             (["save", "v", "--filter", "{", "--as", "ana"], 2), (["save", "v", "--filter", "{}", "--as", "zed"], 3),
+             (["open", "nobody"], 3), (["open", "gone"], 3), (["remove", "nobody", "--as", "ana"], 3),
+             (["remove", "gone", "--as", "ana"], 3)]
+    for argv, code in cases:
+        human, machine = gct("view", *argv, *w), gct("view", *argv, *w, "--json")
+        assert human.code == machine.code == code and human.out == "", (argv, human.out)
+        assert human.err.startswith("error: ") and "\nnext: " in human.err, (argv, human.err)
+        assert machine.data["status"] == "error" and machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in [*INTERNAL_WORDS, *names]:
+                assert word not in text, (argv, word)
+    assert gct("view", "save", "v", "--filter", "{}", "--as", "ana", *w).code == 0
+    done = [gct("view", "list", *w), gct("view", "open", "v", *w), gct("view", "questions", *w),
+            gct("view", "remove", "v", "--as", "ana", *w), gct("view", "list", *w)]
+    for r in done:
+        assert r.code == 0 and not any(word in r.out for word in [*INTERNAL_WORDS, *names]), r.out
+
+
 def test_adjudicate_and_flag_messages_have_no_internals(ws, gct, make_file):
     from test_restate import cp2
 

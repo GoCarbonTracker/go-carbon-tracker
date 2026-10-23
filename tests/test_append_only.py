@@ -41,7 +41,9 @@ def test_every_table_is_append_only(ws, db, gct, make_file):
                " created_at) VALUES (2, 'raised', 'r', 1, 'c', 't')")
     db.execute("INSERT INTO highlight (claim_version_id, contributor_version_id, capacity, note, created_at)"
                " VALUES (2, 1, 'c', 'n', 't')")
-    db.execute("INSERT INTO document_deletion (document_state_id, plan, created_at) VALUES (1, '{}', 't')")
+    db.execute("INSERT INTO saved_view (name, action, filter, section, contributor_version_id, created_at)"
+               " VALUES ('v', 'save', '{}', 'tables', 1, 't')")
+    db.execute("INSERT INTO document_deletion(document_state_id, plan, created_at) VALUES (1, '{}', 't')")
     db.execute("INSERT INTO document_deletion_step (deletion_id, step, detail, created_at) VALUES (1, 'files', '{}', 't')")
     db.commit()
     gct("expect", "add", "--company", "Acme", "--metric", "water", "--doc", "2")

@@ -41,6 +41,8 @@ BODIES = {
                                          "contributor", "capacity"),
                      ("first", "second", "counter_document", "counter_page"),
                      ("first", "second", "state", "rationale", "procedure", "contributor", "capacity")),
+    # Story 6.4: a save also needs filter, a JSON object, checked in its handler.
+    "view": ("a saved view", ("name", "section", "contributor"), (), ("name", "contributor")),
 }
 # pdfium is not thread-safe and FastAPI runs these handlers in a thread pool.
 _PDFIUM = threading.Lock()
@@ -457,5 +459,65 @@ def create_app(root: Path, token: str) -> FastAPI:
             conn, root, body["first"], body["second"], body["state"], body["rationale"], body["procedure"],
             body["contributor"], body["capacity"], body.get("counter_document"), body.get("counter_page"),
             body.get("counter_note"), body.get("follow_up"), body.get("closure_reason")))
+
+    # Saved views and guided questions (story 6.4 part A): the same functions and JSON as gct view list, save, remove
+    # and questions. A view is opened by sending its filter to /api/records.
+    def _save(record) -> dict | JSONResponse:
+        """record(conn), the same function as the CLI command, under the workspace lock, and nothing else: a saved
+        view is never published, so no run is opened and no version is built; the data version stays as it was."""
+        try:
+            held = lock.hold(root)
+        except GctError as e:
+            return error(409, e.cause, e.next_action)
+        conn = store.connect(root / layout.DB_NAME)
+        try:
+            r = record(conn)
+        except GctError as e:
+            return error(HTTP[e.code], e.cause, e.next_action)
+        finally:
+            conn.close()
+            lock.release(held)
+        return {"status": "ok", **r, "data_version": _data_version(root)}
+
+    @app.get("/api/views")
+    def saved_views():
+        from gct.stages import saved_view
+
+        conn = store.connect(root / layout.DB_NAME)
+        try:
+            return {"status": "ok", "data_version": _data_version(root), **saved_view.listing(conn)}
+        finally:
+            conn.close()
+
+    @app.post("/api/views")
+    async def save_view(request: Request):
+        body = await _body(request, "view")
+        if isinstance(body, JSONResponse):
+            return body
+        if not isinstance(body.get("filter"), dict):
+            return error(400, "The saved view field filter is not a JSON object.",
+                         'Send the filter as an object, for example "filter": {"company": [1]}, or {} for every claim.')
+        from gct.stages import saved_view
+
+        return await run_in_threadpool(_save, lambda conn: saved_view.save(
+            conn, body["name"], body["filter"], body.get("section", "tables"), body["contributor"]))
+
+    @app.post("/api/views/remove")
+    async def remove_view(request: Request):
+        body = await _body(request, "view")
+        if isinstance(body, JSONResponse):
+            return body
+        from gct.stages import saved_view
+
+        return await run_in_threadpool(_save, lambda conn: saved_view.remove(conn, body["name"], body["contributor"]))
+
+    @app.get("/api/questions")
+    def guided_questions(data_version: str | None = None):
+        if data_version is not None and not data_version.isdigit():
+            return error(400, "The data version is not a whole number.", "Ask with data_version=N, for example 3.")
+        from gct.stages import saved_view
+
+        return _pinned(None if data_version is None else int(data_version),
+                       lambda pconn: {"status": "ok", **saved_view.questions(pconn)})
 
     return app

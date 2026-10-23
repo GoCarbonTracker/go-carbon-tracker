@@ -100,3 +100,43 @@ def test_the_matrix_covers_every_fixture_item(srv):
     assert records(srv, {"filter": {"comparison": ["restatement"]}})["matched"] == 2
     assert records(srv, {"filter": {"document": [5]}})["deleted_in_filter"]
     assert len({r["claim"]["company"] for r in rows.values()}) == 2
+
+
+# G3 (story 6.4 part A, backend): a saved view re-opened after a further report includes that report's qualifying
+# claims and names the new version; after an archive it shows the remaining claims and the F7 count; after a restore
+# the claims are back. Each version is checked right after its build (only the current and previous files are kept).
+def test_g3_a_saved_view_follows_later_reports_archives_and_restores(tmp_path, gct):
+    from test_saved_view import later_report
+
+    root = gate_fixture.build(tmp_path / "g3")
+    w = ("--workspace", root)
+
+    def opened(name):
+        r = gct("view", "open", name, "--limit", "1000", *w, "--json")
+        assert r.code == 0, r.out
+        return r.data
+
+    # One view matching some claims today, one matching none today (FY 2021-22 is in no report yet).
+    for name, flt in (("scope 1", {"company": [1], "metric": ["ghg_scope_1"]}),
+                      ("early", {"text": "scope 1", "period": {"to": "2022-03-31"}})):
+        assert gct("view", "save", name, "--filter", json.dumps(flt), "--as", "ana", *w).code == 0
+    v1 = opened("scope 1")
+    assert v1["data_version"] == 1 and opened("early")["matched"] == 0
+    doc = later_report(root)
+    v2 = opened("scope 1")
+    new = {r["claim"]["id"] for r in v2["rows"]} - {r["claim"]["id"] for r in v1["rows"]}
+    assert v2["data_version"] == 2 and len(new) == 2
+    assert {r["claim"]["document"] for r in v2["rows"] if r["claim"]["id"] in new} == {doc}
+    early = opened("early")
+    assert early["data_version"] == 2 and [r["claim"]["document"] for r in early["rows"]] == [doc]
+    who = ("--as", "ana", "--capacity", "analyst", "--rationale", "superseded")
+    assert gct("doc", "archive", str(doc), *who, *w).code == 0 and gct("publish", "build", *w).code == 0
+    v3 = opened("scope 1")
+    assert v3["data_version"] == 3 and {r["claim"]["id"] for r in v3["rows"]} == {r["claim"]["id"] for r in v1["rows"]}
+    assert v3["hidden_by_archive"]["documents"] == 2 and v3["hidden_by_archive"]["claims"] == 4
+    assert v3["hidden_by_archive"]["text"] == ("4 claims of 2 archived documents are not in this or any view. Restore a"
+                                               " document to include its claims.")
+    assert opened("early")["matched"] == 0
+    assert gct("doc", "restore", str(doc), *who, *w).code == 0 and gct("publish", "build", *w).code == 0
+    v4 = opened("scope 1")
+    assert v4["data_version"] == 4 and v4["rows"] == v2["rows"] and v4["hidden_by_archive"]["documents"] == 1
