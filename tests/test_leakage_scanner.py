@@ -777,3 +777,71 @@ def test_guards_name_the_page_images_xref_section_and_data_uri(tmp_path, monkeyp
     assert [p.split(" (")[0] for p in e.value.places] == ["a.pdf: page 1 images", "a.pdf: xref section 1",
                                                           "b.html > data URI 1"], e.value.places
     assert where(e.value.found, seed, "a.pdf: page 1 text")
+
+
+def objstm_pdf(member: bytes, update: dict) -> bytes:
+    """Catalog 1, pages 2, object 5 (member) inside the Flate object stream 4, an xref stream 6; update {n: body}
+    appends an incremental update section replacing those objects, 4 as an object stream holding body as object 5
+    (as Codex's round 3 probe)."""
+    out, offsets = bytearray(b"%PDF-1.5\n"), {}
+
+    def objstm(body):
+        return _stream(b"/Type /ObjStm /N 1 /First 4 /Filter /FlateDecode", zlib.compress(b"5 0 " + body))
+    for n, body in ((1, b"<< /Type /Catalog /Pages 2 0 R >>"), (2, b"<< /Type /Pages /Kids [] /Count 0 >>"),
+                    (4, objstm(member))):
+        offsets[n] = len(out)
+        out += b"%d 0 obj\n" % n + body + b"\nendobj\n"
+    offsets[6] = len(out)
+    entries = b"".join(bytes([2]) + (4).to_bytes(4, "big") + bytes(2) if n == 5 else
+                       bytes([1]) + offsets[n].to_bytes(4, "big") + bytes(2) if n in offsets else
+                       bytes([0]) + bytes(4) + b"\xff\xff" for n in range(7))
+    out += b"6 0 obj\n" + _stream(b"/Type /XRef /Size 7 /Root 1 0 R /W [1 4 2]", entries) + b"\nendobj\n"
+    out += b"startxref\n%d\n%%%%EOF\n" % offsets[6]
+    new = {}
+    for n, body in update.items():
+        new[n] = len(out)
+        out += b"%d 0 obj\n" % n + (objstm(body) if n == 4 else body) + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n" + b"".join(b"%d 1\n%010d 00000 n \n" % (n, o) for n, o in sorted(new.items()))
+    out += b"trailer\n<< /Size 7 /Root 1 0 R /Prev %d >>\nstartxref\n%d\n%%%%EOF\n" % (offsets[6], xref)
+    return bytes(out)
+
+
+def test_object_stream_members_are_parsed_as_objects(tmp_path):
+    """B1 (round 3): every member of every object stream is parsed as an object, so a name's #XX escapes are undone:
+    a member an update superseded in a current object stream, and a member of an object stream the update itself
+    superseded."""
+    seed = "GCT-LEAK-FIX-OBJSTM-13"
+    name = b"<< /Secret /" + b"".join(b"#%02X" % c for c in seed.encode()) + b" >>"
+    put(tmp_path, {"member.pdf": objstm_pdf(name, {5: b"<< /Secret /clean >>"}),
+                   "container.pdf": objstm_pdf(name, {4: b"<< /Secret /clean >>"})})
+    result = found(tmp_path, [text_seed(seed)])
+    assert where(result, seed, "member.pdf: object 4 member 5"), result
+    assert where(result, seed, "container.pdf: object 4 at byte"), result
+    assert not where(result, seed, "container.pdf: object 4 member"), result  # the current container is clean
+
+
+def test_object_headers_inside_strings_and_comments_are_not_objects(tmp_path):
+    """N1 (round 3): "N G obj" inside a literal string or a % comment is not an object header (clean files give {}),
+    and an unclosed "(" does not hide an orphan object after it."""
+    clean = b"BT /F1 12 Tf 72 700 Td (clean) Tj ET"
+    put(tmp_path / "clean", {"title.pdf": page_pdf(clean, extra=[b"<< /Title (99 0 obj stream) >>"]),
+                             "comment.pdf": page_pdf(clean, extra=[b"<< /Title (ok) >>\n% 98 0 obj stream"])})
+    assert found(tmp_path / "clean", [text_seed("GCT-LEAK-FIX-NOPE-10"), MARKER_SEED]) == {}
+    orphan = page_pdf(clean) + b"(unclosed\n9 0 obj\n" + image_object(picture(MARKER)) + b"\nendobj\n"
+    result = found(put(tmp_path / "orphan", {"a.pdf": orphan}), [MARKER_SEED])
+    assert where(result, "GCT-LEAK-FIX-MARKER-08", "a.pdf: object 9 at byte"), result
+
+
+def test_text_that_begins_with_a_strong_signature_is_text(tmp_path):
+    """N2 (round 3): bytes with a strong image signature that do not decode as an image are text when they decode as
+    UTF-8; a GIF that is neither is reported as unreadable (as the broken PNG above is)."""
+    seed = "GCT-LEAK-FIX-GIFTEXT-12"
+    texts = {"a.txt": b"GIF89a is a format\n", "b.txt": b"GIF87a %s\n" % seed.encode(),
+             "c.txt": b"RIFF1234WEBP notes\n",
+             "d.txt": b"GIF89a\x10\x00\x10\x00\x00\x00\x00,\x00\x00\x00\x00\x10\x00\x10\x00\x00\x02\x02D\x01"}  # opens, then fails to load
+    result = found(put(tmp_path / "texts", texts), [text_seed(seed), MARKER_SEED])
+    assert list(result) == [seed] and where(result, seed, "b.txt: text"), result
+    with pytest.raises(Unreadable) as e:
+        found(put(tmp_path / "gif", {"a.gif": b"GIF89a\xff\xfe\x00broken"}), [MARKER_SEED])
+    assert [p.split(" (")[0] for p in e.value.places] == ["a.gif"]

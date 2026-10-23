@@ -231,7 +231,9 @@ def _pdf(data, place, tmp, wal):
     byte position. Each part is read on its own."""
     import pdfplumber
 
-    yield "text", f"{place}: string tokens", _tokens(STREAM.sub(b"stream\nendstream", data))
+    streams = [m.span(1) for m in STREAM.finditer(data)]  # stream data, blanked below with its length kept
+    strings = list(_strings(STREAM.sub(lambda m: m[0][:m.start(1) - m.start()] + b" " * len(m[1]) + b"endstream", data)))
+    yield "text", f"{place}: string tokens", _tokens(strings)
     with pdfplumber.open(io.BytesIO(data)) as pdf:
         for n, page in enumerate(pdf.pages, 1):
             where = f"{place}: page {n}"
@@ -261,17 +263,15 @@ def _pdf(data, place, tmp, wal):
                 continue
             for objid in objids:
                 where = f"{place}: object {objid}"
-                yield from _guard(where, _pdf_object(lambda objid=objid: doc.getobj(objid), where, tmp))
+                yield from _guard(where, _pdf_object(doc, lambda objid=objid: doc.getobj(objid), where, tmp))
                 live |= {(objid, _newest_pos(doc, objid))}
-        streams = [m.span(1) for m in STREAM.finditer(data)]
-        starts = [a for a, _ in streams]
+        spans = [a[:2] for a in strings]  # strings and comments
         for m in OBJECT.finditer(data):
             objid, pos = int(m[1]), m.start(1)
-            k = bisect.bisect_right(starts, pos) - 1
-            if (objid, pos) in live or k >= 0 and pos < streams[k][1]:  # the live copy, or text inside a stream
+            if (objid, pos) in live or _inside(streams, pos) or _inside(spans, pos):  # the live copy, or not a header
                 continue
             where = f"{place}: object {objid} at byte {pos}"
-            yield from _guard(where, _pdf_object(lambda m=m: _parse_at(doc, m), where, tmp, resources.get(objid)))
+            yield from _guard(where, _pdf_object(doc, lambda m=m: _parse_at(doc, m), where, tmp, resources.get(objid)))
 
 
 def _newest_pos(doc, objid):
@@ -300,25 +300,39 @@ def _page_text(page, where):
     yield "text", f"{where} text reversed", text[::-1]  # bottom-to-top text comes out last character first
 
 
-def _tokens(data: bytes) -> str:
-    """Every literal (...) and hex <...> string in PDF bytes, escapes undone (octal included), UTF-16BE by its BOM;
-    a % comment outside a string is skipped (its "(" opens nothing); an odd-length hex string gets its final 0."""
-    strings, pos = [], 0
+def _inside(spans, pos) -> bool:
+    """True when pos falls in one of spans, sorted (start, end) pairs that do not overlap."""
+    k = bisect.bisect_right(spans, (pos, float("inf"))) - 1
+    return k >= 0 and pos < spans[k][1]
+
+
+def _strings(data: bytes):
+    """(start, end, bytes) of every literal (...) and hex <...> string in PDF bytes, escapes undone (octal included),
+    and (start, end, None) of every % comment outside a string (its "(" opens nothing); an odd-length hex string gets
+    its final 0; an unclosed "(" spans only itself, so the bytes after it are still read."""
+    pos = 0
     while m := PDF_STRING.search(data, pos):
         if m[0][:1] == b"%":
+            yield m.start(), m.end(), None
             pos = m.end()
             continue
         if m[0] == b"(":
-            s, pos = _literal(data, m.end())
+            s, end = _literal(data, m.end())
+            pos = m.end() if end is None else end
         else:
             h = re.sub(rb"\s", b"", m[1])
             s, pos = bytes.fromhex((h + b"0" * (len(h) % 2)).decode()), m.end()
-        strings.append(s[2:].decode("utf-16-be", "replace") if s[:2] == b"\xfe\xff" else s.decode("latin-1"))
-    return "\0".join(strings)
+        yield m.start(), pos, s
+
+
+def _tokens(strings) -> str:
+    """The strings of _strings, UTF-16BE by its BOM, else Latin-1."""
+    return "\0".join(s[2:].decode("utf-16-be", "replace") if s[:2] == b"\xfe\xff" else s.decode("latin-1")
+                     for _, _, s in strings if s is not None)
 
 
 def _literal(data, i):
-    """The literal string starting after the "(" at i - 1, and the position after its ")"."""
+    """The literal string starting after the "(" at i - 1, and the position after its ")" (None when unclosed)."""
     out, depth = bytearray(), 1
     while i < len(data):
         c, i = data[i], i + 1
@@ -343,13 +357,14 @@ def _literal(data, i):
             out.append(c)
         else:
             out.append(c)
-    return bytes(out), i
+    return bytes(out), None
 
 
-def _pdf_object(get, where, tmp, resources=None):
-    """One object (get() reads it): its strings and names; a stream decoded (an image to pixels; an embedded file as
-    its own file; any other stream as text with its string tokens; a form or appearance stream, drawn or not, and a
-    superseded page content stream with its page's resources, also interpreted for text and inline images)."""
+def _pdf_object(doc, get, where, tmp, resources=None):
+    """One object of doc (get() reads it): its strings and names; a stream decoded (an image to pixels; an embedded
+    file as its own file; any other stream as text with its string tokens; a form or appearance stream, drawn or not,
+    and a superseded page content stream with its page's resources, also interpreted for text and inline images; an
+    object stream's members each as an object)."""
     from pdfminer.pdftypes import PDFStream, resolve1
 
     obj = get()
@@ -360,11 +375,15 @@ def _pdf_object(get, where, tmp, resources=None):
             yield from _pdf_image(obj, f"{where} image")
             return
         data = obj.get_data()
-        yield "text", f"{where} stream string tokens", _tokens(data)
-        embedded = getattr(resolve1(obj.get("Type")), "name", None) == "EmbeddedFile"
-        yield from _blob(data, f"{where} stream", tmp, typed=embedded)
+        yield "text", f"{where} stream string tokens", _tokens(_strings(data))
+        kind = getattr(resolve1(obj.get("Type")), "name", None)
+        yield from _blob(data, f"{where} stream", tmp, typed=kind == "EmbeddedFile")
         if subtype == "Form" or "BBox" in obj.attrs or resources is not None:
             yield from _form(obj, where, resources)
+        if kind == "ObjStm":  # its members, current or superseded, parsed as pdfminer parses them
+            objs, n = doc._get_objects(obj)  # pdfminer's own member parse: it has no public call for it
+            for objid, member in zip(objs[:2 * n:2], objs[2 * n:]):
+                yield from _pdf_object(doc, lambda member=member: member, f"{where} member {objid}", tmp)
 
 
 def _form(stream, where, resources=None):
@@ -459,8 +478,17 @@ def _sqlite(data, place, tmp, wal):
 
 
 def _image(data, place, tmp, wal):
-    """A PNG, JPEG, GIF, WebP or TIFF file (strong signature), every frame; one that does not decode raises, so it is
-    reported as unreadable."""
-    img = Image.open(io.BytesIO(data))
+    """A PNG, JPEG, GIF, WebP or TIFF file (strong signature), every frame; one that does not decode is text when it
+    decodes as UTF-8 ("GIF89a is a format"), else it raises, so it is reported as unreadable."""
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.load()
+    except Exception as e:
+        try:
+            data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise e from None  # not text either: the image error is reported
+        yield from _text(data, place, tmp, wal)
+        return
     for i, frame in enumerate(ImageSequence.Iterator(img)):
         yield "image", place if i == 0 else f"{place} frame {i + 1}", frame.copy()
