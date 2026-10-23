@@ -28,6 +28,7 @@ import os
 import re
 import shutil
 import sqlite3
+import sys
 import tempfile
 import time
 import types
@@ -370,22 +371,29 @@ def say(*argv) -> str:
 
 
 def answered(*argv) -> tuple[str, str]:
-    """(stdout, stderr) of one command that must succeed; stderr caught both as sys.stderr and as file descriptor 2,
-    so a print to either is kept (Codex fix check 1, R2-1)."""
-    out, err = io.StringIO(), io.StringIO()
-    with tempfile.TemporaryFile() as fd2:
-        saved = os.dup(2)
-        os.dup2(fd2.fileno(), 2)
-        try:
-            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-                code = cli.main([str(a) for a in argv])
-        finally:
-            os.dup2(saved, 2)
-            os.close(saved)
-        fd2.seek(0)
-        errors = err.getvalue() + fd2.read().decode("utf-8", "replace")
-    assert code == 0, (argv, out.getvalue(), errors)
-    return out.getvalue(), errors
+    """(stdout, stderr) of one command that must succeed, as it wrote them (Codex fix checks 1 and 2): file descriptors
+    1 and 2 each go to a file, and sys.stdout and sys.stderr write straight through to those same descriptors, so each
+    stream holds every write, Python or native, in the order it was made. ponytail: a stream object the product kept
+    from before the call, or C stdio's own buffer, is not caught; a subprocess run would catch them if one appears."""
+    files, saved = [tempfile.TemporaryFile(), tempfile.TemporaryFile()], [os.dup(1), os.dup(2)]
+    try:
+        for fd, f in zip((1, 2), files):
+            os.dup2(f.fileno(), fd)
+        out, err = (io.TextIOWrapper(io.FileIO(fd, "w", closefd=False), encoding="utf-8", write_through=True)
+                    for fd in (1, 2))
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cli.main([str(a) for a in argv])
+    finally:
+        for fd, s in zip((1, 2), saved):
+            os.dup2(s, fd)
+            os.close(s)
+    caught = []
+    for f in files:
+        with f:
+            f.seek(0)
+            caught.append(f.read().decode("utf-8", "replace"))
+    assert code == 0, (argv, *caught)
+    return caught[0], caught[1]
 
 
 def made(root) -> dict:
@@ -643,6 +651,41 @@ def test_no_credential_or_path_seed_in_any_command_response(lw, tmp_path, tmp_pa
     assert len(list(answers.iterdir())) == 12 == len(list(errors.iterdir()))
     assert leakage.found(answers, seeds) == {}
     assert leakage.found(errors, never) == {}
+
+
+def fd1(value):  # fix check 2's fix2_fd1_credential.py: the whole credential through file descriptor 1
+    os.write(1, f"{value}\n".encode())
+
+
+def split(value):  # fix2_split_stderr.py: its first half through file descriptor 2, the rest through sys.stderr
+    os.write(2, value[:len(value) // 2].encode())
+    print(value[len(value) // 2:], file=sys.stderr, flush=True)
+
+
+@pytest.mark.parametrize(("fault", "stream"), [(fd1, "stdout"), (split, "stderr")], ids=["fd1", "split-stderr"])
+def test_a_credential_written_natively_or_split_across_stderr_reaches_the_scanned_answer(lw, tmp_path, monkeypatch,
+                                                                                          fault, stream):
+    """Codex fix check 2's two fault plugins as controls: a sanitised JSON renderer that writes CRED-ENV-01 through
+    file descriptor 1, or splits it across file descriptor 2 and sys.stderr, is caught by answered() whole and in
+    order, so the command-response scan (leakage.found over each stream's text) finds it."""
+    seed = [s for s in lw["seeds"] if s["name"] == "CRED-ENV-01"]
+    write = export.FORMATS["json"]["write"]
+
+    def faulty(d, *rest):
+        out = write(d, *rest)
+        if d["mode"] == "sanitised":
+            fault(seed[0]["value"])
+        return out
+
+    monkeypatch.setitem(export.FORMATS["json"], "write", faulty)
+    copy = shutil.copytree(lw["root"], tmp_path / "ws")
+    caught = dict(zip(("stdout", "stderr"), answered("report", "all", "--format", "json", "--workspace", copy)))
+    folder = tmp_path / "answer"
+    folder.mkdir()
+    for name, t in caught.items():
+        (folder / f"{name}.txt").write_text(t, encoding="utf-8")
+    hits = leakage.found(folder, seed)
+    assert list(hits) == ["CRED-ENV-01"] and all(p.startswith(f"{stream}.txt") for p in hits["CRED-ENV-01"]), hits
 
 
 MARKS = ("history_mark", "labels_mark", "hidden_by_archive", "History mark", "Labels mark")
