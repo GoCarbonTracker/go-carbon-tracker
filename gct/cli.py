@@ -3,6 +3,7 @@ import json
 import math
 import os
 import shlex
+import sqlite3
 import sys
 import webbrowser
 from collections import Counter
@@ -11,6 +12,7 @@ from gct import __version__
 from gct.api import server
 from gct.measure import g2
 from gct.models import adapters, policy
+from gct.reports import dataset
 from gct.stages import (adjudicate, archive, correct, deletion, extract, highlight, infer, link, match, missing, read,
                         restate, review, saved_view, sheet, view)
 from gct.workspace import intake, labels, layout, lock, published, registry, runs, store
@@ -1543,6 +1545,73 @@ def cmd_measure_g2(args) -> None:
     _print(args, r, "\n".join(lines))
 
 
+def report_arguments(p) -> None:
+    """The report options (7.1-P9): gct report preview and every gct report NAME share this one parser."""
+    p.add_argument("--filter", metavar="JSON|@FILE", help="the claims to report, as a Tables filter (see docs/views.md;"
+                                                         " default: every claim of the version)")
+    p.add_argument("--complete", action="store_true", help="every row, each with its label (default: a sanitised"
+                                                           " output without private content)")
+    p.add_argument("--include", default="", metavar="CLASSES", help="in a sanitised output, also keep these, comma"
+                                                                   f" separated: {', '.join(dataset.INCLUDE)}")
+    p.add_argument("--data-version", type=int, metavar="V", help="refuse unless V is the current data version")
+
+
+def report_dataset(args) -> tuple[dict, dict]:
+    """(dataset, preview) of the current data version under the workspace lock (released by main), from workspace.db
+    opened read-only: no upgrade, no run and no file is written (7.1-P9, R3)."""
+    args.root = layout.locate(args.workspace)
+    args.lock = lock.hold(args.root)
+    conn = published.open_version(args.root / layout.DB_NAME)
+    try:
+        try:
+            upgrade = store.pending(conn)
+        except sqlite3.OperationalError:
+            raise GctError(layout.REFUSED, f"The working database in {args.root} cannot be read: SQLite adds its -wal"
+                                           " and -shm files beside it to read it, and that folder is read-only.",
+                           "Make the folder writable, or build the report from a writable copy of the workspace.") from None
+        if upgrade:
+            raise GctError(layout.REFUSED, "This workspace needs an upgrade before a report can be built.",
+                           "Run a command that writes, for example gct publish build: it upgrades the workspace first"
+                           " and records the upgrade in the run log.")
+        store.migrate(conn)  # nothing to apply here; refuses a workspace made by a newer gct
+        return dataset.build(conn, args.root, filter=_filter_arg(args.filter),
+                             mode="complete" if args.complete else "sanitised",
+                             include=[x.strip() for x in args.include.split(",") if x.strip()],
+                             data_version=args.data_version)
+    finally:
+        conn.close()
+
+
+def report_lines(d: dict, p: dict) -> list[str]:
+    """What gct report preview prints, and every gct report NAME before its files: the version, the rows per report
+    and what was withheld, for the local user only (C6)."""
+    v, titles = d["data_version"], d["words"]["fixed"]["titles"]
+    withheld = [f"{REPORT_CAUSES[k]} {n}" for k, n in p["withheld"].items() if n]
+    return [f"Data version {v['version']}, built {v['built_at']}, SHA-256 {v['sha256']}."
+            f" {d['words']['fixed']['mode'][d['mode']]}"
+            + (f" Also kept: {', '.join(x.replace('_', ' ') for x in d['include'])}." if d["include"] else ""),
+            "Rows: " + ("; ".join(f"{titles[k]} {n}" for k, n in p["included"]["rows"].items()) or "none") + ".",
+            "Documents: " + (", ".join(f"{x['id']} {x['label']}" for x in p["included"]["documents"]) or "none") + ".",
+            *(["Left out: " + "; ".join(withheld) + "."] if withheld else []), *p["lines"]]
+
+
+# C6's causes in the words gct report preview prints.
+REPORT_CAUSES = {"private_document": "rows of a private document", "absent_from_version":
+                 "rows naming a document not in this version", "same_bytes_private":
+                 "rows of a document whose file is also held as private", "names_private_document":
+                 "rows naming a private document", "flag": "reviewer flags", "archived": "archived documents",
+                 "deleted": "deleted documents", "selection_recomputed": "rows matched only through left-out records",
+                 "contributor_text": "rows without their contributor text", "identity":
+                 "rows without contributor names and organisations"}
+
+
+def cmd_report_preview(args) -> None:
+    d, p = report_dataset(args)
+    v = {k: d["data_version"][k] for k in ("version", "built_at", "sha256", "projection_schema")}
+    _print(args, {"status": "ok", "mode": d["mode"], "include": d["include"], "data_version": v, "preview": p},
+           "\n".join(report_lines(d, p)))
+
+
 def cmd_serve(args) -> None:
     _open(args, write=False).close()  # locate and upgrade the workspace like every other command
     srv = server.serve(args.root, args.port)
@@ -1925,6 +1994,12 @@ def build_parser() -> argparse.ArgumentParser:
     rm.set_defaults(func=cmd_view_remove)
     views.add_parser("questions", parents=[common], help="six guided questions with their counts on the current"
                                                          " version").set_defaults(func=cmd_view_questions)
+
+    reports = group("report", "reports of the current published version (sanitised unless --complete)")
+    pre = reports.add_parser("preview", parents=[common], help="the rows a report would hold and what it would"
+                                                              " leave out; writes nothing")
+    report_arguments(pre)
+    pre.set_defaults(func=cmd_report_preview)
 
     run = group("run", "the run log")
     run.add_parser("list", parents=[common], help="list runs, newest first").set_defaults(func=cmd_run_list)

@@ -222,6 +222,55 @@ def test_saved_view_messages_have_cause_next_action_and_no_internals(tmp_path, g
         assert r.code == 0 and not any(word in r.out for word in [*INTERNAL_WORDS, *names]), r.out
 
 
+def test_report_preview_messages_have_cause_next_action_and_no_internals(tmp_path, gct):
+    import shutil
+
+    import gate_fixture
+    from gct.workspace import layout, lock, store
+
+    root = gate_fixture.build(tmp_path / "gws")
+    names = internal_names(root)
+    newer = tmp_path / "newer"
+    shutil.copytree(root, newer)
+    c = sqlite3.connect(newer / "workspace.db")
+    c.execute("INSERT INTO schema_version (version, applied_at) VALUES (999, 't')")
+    c.commit()
+    c.close()
+    older = tmp_path / "w20"  # a workspace this gct would upgrade first
+    for name in layout.SUBDIRS:
+        (older / name).mkdir(parents=True)
+    c = store.connect(older / layout.DB_NAME)
+    store.migrate(c, up_to=20)
+    c.close()
+    empty = tmp_path / "empty"
+    gct("workspace", "init", empty)
+    cases = [((root, "--filter", "{"), 2), ((root, "--filter", '{"colour": [1]}'), 2), ((root, "--include", "names"), 2),
+             ((root, "--filter", f"@{tmp_path / 'none.json'}"), 3), ((root, "--data-version", 9), 4),
+             ((empty,), 4), ((newer,), 4), ((older,), 4)]
+    def refused(where, argv, code):
+        human, machine = (gct("report", "preview", *argv, "--workspace", where, *j) for j in ((), ("--json",)))
+        assert human.code == machine.code == code and human.out == "", (argv, human.out)
+        assert human.err.startswith("error: ") and "\nnext: " in human.err, (argv, human.err)
+        assert machine.data["status"] == "error" and machine.data["cause"] and machine.data["next_action"]
+        for text in (human.err, machine.out):
+            for word in [*INTERNAL_WORDS, *names]:
+                assert word not in text, (argv, word)
+        return human.err
+
+    for (where, *argv), code in cases:
+        refused(where, argv, code)
+    held = lock.hold(root)
+    try:
+        assert "Another gct command is using this workspace." in refused(root, [], 4)
+    finally:
+        lock.release(held)
+    assert "needs an upgrade before a report can be built" in refused(older, [], 4)
+    assert "made by a newer version of gct" in refused(newer, [], 4)
+    for argv in ((), ("--complete",), ("--include", "flags,identity,contributor_text"), ("--filter", '{"document": [2]}')):
+        r = gct("report", "preview", *argv, "--workspace", root)
+        assert r.code == 0 and r.err == "" and not [w for w in [*INTERNAL_WORDS, *names] if w in r.out], (argv, r.out)
+
+
 def test_adjudicate_and_flag_messages_have_no_internals(ws, gct, make_file):
     from test_restate import cp2
 

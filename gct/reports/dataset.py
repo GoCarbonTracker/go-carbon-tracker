@@ -826,6 +826,12 @@ class _Rows:
         for t, rows in (("evidence_index", index), ("related_claims", related)):
             for r in rows:
                 r["_key"] = (t, r["claim_id"])
+        via = {}  # C6: a pair side outside the selection is withheld with its pairs, so it takes their cause
+        for p in pairs:
+            for c in (p["claim_a"], p["claim_b"]):
+                via.setdefault(c, set()).update(p["_docs"])
+        for r in related:
+            r["_via"] = via[r["claim_id"]]
         checked, limits = self.checked()
         arch, gone = self.archive_rows() if self.mode == "complete" else ([], [])
         return {"selected": selected, "answer": first, "evidence_index": index, "related_claims": related,
@@ -1004,7 +1010,7 @@ def _cause(b: _Build, table, r, present: set, twins: set) -> str:
     the documents of the version; twins: those private only by P3 rule 3."""
     if table in ("archived", "deleted"):
         return table
-    own, named = r["_own"], r["_docs"]
+    own, named = r["_own"] | r.get("_via", set()), r["_docs"] | r.get("_via", set())
     absent = named - present
     private = {d for d in named & present if b.eff[d]["label"] == "private"}
     if (private - twins) & own:

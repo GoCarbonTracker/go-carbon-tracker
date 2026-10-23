@@ -483,6 +483,35 @@ filter matches on the current version. `choices` is empty except for `metric-ove
 two or more periods, each `{series, company, label, periods, filter}` (`company` is the company's name and `filter` is
 `{"series": [ID]}`); that question's count is the number of its choices. `GET /api/questions` answers the same.
 
+## report preview
+- top: status, mode, include, data_version, preview
+- data_version: version, built_at, sha256, projection_schema
+- preview: included, withheld, history_mark, labels_mark, filter, lines, answer
+
+`gct report preview [--filter JSON|@FILE] [--complete] [--include identity,contributor_text,flags] [--data-version V]`
+shows what a report of the current published version would hold, for the local user only, and writes nothing: it
+takes the workspace lock, opens `workspace.db` read-only, opens no run and applies no upgrade (see
+`docs/privacy.md`). `mode` is `sanitised` (the default) or `complete` (`--complete`); `include` is the sorted list of
+classes a sanitised output keeps (`identity`, `contributor_text`, `flags`). `data_version` identifies the version file
+read. `preview.included` is `{documents: [{id, sha256, label}], rows: {table: rows}}`, the documents and the rows per
+report and sub-table the output holds. `preview.withheld` counts, per cause in this order, the rows the complete output
+of the same filter holds and this output does not, each row once under its first cause (`private_document`,
+`absent_from_version`, `same_bytes_private`, `names_private_document`, `flag`, `archived`, `deleted`,
+`selection_recomputed`), then the shipped rows with a field left out (`contributor_text`, `identity`); in complete
+mode every count is 0. `history_mark` and `labels_mark` are the version's marks, `filter` the normalised filter as
+given. `lines` is empty unless a document in the selection is private in a sanitised output: then it is the sentence
+"Every document in this selection is private, so a sanitised output holds no rows." (or, when some are shareable,
+"These documents in this selection are private, so a sanitised output leaves out their rows:"), one line `ID  COMPANY
+NAME  private` per private document, and the relabel command. `answer` holds the complete selection's
+`matched`, `total` and `excluded`, `hidden_by_archive` (`documents`, `claims`) and `deleted_in_filter` (a count).
+Refused, with nothing written: a filter that is not valid JSON or names an unknown field (exit 2), an unknown
+inclusion class (exit 2), a missing filter file (exit 3), another command holding the workspace (exit 4), a workspace
+that needs an upgrade (exit 4, cause "This workspace needs an upgrade before a report can be built.", next step "Run a
+command that writes, for example gct publish build: it upgrades the workspace first and records the upgrade in the
+run log."), a workspace made by a newer gct (exit 4), a folder where SQLite cannot read the database (exit 4), and
+every refusal of the version pin (exit 4): no published version, a `--data-version` that is not current, an unfinished
+deletion, a version file missing, holding a deleted document or built by an older gct.
+
 ## serve
 - top: status, url, port
 

@@ -4,6 +4,7 @@ operations without the ones that touch a private document, applied in an order t
 sanitised(W) must equal sanitised(W') as built (P10, K12). The report-fixture gates are in test_gate_*.py."""
 import ast
 import copy
+import gc
 import json
 import re
 import shutil
@@ -718,6 +719,63 @@ def test_the_build_leaves_the_workspace_and_every_version_file_unchanged(base, t
             build(w, **kw)
     assert dump(w) == before
     assert {p.name: p.read_bytes() for p in (w / "published").glob("*.db")} == files
+
+
+def files(root) -> dict:
+    """Every file's bytes but SQLite's own -wal and -shm beside workspace.db (a reader may create them; the rows they
+    could carry are in dump) and the empty workspace.lock (lock.hold creates it when missing, C-version V2)."""
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in sorted(root.rglob("*"))
+            if p.is_file() and p.name not in ("workspace.db-wal", "workspace.db-shm", "workspace.lock")}
+
+
+def unchanged(gct, root, *argv, code=0):
+    """gct report preview ARGV on root exits with code and leaves every table row and every file as it was."""
+    before = dump(root)
+    gc.collect()  # dump's connection is not closed by its with block; its close checkpoints the WAL
+    bytes_before = files(root)
+    r = gct("report", "preview", *argv, "--workspace", root)
+    assert r.code == code, (argv, r.out, r.err)
+    assert files(root) == bytes_before, argv
+    assert dump(root) == before, argv
+    return r
+
+
+def test_report_preview_writes_nothing_on_success_and_on_every_refusal(base, tmp_path, gct, monkeypatch):
+    from gct.stages import deletion
+
+    w = world(base, tmp_path / "w", publish=False)
+    for argv in ((), ("--complete",), ("--include", "flags"), ("--filter", '{"review": ["disagreement"]}')):
+        unchanged(gct, w, *argv)
+    assert "is no longer the current one" in unchanged(gct, w, "--data-version", 1, code=4).err
+    empty = tmp_path / "empty"
+    gct("workspace", "init", empty)
+    assert "no published data version" in unchanged(gct, empty, code=4).err
+    newer = world(base, tmp_path / "newer", publish=False)
+    c = sqlite3.connect(newer / layout.DB_NAME)
+    c.execute("INSERT INTO schema_version (version, applied_at) VALUES (999, 't')")
+    c.commit()
+    c.close()
+    assert "made by a newer version of gct" in unchanged(gct, newer, code=4).err
+    older = tmp_path / "w20"  # schema 20 under this code: the upgrade is pending
+    for name in layout.SUBDIRS:
+        (older / name).mkdir(parents=True)
+    c = store.connect(older / layout.DB_NAME)
+    store.migrate(c, up_to=20)
+    c.close()
+    (older / "workspace.lock").touch()
+    r = unchanged(gct, older, code=4)
+    assert r.err == ("error: This workspace needs an upgrade before a report can be built.\nnext: Run a command that"
+                     " writes, for example gct publish build: it upgrades the workspace first and records the upgrade"
+                     " in the run log.\n")
+    gone = world(base, tmp_path / "gone", publish=False)
+    real = deletion.WORK["published"]
+    monkeypatch.setitem(deletion.WORK, "published", lambda *a: (_ for _ in ()).throw(OSError("held open")))
+    conn = store.connect(gone / layout.DB_NAME)
+    sha = conn.execute("SELECT sha256 FROM document WHERE id = 2").fetchone()[0]
+    conn.close()
+    assert gct("doc", "delete", 2, "--confirm", sha[:12], *WHO, "--workspace", gone).code == 4
+    monkeypatch.setitem(deletion.WORK, "published", real)
+    assert "removal did not finish" in unchanged(gct, gone, code=4).err
 
 
 # AC 13 (AD-19): renderers never read the workspace
