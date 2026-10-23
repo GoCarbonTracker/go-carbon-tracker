@@ -8,7 +8,9 @@ dropped. It reads the path and writes nothing there; SQLite copies go to a tempo
 Loud by design: a symbolic link under the path is refused, and a part the scanner cannot read (a broken object, zip
 member, image or database) does not stop the rest of the scan; at the end found raises Unreadable naming every such
 place, so it never returns a result for a scan that skipped a part. Only bytes with a strong image signature (PNG,
-JPEG, GIF, WebP, TIFF) are opened as images, and a PDF stream's decoded data never is.
+JPEG, GIF, WebP, TIFF) are opened as images (ones that do not decode are text if UTF-8, else unreadable), and a PDF
+stream's decoded data never is; object stream members are read as objects. found returns {name: [places]} for the
+seeds it finds.
 
 Known ceilings (not decoded; recorded in the TASK-0224 worker notes): Indexed and 16-bit PDF images (reported as
 unreadable, so a scan meeting one raises); UTF-16LE text without a BOM; free-page overflow chains and UTF-16
