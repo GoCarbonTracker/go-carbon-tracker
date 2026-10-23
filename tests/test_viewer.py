@@ -449,6 +449,10 @@ def test_transfer_between_tables_and_graphs(tmp_path):
         assert k["tab"] == "Graphs" and all(x.endswith("(disabled)") for x in k["buttons"]), k
     assert kinds["adjudication"]["reason"].startswith("An adjudication ")
     assert kinds["edge"]["reason"].startswith("A member edge ")
+    assert [len(set(m["ids"])) for m in out["mixed"]] == [2, 2]
+    for m in out["mixed"]:  # a series with a claim, then two series (review L3)
+        assert m["reason"] == "Select one series, or claims only.", m
+        assert m["tab"] == "Graphs" and all(x.endswith("(disabled)") for x in m["buttons"]), m
     assert out["second_writer"] == 200
     assert out["stale"]["reason"] == ("Data version 1 is no longer the current one; the current version is 2. Reload to see"
                                       " version 2.")

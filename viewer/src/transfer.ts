@@ -36,8 +36,11 @@ export function staleText(was: number, now: number): string {
   return `Data version ${was} is no longer the current one; the current version is ${now}. Reload to see version ${now}.`;
 }
 
+export const ONE_SERIES = "Select one series, or claims only.";
+
 /** A picked graph element with no rows of its own, named in plain words (graphs.ts WORDS). */
 export function kindText(kind: string): string {
+  if (kind === "series") return ONE_SERIES; // graphs.ts picked(): a series with claims or with another series
   return `${/^[aeiou]/i.test(kind) ? "An" : "A"} ${kind} has no rows of its own; select claims or a series.`;
 }
 
@@ -91,12 +94,23 @@ export function removeLabel(chip: string): string {
 export const KEPT_FILTER = "The selection is not part of a saved view; a saved view keeps the filter.";
 export const NO_VIEWS = "No saved views yet. Save the current filter below to come back to it.";
 
+// The server's name rule (saved_view.py): Python's strip(), whose spaces differ from trim()'s (U+FEFF stays; U+001C
+// to U+001F and U+0085 go), and at most 80 characters, counted as code points, not UTF-16 units.
+const strip = (s: string) =>
+  s.replace(/^[\t-\r\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\t-\r\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$/g, "");
+const NAME_MAX = 80;
+
+export function fitName(name: string): string {
+  const chars = [...name];
+  return chars.length > NAME_MAX ? chars.slice(0, NAME_MAX).join("") : name;
+}
+
 export function existsText(name: string): string {
-  return `A view named ${name.trim()} exists. Saving puts this one first and keeps the earlier one.`;
+  return `A view named ${strip(name)} exists. Saving puts this one first and keeps the earlier one.`;
 }
 
 export function exists(name: string, names: string[]): boolean {
-  return names.includes(name.trim());
+  return names.includes(strip(name));
 }
 
 export function ready(name: string, key: string): boolean {

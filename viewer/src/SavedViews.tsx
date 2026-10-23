@@ -1,6 +1,6 @@
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import type { Filter } from "./records.ts";
-import { exists, existsText, KEPT_FILTER, NO_VIEWS, ready, removedLine, savedLine, savedText, type Tab } from "./transfer.ts";
+import { exists, existsText, fitName, KEPT_FILTER, NO_VIEWS, ready, removedLine, savedLine, savedText, type Tab } from "./transfer.ts";
 import "./savedviews.css";
 
 type Failure = { cause: string; next_action: string };
@@ -161,7 +161,7 @@ export function SavedViews({ filter, tab, chipShown, onOpen, onClose }: {
         <h3 id="save-view-title">Save the current filter</h3>
         <label>
           Name{" "}
-          <input name="name" value={name} maxLength={80} autoComplete="off" onChange={(e) => setName(e.target.value)} />
+          <input name="name" value={name} autoComplete="off" onChange={(e) => setName(fitName(e.target.value))} />
         </label>
         <label>
           Contributor key{" "}

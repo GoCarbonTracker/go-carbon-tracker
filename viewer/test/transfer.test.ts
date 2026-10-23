@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bar, chipText, choiceChip, choiceText, claimsButton, exists, existsText, kindText, KEPT_FILTER, limitText, NO_CHOICES, NO_VIEWS, NONE_IN_GRAPHS, NONE_IN_TABLES, type Question, questionCount, ready, removeLabel, removedLine, rowsButton, savedLine, savedText, SERIES_FROM_GRAPHS, SERIES_FROM_TABLES, seriesChip, seriesLabel, staleText } from "../src/transfer.ts";
+import { bar, chipText, choiceChip, choiceText, claimsButton, exists, existsText, fitName, kindText, KEPT_FILTER, limitText, NO_CHOICES, NO_VIEWS, NONE_IN_GRAPHS, NONE_IN_TABLES, type Question, questionCount, ready, removeLabel, removedLine, rowsButton, savedLine, savedText, SERIES_FROM_GRAPHS, SERIES_FROM_TABLES, seriesChip, seriesLabel, staleText } from "../src/transfer.ts";
 
 const F = { company: [1] };
 const claims = (n: number, version = 3) =>
@@ -67,6 +67,12 @@ test("D10: a picked element that is not a claim or a series names its kind", () 
   assert.ok(!b.claims.enabled && !b.series.enabled);
 });
 
+test("a series picked with claims or with another series asks for one series or claims only", () => {
+  const b = bar("graphs", { type: "none", kind: "series" }, 3, null); // graphs.ts picked() for both
+  assert.equal(b.reason, "Select one series, or claims only.");
+  assert.ok(!b.claims.enabled && !b.series.enabled);
+});
+
 test("the chip names the count or the series and where it came from; its button says what it removes", () => {
   assert.equal(chipText(claims(3), "Tables"), "3 claims from Tables");
   assert.equal(chipText(claims(1), "Graphs"), "1 claim from Graphs");
@@ -88,6 +94,19 @@ test("the save form: an existing name is said first; saving needs a name and a k
   assert.equal(savedText({ section: "graphs", saved_at: "2026-10-23T03:00:00Z", contributor: "Ana" }), "Graphs · saved 2026-10-23 by Ana");
 });
 
+test("the name box keeps 80 characters as the server counts them, not 80 UTF-16 units", () => {
+  const e = "\u{1F600}"; // two UTF-16 units, one character
+  assert.equal(fitName(e.repeat(80)), e.repeat(80));
+  assert.equal(fitName(e.repeat(81)), e.repeat(80));
+  assert.equal(fitName("a".repeat(81)), "a".repeat(80));
+});
+
+test("the existing-name check strips the name as the server's strip() does", () => {
+  assert.ok(exists("\uFEFFAb", ["\uFEFFAb"]) && !exists("\uFEFFAb", ["Ab"])); // U+FEFF is not stripped
+  assert.ok(exists("\u3000Ab\u0085", ["Ab"]));
+  assert.equal(existsText("\uFEFFAb "), "A view named \uFEFFAb exists. Saving puts this one first and keeps the earlier one.");
+});
+
 const q = (key: string, matched: number, choices: Question["choices"] = []): Question =>
   ({ key, text: "?", filter: {}, section: "tables", matched, choices });
 
@@ -105,7 +124,7 @@ test("a question counts its claims on the version; metric-over-time counts its c
 test("the texts carry no internal names and never say verified, assured, certified or compliant", () => {
   const c = { series: "s1", company: "Acme", label: null, periods: 2, filter: {} };
   const texts = [rowsButton(2), claimsButton(2), SERIES_FROM_TABLES, SERIES_FROM_GRAPHS, NONE_IN_TABLES, NONE_IN_GRAPHS,
-    limitText(501), staleText(3, 4), kindText("boundary"), chipText(claims(2), "Tables"), chipText(series, "Graphs", "x"),
+    limitText(501), staleText(3, 4), kindText("boundary"), kindText("series"), chipText(claims(2), "Tables"), chipText(series, "Graphs", "x"),
     removeLabel("x"), KEPT_FILTER, NO_VIEWS, existsText("x"), savedText({ section: "tables", saved_at: "2026-10-23", contributor: "Ana" }),
     savedLine("x"), removedLine("x"), questionCount(q("restated", 2), 3), questionCount(q("metric-over-time", 0), 3),
     choiceText(c), NO_CHOICES];

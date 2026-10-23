@@ -589,6 +589,25 @@ const transferGate = async () => {
     P.by(".tabs button", "Tables").click();
     return seen;
   });
+  // A series node with a claim node, and two series nodes: one series or claims only.
+  out.mixed = await step(async () => {
+    P.by(".tabs button", "Graphs").click();
+    await T.wait(() => P.claimNodes().length === 14, "the whole graph");
+    const c = P.cy();
+    const [one, two] = c.nodes(".series").map((n) => n.id());
+    const seen = [];
+    for (const ids of [[one, c.nodes(".claim")[0].id()], [one, two]]) {
+      P.pick(ids);
+      await T.wait(() => P.bar().reason.startsWith("Select one series"), `the reason for ${ids}`);
+      P.press(0);
+      P.press(1);
+      await P.sleep(100);
+      seen.push({ ids, reason: P.bar().reason, buttons: P.bar().buttons, tab: P.tab() });
+    }
+    c.$(":selected").unselect();
+    P.by(".tabs button", "Tables").click();
+    return seen;
+  });
   return out;
 };
 
@@ -913,16 +932,27 @@ if (mode === "stale") {
     const row = (id) => document.querySelector(`.graphs [data-el="${CSS.escape(id)}"]`);
     const ids = (sel) => [...document.querySelectorAll(`.graphs ${sel} [data-el]`)].map((b) => b.dataset.el);
     const drawn = (n) => cy() && cy().nodes().length > 0 && (n === undefined || cy().nodes(".claim, .point").length === n);
-    window.g = { wait, byText, tick, cy, shell, graph, loaded, where, evidence, section, view, row, ids, drawn };
+    // The tab body learns that it is hidden or shown from a ResizeObserver report; wait for that report, then give it
+    // time to render. Without it a hide and a show can fall in one render, and the focus return waits for the next one.
+    const seen = (shown) => new Promise((resolve) => {
+      const o = new ResizeObserver(([e]) => {
+        if (e.contentRect.width > 0 !== shown) return;
+        o.disconnect();
+        setTimeout(resolve, 300);
+      });
+      o.observe(document.querySelector(".graphs"));
+    });
+    window.g = { wait, byText, tick, cy, shell, graph, loaded, where, evidence, section, view, row, ids, drawn, seen };
   });
   const open = () => call(async () => {
     await g.wait(() => g.evidence().shown && g.evidence().page && g.evidence().box, "the page with the box");
+    await g.seen(false);
     return g.evidence();
   });
   const back = () => call(async () => {
     g.section("Tables and Graphs");
     await g.wait(() => !document.querySelector(".records").hidden && g.cy(), "the Graphs tab again");
-    await new Promise((r) => setTimeout(r, 300)); // the tab body sees itself shown and puts focus back
+    await g.seen(true); // the tab body sees itself shown and puts focus back
     return { el: document.activeElement?.dataset?.el ?? null, nodes: g.cy().nodes().length };
   });
   if (mode === "graphs") {
