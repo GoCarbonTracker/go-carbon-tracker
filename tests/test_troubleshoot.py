@@ -59,6 +59,14 @@ def test_export_writes_one_new_folder_with_exactly_the_two_files(ws, gct):
     assert second == "Read both files before you send them to anyone; they hold no document, company or contributor name."
 
 
+def test_the_readme_names_the_export_and_the_troubleshooting_guide():
+    """R3 (granted by E7 2026-10-23): one bullet under "What works today"."""
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    works = readme.split("## What works today\n", 1)[1].split("\n## ", 1)[0]
+    (bullet,) = [line for line in works.splitlines() if "gct troubleshoot export" in line]
+    assert bullet.startswith("- ") and "docs/troubleshooting.md" in bullet and "gct --version" in bullet
+
+
 # AC 7
 def test_keys_follow_the_docs_and_the_package_columns(ws, gct, make_file):
     gct("company", "add", "Acme")
