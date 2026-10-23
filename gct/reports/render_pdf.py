@@ -248,18 +248,17 @@ def write(dataset, reports, folder, crops) -> dict:
                 body.append(Paragraph(ink(fixed["image_limit"]), style("cap")))
         for i in cited:
             e, rows = evidence[i], citing[i]
-            doc = documents.get(e["document_id"], {})
-            where = [("document_name", doc.get("name")), ("document_version", doc.get("version"))]
+            doc = documents[e["document_id"]]
+            doc_name = _shown(doc["name"], None, None, words)
+            where = [("document_name", doc["name"]), ("document_version", doc["version"])]
             where += [("page", e["page"])] if e["page"] is not None else [("sheet", e["sheet"]), ("cell", e["cell"])]
             entry = [Paragraph(ink(f"E{i}", BOLD), style("e", BOLD, before=10)), Paragraph("<br/>".join(
                 f"{ink(headings[k])}: {ink(_shown(v, None, k, words))}" for k, v in where), style("w"))]
             binding = any(r.get("binds") is not False for r in rows)  # a non-binding record shows its location only
             if e["page"] is not None and binding and not cap:
                 claims = sorted(r["claim_id"] for r in rows if r.get("claim_id") is not None)
-                alt = (fixed["image_alt"].format(claim=claims[0], document=_shown(doc.get("name"), None, None, words),
-                                                 page=e["page"]) if claims else
-                       fixed["image_alt_entry"].format(evidence=i, document=_shown(doc.get("name"), None, None, words),
-                                                       page=e["page"]))
+                alt = (fixed["image_alt"].format(claim=claims[0], document=doc_name, page=e["page"]) if claims else
+                       fixed["image_alt_entry"].format(evidence=i, document=doc_name, page=e["page"]))
                 caption = [Paragraph(ink(alt), style("i"))]
                 if e["boxes"]:
                     caption.append(Paragraph(ink(fixed["image_cap"]), style("i")))

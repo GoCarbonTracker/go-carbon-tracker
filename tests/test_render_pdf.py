@@ -10,7 +10,6 @@ import os
 import re
 import shutil
 import sqlite3
-import unicodedata
 from pathlib import Path
 
 import pytest
@@ -404,7 +403,7 @@ def test_two_page_entries_and_no_crops_is_the_cap_path(made, tmp_path):
     d["evidence"] = pages
     d["evidence_index"] = d["evidence_index"][:1]
     d["evidence_index"][0]["evidence"] = [e["id"] for e in pages]
-    for k in ("restatement_log", "related_claims", "documents"):
+    for k in ("restatement_log", "related_claims"):
         d[k] = []
     render_pdf.write(d, ["evidence_index"], tmp_path, {})
     path = tmp_path / FILES["evidence_index"]
@@ -418,7 +417,7 @@ def test_above_the_cap_every_location_is_text_and_narrowing_gives_images(made, w
     d["evidence"] = [{**first, "id": n} for n in range(1, crops.LIMIT + 2)]
     d["evidence_index"] = d["evidence_index"][:1]
     d["evidence_index"][0]["evidence"] = [e["id"] for e in d["evidence"]]
-    for k in ("restatement_log", "related_claims", "documents"):
+    for k in ("restatement_log", "related_claims"):
         d[k] = []
     c = crops.cut(w, d)
     assert c == {}
@@ -632,12 +631,11 @@ def test_missing_states_and_non_binding_records_show_no_image(made):
     for report in REPORTS:
         path = folder / FILES[report]
         entries = appendix(path)
-        rows = [r for _, r in printed_rows(d, report)]
+        must = drawn_ids(d, c, report)
         drawn = []
         for i in entries:
             e = next(x for x in d["evidence"] if x["id"] == i)
-            citing = [r for r in rows if i in r["evidence"]]
-            image = e["page"] is not None and any(r.get("binds") is not False for r in citing)
+            image = i in must
             alts = [x for x in entries[i] if x.startswith(("Evidence for claim", "Evidence E"))]
             assert bool(alts) == image, (report, i)
             if image:
@@ -680,8 +678,16 @@ def test_every_document_private_renders_only_the_first_page_text(w, env, gct, tm
 
 # AC 11: privacy in the PDF
 
-def expected_hits(d, c, report, path, seeds):
-    """{seed name: how} the scan must report for one complete PDF, from what it prints and embeds."""
+def drawn_ids(d, c, report) -> list[int]:
+    """The evidence ids whose crop a PDF must draw, from the dataset: the page entries its rows cite with at least one
+    binding citing row (R5.5), unless the crops map is empty (the cap)."""
+    rows = [r for _, r in printed_rows(d, report)]
+    return [e["id"] for e in d["evidence"] if e["id"] in cited(d, report) and e["page"] is not None and c
+            and any(r.get("binds") is not False for r in rows if e["id"] in r["evidence"])]
+
+
+def expected_hits(d, c, report, seeds):
+    """{seed name: how} the scan must report for one complete PDF, from what it prints and the crops it must draw."""
     w = d["words"]
     strings = [printed(dotted(r, k["key"]), r, k["key"], "pdf") for t, r in printed_rows(d, report)
                for k in d["columns"][t]]
@@ -693,10 +699,10 @@ def expected_hits(d, c, report, path, seeds):
     hay = "\n".join(strings).casefold()
     out = {s["name"]: "text" for s in seeds if s["kind"] in TEXT_KINDS and s["expect"] == "complete_only"
            and s["value"].casefold() in hay}
-    drawn = set(placed(path))
+    embeds = drawn_ids(d, c, report)
+    drawn = {rgb_hash(c[i]) for i in embeds}
     out.update({s["name"]: "pixel hash" for s in seeds if s["kind"] == "image" and s["value"] in drawn})
     private = next(s["value"] for s in seeds if s["name"] == "FILE-PDF-01")
-    embeds = {i for i in cited(d, report) if i in c and rgb_hash(c[i]) in drawn}
     if any(e["sha256"] == private and e["page"] == f.IMAGE_PAGE for e in d["evidence"] if e["id"] in embeds):
         out.update({s["name"]: "marker colour" for s in seeds if s["kind"] == "image"})  # leakage._match reports
         # every image seed on a marker hit, IMG-MARKER-01 (value None) among them
@@ -716,7 +722,7 @@ def test_the_scan_finds_exactly_what_each_complete_pdf_prints_and_nothing_in_a_s
     for report in REPORTS:
         path = folder / FILES[report]
         got = found(path, seeds)
-        want = expected_hits(d, c, report, path, seeds)
+        want = expected_hits(d, c, report, seeds)
         assert set(got) == set(want), (report, sorted(set(got) ^ set(want)))
         for name, how in want.items():
             assert any(how == "text" or how in p for p in got[name]), (report, name, got[name])
