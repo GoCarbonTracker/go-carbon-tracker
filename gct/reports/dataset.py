@@ -35,6 +35,7 @@ WITHHELD = {
     "records": {"identity": ("organisation", "capacity"),
                 "contributor_text": ("scope", "conclusion", "evidence_note", "note", "rationale")},
     "restatements": {"identity": ("organisation", "capacity"), "contributor_text": ("rationale",)},
+    "unpaired_restatements": {"identity": ("organisation", "capacity"), "contributor_text": ("rationale",)},
     "adjudications": {"identity": ("organisation", "capacity"),
                       "contributor_text": ("counter_note", "rationale", "procedure", "follow_up", "closure_reason")},
     "expectations": {"identity": ("confirmation.organisation", "confirmation.capacity"),
@@ -46,7 +47,8 @@ WITHHELD["related_claims"] = WITHHELD["evidence_index"]
 TITLES = {
     "evidence_index": "Evidence index", "related_claims": "Related claims", "pair_sides": "Pair sides",
     "restatement_log": "Restatement log", "gap_report": "Gap report", "records": "Review records",
-    "disagreements": "Disagreements", "restatements": "Restatement records", "adjudications": "Adjudications",
+    "disagreements": "Disagreements", "restatements": "Restatement records",
+    "unpaired_restatements": "Unpaired restatements", "adjudications": "Adjudications",
     "documents": "Documents", "candidates": "Inconsistency candidates", "expectations": "Expectations",
     "reasons": "Missing reasons", "accepted": "Accepted pages", "declared": "Declared documents",
     "documents_checked": "Documents checked", "extraction_limits": "Extraction limits",
@@ -78,7 +80,8 @@ HEADINGS = {
     "claim_a": "Claim A", "claim_b": "Claim B", "outside_selection.a": "Claim A selection",
     "outside_selection.b": "Claim B selection", "state": "State", "reason": "Reason",
     "shown_state": "Adjudication state", "restatement_id": "Restatement", "original_version_id": "Original version",
-    "restated_version_id": "Restated version", "evidence_quote": "Quote", "adjudication_id": "Adjudication record",
+    "restated_version_id": "Restated version", "original_claim_id": "Original claim",
+    "restated_claim_id": "Restated claim", "evidence_quote": "Quote", "adjudication_id": "Adjudication record",
     "low_version_id": "First claim version", "high_version_id": "Second claim version", "state_text": "Outcome words",
     "counter_document_id": "Counter document", "counter_page": "Counter page", "counter_note": "Counter note",
     "procedure": "Procedure", "follow_up": "Follow-up", "closure_reason": "Closure reason", "name": "Name",
@@ -114,6 +117,10 @@ _KEYS = {
     "restatements": ("data_version", "pair_id", "restatement_id", "original_version_id", "restated_version_id",
                      "decision", "evidence_document_id", "evidence_page", "evidence_quote", "binds", "earlier",
                      "contributor", "organisation", "capacity", "rationale", "created_at"),
+    "unpaired_restatements": ("data_version", "restatement_id", "original_claim_id", "restated_claim_id",
+                              "original_version_id", "restated_version_id", "decision", "evidence_document_id",
+                              "evidence_page", "evidence_quote", "binds", "earlier", "contributor", "organisation",
+                              "capacity", "rationale", "created_at"),
     "adjudications": ("data_version", "pair_id", "adjudication_id", "low_version_id", "high_version_id", "state_text",
                       "binds", "earlier", "counter_document_id", "counter_page", "counter_note", "rationale",
                       "procedure", "follow_up", "closure_reason", "contributor", "organisation", "capacity",
@@ -137,7 +144,7 @@ COLUMNS = {t: [{"key": k, "heading": HEADINGS[k]} for k in keys] + [
     {"key": "label", "heading": HEADINGS["label"], "complete_only": True}] for t, keys in _KEYS.items()}
 SUB_TABLES = {"records": "claim_id", "disagreements": "claim_id", "restatements": "pair_id",
               "adjudications": "pair_id", "reasons": "expected_item_id", "accepted": "expected_item_id",
-              "declared": "expected_item_id"}
+              "declared": "expected_item_id", "unpaired_restatements": None}  # C3: the one parent_key null
 
 EARLIER = "on an earlier version"
 PRIVACY_NOTICE = "Private content is excluded from this output."
@@ -212,6 +219,7 @@ class _Build:
     def __init__(self, conn, root, pconn, ident, flt, include):
         self.conn, self.root, self.pconn, self.ident, self.flt, self.include = conn, root, pconn, ident, flt, include
         self.version = ident["version"]
+        self.p16 = ident["projection_schema"] >= 16  # ponytail: goes with sides()' fallback at the C-projection merge
         self.eff = labels.effective(conn, pconn)  # P3, read once
         self._ships, self._keys, self._books = {}, {}, {}
 
@@ -255,14 +263,13 @@ class _Build:
 
     # C5a: the reduced copy.
     def reduce(self) -> sqlite3.Connection:
-        from gct.stages import restate
-
         rconn = sqlite3.connect(":memory:")
         rconn.deserialize(self.pconn.serialize())  # no second file read (V2)
         rconn.row_factory = sqlite3.Row
         claim_doc = dict(rconn.execute("SELECT id, document_id FROM claim").fetchall())
-        version_claim = dict(rconn.execute("SELECT claim_version_id, id FROM claim").fetchall())
         docs = {d for (d,) in rconn.execute("SELECT id FROM document")}
+        # P-match: the claims that wait with candidates, taken before any removal (the triggers drop their rows).
+        waiting = {c for (c,) in rconn.execute("SELECT DISTINCT claim_id FROM match_candidate")} if self.p16 else set()
 
         def drop(table, kind, named, key="rowid"):
             gone = [r[key] for r in rconn.execute(f"SELECT {key} AS {key}, * FROM {table}").fetchall()
@@ -279,13 +286,11 @@ class _Build:
         drop("claim", "claim", lambda r: {r["document_id"]})
         drop("evidence_ref", "evidence ref", lambda r: {r["document_id"]})
         drop("series_point", "series point", of_claims("claim_id"))
-        # A pair's state and record are derived (3.2 below), so the pair is removed by its two claims only.
-        drop("comparison", "comparison pair", of_claims("claim_a", "claim_b"))
-        # P4a: a restatement row names claims through its two version ids; one that is not a projected claim's
-        # current version cannot be traced to a document and is withheld.
-        drop("restatement", "restatement record", lambda r: {
-            claim_doc.get(version_claim.get(r["original_version_id"])),
-            claim_doc.get(version_claim.get(r["restated_version_id"])), r["evidence_document_id"]})
+        # P4 and P4a: a restatement row names both claims' documents and its evidence document; a side the version
+        # cannot trace is withheld.
+        sides = self.sides(rconn)
+        drop("restatement", "restatement record", lambda r: {claim_doc.get(c) for c in sides(r)} | {
+            r["evidence_document_id"]})
         for t in ("review_company", "review_auditor"):
             drop(t, LEDGER_KINDS[t], lambda r: of_claims("claim_id")(r) | (
                 {r["evidence_document_id"]} if r["evidence_document_id"] is not None else set()))
@@ -305,10 +310,8 @@ class _Build:
         assert docs >= {d for (d,) in rconn.execute("SELECT id FROM document")}
 
         self._latest(rconn)
-        self._comparisons(rconn, restate)
-        self._renewals(rconn)
-        self._series(rconn)
-        # P-match: match_state, match_reason and series_id are recomputed from projection 16's rows (pending).
+        self._match(rconn, waiting)
+        self._renewals(rconn)  # after 3.5, which finishes the comparison states 3.3's adjudication rule reads
         rconn.commit()
         rconn.execute("PRAGMA query_only = 1")
         return rconn
@@ -334,23 +337,86 @@ class _Build:
             sql, p = _in(newest.values())
             rconn.execute(f"UPDATE {t} SET latest = id IN {sql}", (p,))
 
-    @staticmethod
-    def _comparisons(rconn, restate):
-        """C5a 3.2: restate._state's last step over the remaining restatement rows: the newest row for the pair's two
-        current version ids decides, a recorded one making it a restatement (restate._records, restate.py:48-68)."""
+    def sides(self, work):
+        """The two claim ids of a restatement row (projection 16's columns). ponytail: below 16 only current version
+        ids resolve (None otherwise); this fallback goes when the C-projection branch merges and pin requires 16."""
+        if self.p16:
+            return lambda r: (r["original_claim_id"], r["restated_claim_id"])
+        version_claim = dict(work.execute("SELECT claim_version_id, id FROM claim").fetchall())
+        return lambda r: (version_claim.get(r["original_version_id"]), version_claim.get(r["restated_version_id"]))
+
+    def _match(self, rconn, waiting):
+        """C5a 3.4 and 3.5 (P-match steps 2 to 7): series by their remaining rule points; each waiting claim's match
+        state by match.compute's rule over its remaining candidates in the reduced creation order; its reviewed point
+        removed or constructed (match._point); then every comparison pair rebuilt by restate._pairs over the
+        resulting points and the remaining restatement rows, and the series aggregates."""
+        from gct.stages import match, restate
+
+        rconn.execute("DELETE FROM series WHERE id NOT IN (SELECT series_id FROM series_point WHERE link = 'rule')")
+        rconn.execute("DELETE FROM series_point WHERE series_id NOT IN (SELECT id FROM series)")
+        if self.p16:
+            rconn.execute("DELETE FROM match_candidate WHERE series_id NOT IN (SELECT id FROM series)"
+                          " OR claim_id NOT IN (SELECT id FROM claim)")
+            # match.compute makes ordinary series in its first pass and as-printed ones in its second, each at its
+            # first rule point in document then claim order.
+            order = {}
+            for r in rconn.execute("SELECT p.series_id, p.comparable, c.document_id, c.id FROM series_point p"
+                                   " JOIN claim c ON c.id = p.claim_id WHERE p.link = 'rule'"):
+                k = (0 if r["comparable"] else 1, r["document_id"], r["id"])
+                order[r["series_id"]] = min(order.get(r["series_id"], k), k)
+            candidates = {}
+            for r in rconn.execute("SELECT claim_id, series_id, decision FROM match_candidate"):
+                candidates.setdefault(r["claim_id"], []).append(r)
+            claims = {r["id"]: r for r in rconn.execute("SELECT * FROM claim")}
+            for cid in sorted(waiting & set(claims)):
+                c = claims[cid]
+                known = c["boundary_state"] in match.KNOWN and c["reporting_boundary"] != "unknown"
+                reason = match.BOUNDARY_UNKNOWN if not known else match.UNIT_UNKNOWN if c["unit_key"] is None \
+                    else match.NOT_CONVERTIBLE
+                rows = sorted(candidates.get(cid, []), key=lambda r: order[r["series_id"]])
+                linked = next((r["series_id"] for r in rows if r["decision"] == "linked"), None)
+                state = (match.NOT_MATCHABLE, reason + match.NO_SERIES, None) if not rows else (
+                    match.REVIEWED, reason, linked) if linked else (match.UNCERTAIN, reason, None) if any(
+                    r["decision"] is None for r in rows) else (match.NOT_MATCHABLE, match.NOT_LINKED, None)
+                rconn.execute("UPDATE claim SET match_state = ?, match_reason = ?, series_id = ? WHERE id = ?",
+                              (*state, cid))
+                rconn.execute("DELETE FROM series_point WHERE claim_id = ? AND link = 'reviewed' AND series_id IS NOT ?",
+                              (cid, linked))
+                if linked and not rconn.execute("SELECT 1 FROM series_point WHERE claim_id = ? AND series_id = ?",
+                                                (cid, linked)).fetchone():
+                    p = match._point({**dict(c), "claim_id": cid, "period": {"start": c["period_start"],
+                                                                             "end": c["period_end"]}},
+                                     "reviewed", False, reason)
+                    rconn.execute("INSERT INTO series_point (series_id, claim_id, claim_version_id, period_start,"
+                                  " period_end, value_text, unit_text, unit_key, number, value_base, link, comparable,"
+                                  " reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                  (linked, cid, p["claim_version_id"], p["period_start"], p["period_end"],
+                                   p["value_text"], p["unit_text"], p["unit_key"], p["number"], p["value_base"],
+                                   p["link"], 0, p["reason"]))
+        rconn.execute("UPDATE series SET periods = (SELECT COUNT(*) FROM (SELECT DISTINCT period_start, period_end"
+                      " FROM series_point p WHERE p.series_id = series.id)),"
+                      " latest_period_end = (SELECT MAX(period_end) FROM series_point p WHERE p.series_id = series.id)")
+        # restate._records over the remaining rows: the newest row per version pair, kept when recorded.
         newest = {}
         for r in rconn.execute("SELECT id, original_version_id, restated_version_id, decision FROM restatement"
                                " ORDER BY id"):
-            newest[frozenset((r["original_version_id"], r["restated_version_id"]))] = r
-        for c in rconn.execute(f"SELECT rowid, * FROM comparison WHERE state IN (?, ?)",
-                               (restate.RESTATEMENT, restate.UNRESOLVED)).fetchall():
-            r = newest.get(frozenset((c["version_a"], c["version_b"])))
-            if r is not None and r["decision"] == "recorded":
-                rconn.execute("UPDATE comparison SET state = ?, reason = NULL, restatement_id = ? WHERE rowid = ?",
-                              (restate.RESTATEMENT, r["id"], c["rowid"]))
-            else:
-                rconn.execute("UPDATE comparison SET state = ?, reason = NULL, restatement_id = NULL WHERE rowid = ?",
-                              (restate.UNRESOLVED, c["rowid"]))
+            newest[(r["original_version_id"], r["restated_version_id"])] = r
+        records = {frozenset(k): {"id": r["id"]} for k, r in sorted(newest.items(), key=lambda kv: kv[1]["id"])
+                   if r["decision"] == "recorded"}
+        points = {}
+        for r in rconn.execute("SELECT p.*, c.document_id, c.page_number, c.locator FROM series_point p"
+                               " JOIN claim c ON c.id = p.claim_id ORDER BY p.rowid"):
+            points.setdefault(r["series_id"], []).append(dict(r))
+        pairs = [p for s in rconn.execute("SELECT * FROM series").fetchall()
+                 for p in restate._pairs(dict(s), points.get(s["id"], []), records)]
+        pairs.sort(key=lambda p: (p["company_id"], p["series_id"], p["period_end"], p["period_start"],
+                                  p["a"]["claim_id"], p["b"]["claim_id"]))
+        rconn.execute("DELETE FROM comparison")
+        rconn.executemany("INSERT INTO comparison (series_id, period_start, period_end, claim_a, version_a, claim_b,"
+                          " version_b, state, reason, restatement_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                          [(p["series_id"], p["period_start"], p["period_end"], p["a"]["claim_id"],
+                            p["a"]["claim_version_id"], p["b"]["claim_id"], p["b"]["claim_version_id"], p["state"],
+                            p["reason"], p["restatement"] and p["restatement"]["id"]) for p in pairs])
 
     def _renewals(self, rconn):
         """C5a 3.3, P11: each claim's needs_re_review on the remaining records. Correction, period and boundary
@@ -391,17 +457,6 @@ class _Build:
             out += newest.values()
             out.sort(key=lambda e: (e["id"], RENEWAL_ORDER.index(e["kind"])))
             rconn.execute("UPDATE claim SET needs_re_review = ? WHERE id = ?", (json.dumps(out), c["id"]))
-
-    @staticmethod
-    def _series(rconn):
-        """C5a 3.4: a series exists only while one of its rule points remains (match.py:367, :381-383, :419); its
-        periods and latest period end follow its remaining points."""
-        rconn.execute("DELETE FROM series WHERE id NOT IN (SELECT series_id FROM series_point WHERE link = 'rule')")
-        for t in ("series_point", "comparison"):
-            rconn.execute(f"DELETE FROM {t} WHERE series_id NOT IN (SELECT id FROM series)")
-        rconn.execute("UPDATE series SET periods = (SELECT COUNT(*) FROM (SELECT DISTINCT period_start, period_end"
-                      " FROM series_point p WHERE p.series_id = series.id)),"
-                      " latest_period_end = (SELECT MAX(period_end) FROM series_point p WHERE p.series_id = series.id)")
 
     # The rows of one connection (the pin in complete mode, the copy in sanitised mode).
     def rows(self, work, mode) -> dict:
@@ -574,7 +629,8 @@ class _Rows:
                             "_own": {own}, "_key": ("disagreements", v)})
         return self.sub("records", recs), self.sub("disagreements", dis)
 
-    def sub(self, table, rows) -> dict:
+    @staticmethod
+    def sub(table, rows) -> dict:
         return {"id": table, "title": TITLES[table], "rows": rows, "parent_key": SUB_TABLES[table],
                 "columns": None}  # columns filled per mode in _finish
 
@@ -583,9 +639,15 @@ class _Rows:
         from gct.stages import adjudicate, restate
 
         rest = {r["id"]: r for r in self.work.execute("SELECT * FROM restatement ORDER BY id")}
+        sides = self.b.sides(self.work)
+        by_claims = {}  # P-match: a restatement row attaches to the pair of its two claims, on any version
+        for r in rest.values():
+            if None not in (s := sides(r)):
+                by_claims.setdefault(frozenset(s), []).append(r)
         adjs = self.work.execute("SELECT * FROM adjudication ORDER BY id").fetchall()
+        comparisons = self.work.execute("SELECT * FROM comparison ORDER BY rowid").fetchall()
         out = []
-        for p in self.work.execute("SELECT * FROM comparison ORDER BY rowid").fetchall():
+        for p in comparisons:
             a, b = p["claim_a"], p["claim_b"]
             if a not in selected and b not in selected:
                 continue
@@ -594,24 +656,7 @@ class _Rows:
             if not self.ships("comparison pair", docs):
                 continue
             pid = len(out) + 1
-            subs = []
-            for r in rest.values():
-                if frozenset((r["original_version_id"], r["restated_version_id"])) != frozenset((p["version_a"],
-                                                                                                 p["version_b"])):
-                    continue
-                rdocs = own | {r["evidence_document_id"]}
-                if not self.ships("restatement record", rdocs):
-                    continue
-                ev = self.cited("restatement", r["evidence_document_id"], r["evidence_page"])
-                subs.append({**self.common(r["id"], rdocs, [ev] if ev else []), "pair_id": pid,
-                             "restatement_id": r["id"], "original_version_id": r["original_version_id"],
-                             "restated_version_id": r["restated_version_id"], "decision": r["decision"],
-                             "evidence_document_id": r["evidence_document_id"], "evidence_page": r["evidence_page"],
-                             "evidence_quote": r["evidence_quote"], "binds": bool(r["binds"]),
-                             "earlier": None if r["binds"] else EARLIER,
-                             "contributor": r["contributor_name"], "organisation": r["contributor_organisation"],
-                             "capacity": r["capacity"], "rationale": r["rationale"], "created_at": r["created_at"],
-                             "_who": [("restatement", r["id"])], "_own": own, "_key": ("restatements", r["id"])})
+            subs = [x for r in by_claims.get(frozenset((a, b)), []) if (x := self.restatement(r, own, pair_id=pid))]
             ads = []
             for x in adjs:
                 if frozenset((x["low_claim_id"], x["high_claim_id"])) != frozenset((a, b)):
@@ -641,7 +686,30 @@ class _Rows:
                                                           for x in ads]) if p["state"] == restate.UNRESOLVED else None,
                         "restatements": self.sub("restatements", subs), "adjudications": self.sub("adjudications", ads),
                         "_own": own, "_key": ("pair", p["series_id"], p["period_start"], p["period_end"], a, b)})
-        return out, [p for p in out if p["state"] == restate.UNRESOLVED]
+        # C3b: the rows whose two claims form no pair in this version, in the selection when either claim is.
+        paired = {frozenset((p["claim_a"], p["claim_b"])) for p in comparisons}
+        unpaired = [x for k, rs in by_claims.items() if k not in paired and k & set(selected) for r in rs
+                    if (x := self.restatement(r, {self.claims[c]["document_id"] for c in k}, claims=sides(r)))]
+        unpaired.sort(key=lambda x: x["id"])
+        return out, [p for p in out if p["state"] == restate.UNRESOLVED], unpaired
+
+    def restatement(self, r, own, pair_id=None, claims=None) -> dict | None:
+        """A restatement row (C3b): under its pair (pair_id) or unpaired (its two claim ids)."""
+        docs = own | {r["evidence_document_id"]}
+        if not self.ships("restatement record", docs):
+            return None
+        ev = self.cited("restatement", r["evidence_document_id"], r["evidence_page"])
+        head = {"pair_id": pair_id} if claims is None else {"original_claim_id": claims[0],
+                                                            "restated_claim_id": claims[1]}
+        table = "restatements" if claims is None else "unpaired_restatements"
+        return {**self.common(r["id"], docs, [ev] if ev else []), **head, "restatement_id": r["id"],
+                "original_version_id": r["original_version_id"], "restated_version_id": r["restated_version_id"],
+                "decision": r["decision"], "evidence_document_id": r["evidence_document_id"],
+                "evidence_page": r["evidence_page"], "evidence_quote": r["evidence_quote"], "binds": bool(r["binds"]),
+                "earlier": None if r["binds"] else EARLIER, "contributor": r["contributor_name"],
+                "organisation": r["contributor_organisation"], "capacity": r["capacity"], "rationale": r["rationale"],
+                "created_at": r["created_at"], "_who": [("restatement", r["id"])], "_own": own,
+                "_key": (table, r["id"])}
 
     @staticmethod
     def _state_of(row, adjs):
@@ -749,7 +817,7 @@ class _Rows:
         sel = set(selected)
         first = self.view.answer(self.work, flt, "table", 0, 1)
         index = [x for r in self.answer_rows(flt) if (x := self.claim_row(r))]
-        pairs, candidates = self.pair_rows(sel)
+        pairs, candidates, unpaired = self.pair_rows(sel)
         candidates = copy.deepcopy(candidates)  # the same pairs, rows of their own
         sides = sorted({c for p in pairs for c in (p["claim_a"], p["claim_b"])} - sel)
         related = []
@@ -761,7 +829,8 @@ class _Rows:
         checked, limits = self.checked()
         arch, gone = self.archive_rows() if self.mode == "complete" else ([], [])
         return {"selected": selected, "answer": first, "evidence_index": index, "related_claims": related,
-                "restatement_log": pairs, "candidates": candidates, "expectations": self.expectations(),
+                "restatement_log": pairs, "unpaired_restatements": unpaired, "candidates": candidates,
+                "expectations": self.expectations(),
                 "documents_checked": checked, "extraction_limits": limits, "archived": arch, "deleted": gone,
                 "evidence": self.evidence, "docs": self.docs, "claims": self.claims}
 
@@ -775,8 +844,8 @@ def _scope(flt, docs) -> list[int]:
 def _flat(tables) -> list[tuple[str, dict]]:
     """(table, row) of every report and sub-table row, related claims included (C6's counting unit)."""
     out = []
-    for t in ("evidence_index", "related_claims", "restatement_log", "candidates", "expectations", "documents_checked",
-              "extraction_limits", "archived", "deleted"):
+    for t in ("evidence_index", "related_claims", "restatement_log", "unpaired_restatements", "candidates",
+              "expectations", "documents_checked", "extraction_limits", "archived", "deleted"):
         for r in tables[t]:
             out.append((t, r))
             for k in SUB_TABLES:
@@ -911,6 +980,8 @@ def _finish(b: _Build, mode, full, mine) -> tuple[dict, dict]:
         "include": b.include, "data_version": ident, "filter": echo, "words": words(), "columns": columns,
         "documents": documents, "evidence_index": mine["evidence_index"], "related_claims": mine["related_claims"],
         "restatement_log": mine["restatement_log"],
+        "unpaired_restatements": {**_Rows.sub("unpaired_restatements", mine["unpaired_restatements"]),
+                                  "columns": columns["unpaired_restatements"]},
         "gap_report": {k: mine[k] for k in ("candidates", "expectations", "documents_checked", "extraction_limits",
                                             "archived", "deleted")},
         "evidence": mine["evidence"], "notices": notices}))
@@ -922,7 +993,6 @@ def _finish(b: _Build, mode, full, mine) -> tuple[dict, dict]:
                                     else None, "label": d["label"]} for d in documents], "rows": counts},
         "withheld": withheld, "history_mark": b.ident["history_mark"], "labels_mark": b.ident["labels_mark"],
         "filter": flt, "lines": _lines(b, full) if sanitised else [],
-        "unattached_restatements": _unattached(b.pconn),
         "answer": {k: full["answer"][k] for k in ("matched", "total", "excluded")}
         | {"hidden_by_archive": {k: full["answer"]["hidden_by_archive"][k] for k in ("documents", "claims")},
            "deleted_in_filter": len(full["answer"]["deleted_in_filter"])}})
@@ -963,13 +1033,6 @@ def _twins(b: _Build, present: set) -> set:
             private_sha[d["sha256"]].append(d["id"])
     return {d["id"] for d in docs if d["id"] in present and d["privacy"] == "shareable"
             and b.eff[d["id"]]["label"] == "private" and set(private_sha[d["sha256"]]) - {d["id"]}}
-
-
-def _unattached(pconn) -> int:
-    """C6: projected restatement rows P4a attaches to no pair (a version id that is not a projected claim's current
-    version)."""
-    return pconn.execute("SELECT COUNT(*) FROM restatement r WHERE (SELECT COUNT(*) FROM claim c WHERE"
-                         " c.claim_version_id IN (r.original_version_id, r.restated_version_id)) < 2").fetchone()[0]
 
 
 def _lines(b: _Build, full) -> list[str]:

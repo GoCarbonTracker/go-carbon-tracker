@@ -105,7 +105,8 @@ def diff(a, b, path="") -> list[str]:
 def rows(d, table):
     """Every row of a dataset table or sub-table."""
     top = {"evidence_index": d["evidence_index"], "related_claims": d["related_claims"],
-           "restatement_log": d["restatement_log"], **d["gap_report"]}
+           "restatement_log": d["restatement_log"], "unpaired_restatements": d["unpaired_restatements"]["rows"],
+           **d["gap_report"]}
     out = []
     for t, rs in top.items():
         for r in rs:
@@ -144,8 +145,10 @@ def test_columns_words_and_titles_follow_the_contract():
         assert len(headings) == len(set(headings)), t
         assert cs[0]["key"] == "data_version" and cs[-1] == {"key": "label", "heading": "Label", "complete_only": True}
         assert sum(c.get("complete_only", False) for c in cs) == 1
-        if t in dataset.SUB_TABLES:
-            assert dataset.SUB_TABLES[t] in [c["key"] for c in cs]
+        if t in dataset.SUB_TABLES:  # C3: a parent key column, null for unpaired_restatements only
+            assert dataset.SUB_TABLES[t] in [c["key"] for c in cs] or (t, dataset.SUB_TABLES[t]) == (
+                "unpaired_restatements", None)
+    assert [t for t, k in dataset.SUB_TABLES.items() if k is None] == ["unpaired_restatements"]
     w = dataset.words()
     titles = w["fixed"]["titles"]
     assert set(titles) >= set(cols) | {"pair_sides", "gap_report", "about"}
@@ -177,7 +180,10 @@ def check_shape(d, mode):
     json.dumps(d, allow_nan=False)
     assert set(d) == {"dataset_schema", "gct_version", "built_at", "mode", "include", "data_version", "filter",
                       "words", "columns", "documents", "evidence_index", "related_claims", "restatement_log",
-                      "gap_report", "evidence", "notices"}
+                      "unpaired_restatements", "gap_report", "evidence", "notices"}
+    u = d["unpaired_restatements"]
+    assert set(u) == {"id", "title", "rows", "parent_key", "columns"} and (u["id"], u["parent_key"]) == (
+        "unpaired_restatements", None) and u["title"] == dataset.TITLES["unpaired_restatements"]
     assert set(d["gap_report"]) == {"candidates", "expectations", "documents_checked", "extraction_limits", "archived",
                                     "deleted"}
     want = {t: [c for c in cs if mode == "complete" or not c.get("complete_only")] for t, cs in dataset.COLUMNS.items()}
@@ -186,7 +192,8 @@ def check_shape(d, mode):
     assert set(d["data_version"]) == (ident | {"history_mark", "labels_mark"} if mode == "complete" else ident)
     evidence = {e["id"] for e in d["evidence"]}
     tables = {**{t: d[t] for t in ("documents", "evidence_index", "related_claims", "restatement_log")},
-              **d["gap_report"]}
+              "unpaired_restatements": u["rows"], **d["gap_report"]}
+    assert u["columns"] == d["columns"]["unpaired_restatements"]
     for t, rs in tables.items():
         for r in rs:
             check_row(d, t, r, evidence)
@@ -415,14 +422,13 @@ def test_expectations_list_states_reasons_and_claims_and_withhold_an_archived_de
 
 # AC 9 (C3a, B): the 400 nines, a non-binding record and an earlier-version restatement row
 
-def test_a_value_of_400_nines_is_null_and_an_earlier_restatement_row_attaches_to_no_pair(base, tmp_path):
+def test_a_value_of_400_nines_is_null_and_a_record_on_an_earlier_version_says_so(base, tmp_path):
     w = world(base, tmp_path / "w", correct_cmd(2, "9" * 400))
     for mode in dataset.MODES:
         d, p = build(w, mode=mode)
         json.dumps(d, allow_nan=False)
         row = by_claim(d)[2]
         assert row["value"] is None and row["value_text"] == "9" * 400
-        assert p["unattached_restatements"] == 1 and not rows(d, "restatements")  # P4a, both modes
     # the raj auditor review on claim 14 stays listed on version 14, with the earlier-version words
     s, _ = build(w)
     (old,) = [r for r in rows(s, "records") if r["claim_id"] == 14]
@@ -682,7 +688,8 @@ def test_the_preview_counts_each_withheld_row_once_under_its_first_cause(base):
                              "selection_recomputed": 0, "contributor_text": 11, "identity": 4}
     assert p["included"]["rows"] == {"evidence_index": 7, "records": 4, "disagreements": 1, "documents_checked": 3,
                                      "extraction_limits": 1}
-    assert [x["id"] for x in p["included"]["documents"]] == list(SHAREABLE) and p["unattached_restatements"] == 0
+    assert [x["id"] for x in p["included"]["documents"]] == list(SHAREABLE)
+    assert set(p) == {"included", "withheld", "history_mark", "labels_mark", "filter", "lines", "answer"}
     _, cp = build(base, mode="complete")
     assert set(cp["withheld"].values()) == {0} and cp["lines"] == []
 
