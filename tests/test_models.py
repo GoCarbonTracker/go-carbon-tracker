@@ -1,6 +1,13 @@
+import ast
+import dataclasses
 import json
+import re
+import socket
 import sqlite3
+import threading
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 
@@ -42,6 +49,9 @@ price_out = 2.0
 api_key_env = "GCT_TEST_KEY"
 """
 OK = {"choices": [{"message": {"content": "ok"}}]}
+STATEMENT = "No reading step uses these adapters in this version; see docs/models.md."
+ROOT = Path(__file__).resolve().parent.parent
+DOC = ROOT / "docs" / "models.md"
 
 
 @pytest.fixture
@@ -394,6 +404,7 @@ def test_configuration_loading(tmp_path, gct, models, monkeypatch):
         "ollama  openai_chat  qwen2.5vl:7b  http://127.0.0.1:11434/v1  local  free  no key",
         "nvidia  openai_chat  meta/llama-3.2-90b-vision-instruct  https://integrate.api.nvidia.com/v1  external  free"
         "  key NVIDIA_API_KEY not set",
+        STATEMENT,
     ]
     for text, key in (
         (OLLAMA.replace("openai_chat", "other"), "provider"),
@@ -439,3 +450,163 @@ def test_read_without_models_file_writes_no_approval(ws, db, gct, make_file):
     assert gct("read").code == 0
     assert db.execute("SELECT COUNT(*) FROM approval").fetchone()[0] == 0
     assert {r[0] for r in db.execute("SELECT kind FROM run_event")} <= {"item", "output", "finished", "note"}
+
+
+# Story 8.4: configuration documented, and configured is not enabled
+
+def test_model_list_says_no_reading_step_uses_adapters(gct, models):
+    assert gct("model", "list", "--json").data["reading_steps"] == []
+    assert STATEMENT not in gct("model", "list").out
+    models()
+    r = gct("model", "list")
+    assert r.out.splitlines()[-1] == STATEMENT and r.out.count(STATEMENT) == 1
+    assert gct("model", "list", "--json").data["reading_steps"] == []
+
+
+def test_docs_say_configured_is_not_enabled():
+    text = DOC.read_text(encoding="utf-8")
+    assert "## Configured is not enabled" in text
+    section = text.split("## Configured is not enabled")[1].split("\n## ")[0]
+    assert "rung 1" in section and "pdfplumber" in section and "2.5 to 2.8" in section
+    readme = next(line for line in (ROOT / "README.md").read_text(encoding="utf-8").splitlines()
+                  if line.startswith("- Model adapters are described"))
+    assert "docs/models.md" in readme and "no reading step uses a configured model in this version" in readme.lower()
+
+
+def test_docs_key_table_equals_the_code():
+    text = DOC.read_text(encoding="utf-8")
+    section = text.split("\n## Keys\n")[1].split("\n## ")[0]
+    keys = set(re.findall(r"^- `(\w+)`: ", section, re.M))
+    optional = {f.name for f in dataclasses.fields(adapters.Adapter)} - {"name"} - set(adapters.REQUIRED)
+    assert keys == set(adapters.REQUIRED) | optional
+
+
+def test_docs_have_the_example_label_and_no_hardware_figure():
+    text = DOC.read_text(encoding="utf-8")
+    assert "example of the shape; not tested against a running Ollama in this version" in text
+    assert 'model = "<the name `ollama list` shows>"' in text
+    assert re.search(r"^## Hardware\n+Not recorded\. No local model has been run against GCT\.", text, re.M)
+    assert not re.search(r"\d\s*(GiB|GB|GHz)", text, re.I)
+
+
+def test_docs_quote_the_refusals_as_the_code_says_them(models, tmp_path):
+    text = DOC.read_text(encoding="utf-8")
+    file = models(OLLAMA.replace("http://127.0.0.1:11434/v1", "http://192.168.1.5:11434/v1"))
+    with pytest.raises(GctError) as e:
+        adapters.load()
+    cause = "FILE: adapters.NAME.base_url points at HOST, which is not this computer, but external is false."
+    action = "Correct base_url for NAME in FILE."
+    sub = lambda s: s.replace("FILE", str(file)).replace("NAME", "ollama").replace("HOST", "192.168.1.5")  # noqa: E731
+    assert cause in text and action in text
+    assert (e.value.cause, e.value.next_action) == (sub(cause), sub(action))
+    models(OLLAMA)
+    adapter = adapters.get("ollama")
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        closed = s.getsockname()[1]
+    down = dataclasses.replace(adapter, base_url=f"http://127.0.0.1:{closed}/v1")
+    with pytest.raises(SentFailure) as e:
+        adapters.send(down, Request([{"role": "user", "content": "x"}], 5))
+    unreachable = "NAME could not be reached."
+    retry = "Check the adapter in gct model list, then run the same command again."
+    assert unreachable in text and retry in text
+    assert (e.value.cause, e.value.next_action) == (unreachable.replace("NAME", "ollama"), retry)
+
+
+def test_loopback_round_trip(models):
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            seen.append((self.path, self.headers.get("Authorization"), json.loads(self.rfile.read(int(self.headers["Content-Length"])))))
+            body = json.dumps({"choices": [{"message": {"content": "hello"}}],
+                               "usage": {"prompt_tokens": 3, "completion_tokens": 2}}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        models(OLLAMA)
+        local = dataclasses.replace(adapters.get("ollama"), base_url=f"http://127.0.0.1:{srv.server_port}/v1")
+        r = adapters.send(local, Request([{"role": "user", "content": "hi"}], 5))
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert (r.text, r.tokens_in, r.tokens_out) == ("hello", 3, 2)
+    (path, auth, body), = seen
+    assert path == "/v1/chat/completions" and auth is None
+    assert body["model"] == "qwen2.5vl:7b" and body["messages"] == [{"role": "user", "content": "hi"}]
+
+
+MODEL_NAMES = {"call", "send", "allow_run"}
+MODEL_MODULES = ("gct.models.policy", "gct.models.adapters")
+
+
+def reading_problems(source: str, rung_code: bool) -> list[str]:
+    """Uses of policy.call, adapters.send or allow_run outside gct/models (rung_code: any import of them)."""
+    out = []
+    for n in ast.walk(ast.parse(source)):
+        if isinstance(n, ast.Attribute) and n.attr in MODEL_NAMES and isinstance(n.value, (ast.Name, ast.Attribute)):
+            base = n.value.id if isinstance(n.value, ast.Name) else n.value.attr
+            if base in ("policy", "adapters"):
+                out.append(f"{base}.{n.attr}")
+        if isinstance(n, ast.ImportFrom):
+            if n.module in MODEL_MODULES:
+                out += [f"{n.module}.{a.name}" for a in n.names if rung_code or a.name in MODEL_NAMES]
+            elif n.module == "gct.models" and rung_code:
+                out += [f"gct.models.{a.name}" for a in n.names if a.name in ("policy", "adapters")]
+        if isinstance(n, ast.Import) and rung_code:
+            out += [a.name for a in n.names if a.name in MODEL_MODULES]
+    return out
+
+
+def test_no_reading_step_uses_a_model_adapter():
+    """Configured is not enabled. When a reading rung lands, this test fails on purpose, and in the same commit
+    docs/models.md section "Configured is not enabled", the README sentence, the reading_steps key of
+    gct model list and README.md "What does not exist yet" change."""
+    assert reading_problems("from gct.models import policy\npolicy.call(c, 1, a, r, private=True)", False) == ["policy.call"]
+    assert reading_problems("from gct.models.adapters import send", False) == ["gct.models.adapters.send"]
+    assert reading_problems("from gct.models import adapters", True) == ["gct.models.adapters"]
+    assert reading_problems("from gct.models import adapters\nadapters.load()", False) == []
+    found = {}
+    for p in sorted((ROOT / "gct").rglob("*.py")):
+        rel = p.relative_to(ROOT / "gct")
+        if rel.parts[0] == "models":
+            continue
+        got = reading_problems(p.read_text(encoding="utf-8"), rel.parts[0] in ("stages", "ladder"))
+        if got:
+            found[str(rel)] = got
+    assert found == {}
+
+
+def test_a_configured_adapter_changes_nothing_about_reading(tmp_path, gct, models, make_file, monkeypatch):
+    pdf = make_pdf([{"text": [(72, 300, "Energy consumed 4,560 MWh in 2023")]}])
+
+    def run(name, config):
+        monkeypatch.setenv("GCT_MODELS", str(config))
+        redact._names.cache_clear()
+        w = ("--workspace", tmp_path / name)
+        assert gct("workspace", "init", tmp_path / name).code == 0
+        gct("company", "add", "Acme", *w)
+        gct("doc", "add", make_file("a.pdf", pdf), "--company", "Acme", *w)
+        counts = [gct(c, *w, "--json").data for c in ("read", "extract")]
+        return counts, gct("doc", "pages", 1, *w, "--json").data, gct("claims", "list", "--doc", 1, *w, "--json").data
+
+    def stable(x):
+        if isinstance(x, dict):
+            return {k: stable(v) for k, v in x.items() if k not in ("run_id", "created_at", "path", "sha256", "file", "hash")}
+        return [stable(v) for v in x] if isinstance(x, list) else x
+
+    none = run("none", tmp_path / "missing.toml")
+    configured = tmp_path / "models.toml"
+    configured.write_text(OLLAMA)
+    with_file = run("with", configured)
+    assert stable(none[1]) == stable(with_file[1]) and stable(none[2]) == stable(with_file[2])
+    assert none[1]["pages"][0]["rung"] == 1 and none[1]["pages"][0]["method"] == "pdfplumber"
+    assert [stable(c) for c in none[0]] == [stable(c) for c in with_file[0]]
