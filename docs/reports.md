@@ -325,8 +325,8 @@ compact JSON with sorted keys; in a sanitised output a withheld `text` shows `wi
 Every other sheet starts with the version band: the data version number, when the version was built, its SHA-256
 and the mode line. The next rows hold every notice, one per row, then the self-declared line when that sheet holds
 a row with a contributor, then one empty row, the headings and the data. Panes are frozen under the headings and a
-filter covers the headings and the data. A CSV table file starts with its headings; every data row carries the data
-version in its Data version column, on every sheet too.
+filter covers the headings and the data. A CSV table file starts with its headings. In both formats every data row
+carries the data version in its Data version column.
 
 ### Values
 
