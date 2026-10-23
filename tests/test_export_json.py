@@ -7,7 +7,6 @@ import hashlib
 import json
 import shutil
 import sqlite3
-import sys
 import tomllib
 import types
 from importlib import resources
@@ -16,7 +15,6 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-import gct.reports
 import report_fixture as f
 from leakage import found
 from test_gate_privacy_exports import build, env, w  # noqa: F401 (module fixtures: the fixture and its environment)
@@ -689,19 +687,18 @@ def test_an_unlisted_or_missing_file_is_refused(ws, gct, monkeypatch):
 
 @pytest.fixture
 def crops_stub(monkeypatch):
-    """A test-only stand-in for 7.4's gct.reports.crops (one entry per page entry), at both places an import finds
-    it, whatever an earlier test imported. Story 7.4 moves these tests to its real crops.cut."""
+    """Story 7.4's real crops.cut (one entry per page entry), with each call recorded."""
+    from gct.reports import crops
+
     calls = []
+    real = crops.cut
 
     def cut(root, dataset_):
-        out = {e["id"]: b"png" for e in dataset_["evidence"] if e["page"] is not None}
+        out = real(root, dataset_)
         calls.append((root, dataset_, out))
         return out
 
-    mod = types.ModuleType("gct.reports.crops")
-    mod.cut, mod.LIMIT = cut, 500
-    monkeypatch.setitem(sys.modules, "gct.reports.crops", mod)
-    monkeypatch.setattr(gct.reports, "crops", mod, raising=False)
+    monkeypatch.setattr(crops, "cut", cut)
     return calls
 
 

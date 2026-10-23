@@ -53,7 +53,7 @@ def test_company_list_does_not_import_pdfplumber(tmp_path):
         "import sys\nfrom gct import cli\n"
         "assert cli.main(['workspace', 'init', sys.argv[1]]) == 0\n"
         "assert cli.main(['company', 'list', '--workspace', sys.argv[1]]) == 0\n"
-        "assert 'pdfplumber' not in sys.modules\n"
+        "assert not {'pdfplumber', 'reportlab', 'PIL'} & set(sys.modules), sorted(sys.modules)\n"
     )
     r = subprocess.run([sys.executable, "-c", script, str(tmp_path / "ws")], cwd=ROOT, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
