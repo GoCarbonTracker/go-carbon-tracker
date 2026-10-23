@@ -70,7 +70,7 @@ entry: uploading evidence never confirms a claim.
   "conclusion"; evidence ...`.
 - `evidence_state` is the evidence document's state now (`registered`, `restored`, `archived` or `deleted`; null for
   a note only).
-- `gct publish build` (`projection_schema` 14) writes both ledgers as `review_company` and `review_auditor`, with
+- `gct publish build` (`projection_schema` 15) writes both ledgers as `review_company` and `review_auditor`, with
   `latest`, `binds` and `evidence_state`, for the claims of active documents.
 
 ## Archive and deletion

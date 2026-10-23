@@ -310,7 +310,7 @@ def test_projection_hides_archived_documents_and_counts_them(ws, db, gct, two):
     gct("expect", "add", "--company", "Acme", "--metric", "scope 1 emissions")
     gct("pages", "accept", "--doc", b, "--pages", "1", "--type", "figures", *WHO)
     p = built(gct, ws)
-    assert {m["key"]: m["value"] for m in p["meta"]}["projection_schema"] == "14"
+    assert {m["key"]: m["value"] for m in p["meta"]}["projection_schema"] == "15"
     assert p["hidden_by_archive"] == [] and b in {x["id"] for x in p["document"]}
     assert [x["document_id"] for x in p["page_acceptance"]] == [b]
     mark = published.history_mark(db)
@@ -322,7 +322,9 @@ def test_projection_hides_archived_documents_and_counts_them(ws, db, gct, two):
     assert not [r for t in ("claim", "evidence_ref") for r in p[t] if r["document_id"] == b]
     claims_of_b = {c for (c,) in db.execute("SELECT id FROM claim WHERE document_id = ?", (b,))}
     assert not [r for r in p["series_point"] if r["claim_id"] in claims_of_b]
-    assert {r["document_id"] for r in p["expected_item_document"]} == {a, d}
+    # Story 7.1 part B (K8) changes 4.4 AC 7 on purpose: the archived declared document stays linked, by id and state.
+    assert {(r["document_id"], r["state"]) for r in p["expected_item_document"]} == {
+        (a, "registered"), (b, "archived"), (d, "registered")}
     assert p["page_acceptance"] == [] and impact["review_records"]["page_acceptance"] == 1  # review M1
     (h,) = p["hidden_by_archive"]
     at = db.execute("SELECT at FROM document_state WHERE document_id = ? ORDER BY id DESC LIMIT 1", (b,)).fetchone()[0]

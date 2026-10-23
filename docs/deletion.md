@@ -40,10 +40,12 @@ expectations).
 4. **Renders**: the page images in `artifacts/pages/<sha256>/`, by the same rule as the original.
 5. **Published**: every `published/vN.db` still on disk loses the rows of the document, of its claims and claim
    versions, and every row that names one of them (comparison pairs and restatement rows included), the series only
-   it made, and the contributor text the database step cleared (gap confirmations, and the acceptance lines of
-   expectations that declared it, which clears another document's lines of those expectations too). Each file is
-   then vacuumed and gets a `published_purge` row with reason `deletion`. A file built by an older projection schema
-   is purged in the tables and columns it has.
+   it made, and the contributor text the database step cleared (gap confirmations). An expectation's accepted
+   entries in a file of projection schema 15 or later hold acceptance ids only: the entries of the document's
+   acceptances are dropped and the others are not rewritten. A file of projection schema 14 or earlier holds
+   acceptance lines with names, so the lines of expectations that declared the document are rewritten, which clears
+   another document's lines of those expectations too. Each file is then vacuumed and gets a `published_purge` row
+   with reason `deletion`. A file built by an older projection schema is purged in the tables and columns it has.
 6. **Vacuum**: `PRAGMA wal_checkpoint(TRUNCATE)` and `VACUUM` of `workspace.db`, so freed pages do not keep the text.
 
 Each step after the first is recorded in `document_deletion_step` when it finishes. If one fails (a file held open
@@ -146,19 +148,23 @@ infer, link or match attempt are the cache key and the result of another documen
 matched in every stage. The `sheet` stage (story 4.3) keys its attempts and lines on ids, so the deleted document's
 are found by that key, never by text: another spreadsheet's sheet attempts stay as they were.
 
-In a published version (`projection_schema` 14) a row whose `document_id`, `evidence_document_id`,
+In a published version (`projection_schema` 15) a row whose `document_id`, `evidence_document_id`,
 `counter_document_id`, `claim_id`, `low_claim_id`, `high_claim_id`, `claim_a`, `claim_b`, `id` of `claim` or
 `document`, `claim_version_id`, `original_version_id`, `restated_version_id`, `low_version_id`, `high_version_id`,
 `version_a` or `version_b` names the document, one of its claims or one of its claim versions is removed, in
 `document`, `claim` (with its `note`, the spreadsheet row's note cell), `series`, `series_point`, `comparison`,
-`restatement`, `evidence_ref` (with its `sheet` and `cell`), `expected_item_document`, `page_acceptance`,
-`hidden_by_archive`, `sheet_mapping` (every column mapping of a spreadsheet), `review_company` and
+`restatement`, `evidence_ref` (with its `sheet` and `cell`), `expected_item_document` (with its `state`), the
+projected `page` table (one row per page of an active PDF: `read_state`, the newest reading's measurements and
+`flags`, and `limit_text`, `limit_tables` and `limit_figures`, the readiness reason per type or `accepted #ID`),
+`page_acceptance`, `hidden_by_archive`, `sheet_mapping` (every column mapping of a spreadsheet), `review_company` and
 `review_auditor` (an entry on one of its claims or citing it as evidence; the next build projects a surviving claim's
 entry again with its text cleared and `evidence_state` `deleted`), `adjudication` (also a row citing it
 as counter-evidence; a later build projects that row again, its text cleared), `reviewer_flag` and `highlight`. `meta`,
 `company`,
-`expected_item`, `gap_confirmation` and `deleted_document` keep their rows (`expected_item.accepted` and the gap
-confirmation's `capacity` and `rationale` are rewritten as above, and `meta.hidden_by_archive` is counted again from
+`expected_item`, `gap_confirmation` and `deleted_document` keep their rows (`expected_item.accepted` loses the
+entries of the document's acceptances in a file of projection schema 15 or later and is rewritten as above in an
+older file; `gap_confirmation.documents_checked`, document and reading ids only, is kept; the gap confirmation's
+`capacity` and `rationale` are rewritten as above; and `meta.hidden_by_archive` is counted again from
 the `hidden_by_archive` rows left, so an archived document deleted since leaves the counts too).
 
 ## Markers

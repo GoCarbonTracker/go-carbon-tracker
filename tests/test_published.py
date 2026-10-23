@@ -73,7 +73,7 @@ def test_build_writes_a_complete_read_only_version(seeded, db, gct):
         ("a.pdf", "private"), ("b.pdf", "shareable"), ("c.pdf", "private"),
     ]
     meta = dict(rows(path, "SELECT key, value FROM meta"))
-    assert meta["version"] == "1" and meta["projection_schema"] == "14" and meta["history_mark"] == "2.3.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+    assert meta["version"] == "1" and meta["projection_schema"] == "15" and meta["history_mark"] == "2.3.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
     assert set(meta) == {"version", "built_at", "history_mark", "gct_version", "projection_schema", "hidden_by_archive",
                          "deleted_documents"}
     assert sorted(p.name for p in (seeded / "published").iterdir()) == ["v1.db"]

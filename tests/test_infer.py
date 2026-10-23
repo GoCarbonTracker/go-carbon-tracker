@@ -419,7 +419,7 @@ def test_projection_carries_only_accepted_or_resolved_values_in_the_main_fields(
         v = gct("publish", "build", "--json").data
         conn = published.open_version(ws / "published" / f"v{v['version']}.db")
         rows = {r["id"]: dict(r) for r in conn.execute("SELECT * FROM claim")}
-        assert conn.execute("SELECT value FROM meta WHERE key = 'projection_schema'").fetchone()[0] == "14"
+        assert conn.execute("SELECT value FROM meta WHERE key = 'projection_schema'").fetchone()[0] == "15"
         conn.close()
         return v, rows
 

@@ -374,7 +374,7 @@ def test_archive_counts_both_kinds_and_restore_brings_them_back(ws, db, gct, mak
 def test_projection_12(ws, db, gct, four):
     s1 = four["ghg_scope_1"]
     first = version_file(gct, ws)
-    assert {m["key"]: m["value"] for m in first["meta"]}["projection_schema"] == "14"
+    assert {m["key"]: m["value"] for m in first["meta"]}["projection_schema"] == "15"
     assert first["adjudication"] == first["reviewer_flag"] == []
     x = adj(gct, *s1, "evidence-not-found", "--follow-up", "ask B", "--json").data["adjudication"]
     assert gct("publish", "status", "--json").data["stale"]  # history_mark moved
@@ -569,7 +569,7 @@ def test_archive_plan_and_projection_cover_all_four_record_kinds(ws, db, gct, fo
     v = gct("publish", "build", "--json").data["version"]
     conn = published.open_version(ws / "published" / f"v{v}.db")
     try:
-        assert {m[0]: m[1] for m in conn.execute("SELECT key, value FROM meta")}["projection_schema"] == "14"
+        assert {m[0]: m[1] for m in conn.execute("SELECT key, value FROM meta")}["projection_schema"] == "15"
         assert {k: conn.execute(f"SELECT COUNT(*) FROM {k}").fetchone()[0] for k in kinds} == dict.fromkeys(kinds, 1)
     finally:
         conn.close()

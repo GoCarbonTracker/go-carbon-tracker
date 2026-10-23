@@ -1,9 +1,13 @@
 import json
+import shutil
 import sqlite3
+from collections import Counter
 
+import pdfplumber
 import pytest
 
 from conftest import PDF, grid, make_pdf
+from old_code import NOW, old_tree, run_old  # noqa: F401 (old_tree is a fixture)
 from test_extract import PAGE
 from test_link import add_reading
 from test_resume import FIVE, failing
@@ -146,7 +150,7 @@ def test_the_three_states(ws, db, docs, gct):
     assert states == {a: missing.CONFIRMED, b: missing.INCOMPLETE, c: missing.NOT_FOUND_IN}
     assert len(set(states.values())) == 3
     assert gaps == [(a, "Ana", "Acme audit", "analyst", 1)] and acc == [(1, 1, "figures", "Ana", 1)]
-    assert docs_of == [(a, 1), (b, 2), (c, 1)]
+    assert docs_of == [(a, 1, "registered"), (b, 2, "registered"), (c, 1, "registered")]
     # AC 15b: a new reading of the page supersedes its acceptance and the confirmation made on the old one
     add_reading(ws, db, 1, lambda r: None)
     e = listed(gct, a)
@@ -282,3 +286,140 @@ def test_a_claim_that_is_not_current_does_not_make_an_expectation_found(ws, db, 
         e = listed(gct, item)
         assert (e["found"], e["claims"]) == (False, []) and e["state"] is not None, e
         gct("extract")
+
+
+# Story 7.1 part B: the published version's page limits, accepted entries by id, declared links and checked documents.
+ONLY = "Quillon Acceptor"  # accepts pages only, so a name scan can tell where acceptances project it (B3)
+BY_ONLY = ("--as", "only", "--capacity", "reviewer", "--rationale", "looked at the page")
+METRIC = "scope 1 emissions"
+
+
+def one_page(text: str) -> bytes:
+    return make_pdf([{"text": [(72, 300, text)]}])
+
+
+@pytest.fixture
+def limits(ws, db, gct, make_file, monkeypatch):
+    """Acme: 1 five pages (1 accepted on an earlier reading, 2 read then a failed re-read, 3 failed, 4 and 5 read), 2
+    one clean page, 3 archived and 4 restored (each with an accepted page), all read; then 5 two pages never read, 6 a
+    CSV and 7 a PDF that does not open. Beta: 8 holds document 2's file, never read. Expectations 1 over 2
+    (confirmable), 2 over 1, 3, 4, 5, 6, 7, 3 (Beta) over 8, 4 over 2."""
+    gct("company", "add", "Acme")
+    gct("company", "add", "Beta")
+    gct("contributor", "add", "ana", "--name", "Ana", "--organisation", "Acme audit")
+    gct("contributor", "add", "only", "--name", ONLY)
+    five = make_pdf([{"text": [(72, 300, f"Page {n} of the long report")]} for n in range(1, 6)])
+    for name, data in (("m.pdf", five), ("c.pdf", one_page("Water withdrawn 120 kL")),
+                       ("arch.pdf", one_page("Archived page")), ("rest.pdf", one_page("Restored page"))):
+        assert gct("doc", "add", make_file(name, data), "--company", "Acme").code == 0
+    failing(monkeypatch, {3})
+    assert gct("read").code == 4
+    for name, data in (("n.pdf", make_pdf([{"text": [(72, 300, "Never read")]}] * 2)),
+                       ("s.csv", b"metric,value\nwater,5\n"), ("bad.pdf", PDF)):
+        assert gct("doc", "add", make_file(name, data), "--company", "Acme").code == 0, name
+    assert gct("doc", "add", make_file("c.pdf", one_page("Water withdrawn 120 kL")), "--company", "Beta").code == 0
+    for doc, who in ((1, WHO), (2, WHO), (3, BY_ONLY), (4, BY_ONLY)):
+        assert gct("pages", "accept", "--doc", doc, "--pages", "1", "--type", "figures", *who).code == 0
+    add_reading(ws, db, 1, lambda r: None)  # page 1's acceptance is now on an earlier reading
+    db.execute("INSERT INTO attempt (run_id, stage, item, input_version, config_version, outcome, at)"
+               " VALUES (1, 'read', '1:2', 'x', 'x', 'failed', 't')")  # a failed re-read after a successful read
+    db.commit()
+    for argv in (("--doc", 2), ("--doc", 1, 3, 4, 5, 6, 7)):
+        expect(gct, "--metric", METRIC, *argv)
+    assert gct("expect", "add", "--company", "Beta", "--metric", METRIC, "--doc", 8).code == 0
+    expect(gct, "--metric", "energy intensity", "--doc", 2)
+    assert gct("doc", "archive", 3, *WHO).code == 0
+    assert gct("doc", "archive", 4, *WHO).code == 0
+    assert gct("doc", "restore", 4, *WHO).code == 0
+
+
+# B9's commands: a multi-page accept, a new expectation, a gap confirmation, and the list before and after.
+CHANGES = (("expect", "list", "--json"), ("pages", "accept", "--doc", 1, "--pages", "4-5", "--type", "figures", *BY_ONLY,
+                                          "--json"),
+           ("expect", "add", "--company", "Acme", "--metric", "water intensity", "--doc", 1, "--json"),
+           ("gap", "confirm", 1, *WHO, "--json"), ("expect", "list", "--json"))
+
+
+def acceptance(db, doc: int, page: int) -> dict:
+    i = db.execute("SELECT id FROM page_acceptance WHERE document_id = ? AND page_number = ? ORDER BY id DESC LIMIT 1",
+                   (doc, page)).fetchone()[0]
+    return {"type": "figures", "acceptance_id": i, "count": 1}
+
+
+# B1 to B5
+def test_the_published_version_holds_page_limits_and_ids_only(ws, db, gct, limits, monkeypatch):
+    for argv in CHANGES[1:4]:
+        assert gct(*argv).code == 0
+    opened, real = Counter(), pdfplumber.open
+    monkeypatch.setattr(pdfplumber, "open", lambda path, *a, **k: opened.update([str(path)]) or real(path, *a, **k))
+    assert gct("publish", "build").code == 0
+    # Each stored PDF that is active is opened once, though four expectations and two companies read document 2's file
+    assert len(opened) == 5 and set(opened.values()) == {1}
+    conn = published.open_version(ws / "published" / "v1.db")
+    pages = {(r["document_id"], r["page_number"]): dict(r) for r in conn.execute("SELECT * FROM page")}
+    # B1: no rows for the archived document, the CSV or the PDF that does not open
+    assert sorted(pages) == [(1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (2, 1), (4, 1), (5, 1), (5, 2), (8, 1)]
+    measured = ("rung", "method", "words", "tables", "flags", "width", "height")
+    for (d, p), row in pages.items():
+        expected = []
+        for t in missing.TYPES:
+            ready, note, acc = missing.page_ready(db, d, p, t)
+            expected.append(f"accepted #{acc}" if acc is not None else None if ready else note)
+        assert [row[f"limit_{t}"] for t in missing.TYPES] == expected, (d, p)
+        assert "Ana" not in str(row) and ONLY not in str(row)
+        newest = missing._newest_page(db, d, p)
+        if row["read_state"] == "read":
+            assert [row[k] for k in measured] == [newest[k] for k in measured]
+        else:
+            assert [row[k] for k in measured] == [None] * 7
+    # B2: the reading states, a failed re-read after a success included (the workspace still has that reading)
+    assert {k: r["read_state"] for k, r in pages.items()} == {
+        (1, 1): "read", (1, 2): "read failed", (1, 3): "read failed", (1, 4): "read", (1, 5): "read", (2, 1): "read",
+        (4, 1): "read", (5, 1): "not read", (5, 2): "not read", (8, 1): "not read"}
+    assert missing._newest_page(db, 1, 2) is not None
+    assert (pages[1, 1]["method"], pages[1, 1]["limit_figures"]) == ("later", missing.EARLIER)
+    assert pages[1, 2]["limit_text"] == "read failed" and pages[5, 1]["limit_text"] == "not read"
+    for doc, page in ((1, 4), (1, 5), (2, 1), (4, 1)):
+        assert pages[doc, page]["limit_figures"] == f"accepted #{acceptance(db, doc, page)['acceptance_id']}"
+    # B3: ids and counts only; the earlier-reading and the archived document's acceptances are not counted
+    accepted = {i: json.loads(a) for i, a in conn.execute("SELECT id, accepted FROM expected_item")}
+    assert accepted == {1: [acceptance(db, 2, 1)], 2: [acceptance(db, 1, 4), acceptance(db, 1, 5), acceptance(db, 4, 1)],
+                        3: [], 4: [acceptance(db, 2, 1)], 5: [acceptance(db, 1, 4), acceptance(db, 1, 5)]}
+    tables = [t for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+    assert {t for t in tables for r in conn.execute(f"SELECT * FROM {t}") if ONLY in str(tuple(r))} == {"page_acceptance"}
+    # B4: every declared document not deleted, archived and restored ones with their state; each company its own
+    assert [tuple(r) for r in conn.execute("SELECT * FROM expected_item_document")] == [
+        (1, 2, "registered"), (2, 1, "registered"), (2, 3, "archived"), (2, 4, "restored"), (2, 5, "registered"),
+        (2, 6, "registered"), (2, 7, "registered"), (3, 8, "registered"), (4, 2, "registered"), (5, 1, "registered")]
+    # B5: the confirmation's documents and readings, without sha256
+    (checked,) = conn.execute("SELECT documents_checked FROM gap_confirmation").fetchone()
+    stored = db.execute("SELECT documents_checked FROM gap_confirmation").fetchone()[0]
+    assert json.loads(checked) == [{"id": x["id"], "artifacts": x["artifacts"]} for x in json.loads(stored)]
+    assert "sha256" not in checked and json.loads(checked)[0]["id"] == 2
+    conn.close()
+
+
+# B9 (R3): the CLI prints what the code before projection 15 printed, and a confirmation it stored stays current.
+def test_outputs_and_stored_confirmations_of_the_older_code_are_unchanged(ws, db, gct, limits, old_tree, tmp_path,
+                                                                         monkeypatch):
+    twin = tmp_path / "twin"
+    shutil.copytree(ws, twin)
+    old = run_old(old_tree, twin, *CHANGES, now=NOW)
+    monkeypatch.setattr(store, "now", lambda: NOW)
+    new = [gct(*argv) for argv in CHANGES]
+    assert [n.code for n in new] == [0] * len(CHANGES)
+    assert [(o["code"], o["out"], o["err"]) for o in old] == [(n.code, n.out, n.err) for n in new]
+    reasons = {(r["type"], r["reason"], r["count"]) for e in new[0].data["expectations"] if e["id"] == 2
+               for r in e["reasons"]}
+    assert reasons == {("figures", missing.EARLIER, 1), ("figures", missing.CHARTS, 2), ("document", "not a PDF", 1),
+                       ("document", "not opened", 1),
+                       *((t, why, 2) for t in missing.TYPES for why in ("read failed", "not read"))}
+    # The old shape still merges one line per name and capacity: pages 4 and 5 of document 1 and document 4's page
+    assert next(e for e in new[-1].data["expectations"] if e["id"] == 2)["accepted"] == [
+        {"type": "figures", "accepted": f"accepted by {ONLY} (reviewer)", "count": 3}]
+    old_db = sqlite3.connect(twin / layout.DB_NAME)
+    stored = "SELECT documents_checked FROM gap_confirmation"
+    assert old_db.execute(stored).fetchall() == [tuple(r) for r in db.execute(stored)]
+    old_db.close()
+    (e,) = [e for e in gct("expect", "list", "--workspace", twin, "--json").data["expectations"] if e["id"] == 1]
+    assert (e["state"], e["confirmation"]["current"]) == (missing.CONFIRMED, True)
