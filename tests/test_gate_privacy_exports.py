@@ -1590,3 +1590,123 @@ def test_an_inline_image_with_an_empty_filter_array_is_read(tmp_path):
     hit = leakage.found(p, [{"name": "INLINE", "kind": "image", "expect": "never", "value": value}])
     assert hit == {"INLINE": ["inline.pdf: object 4 form inline image 1: pixel hash",
                               "inline.pdf: page 1 inline image 1: pixel hash"]}
+
+
+# AC 7a step (3): the sanitised package of W against W' in 7.6's terms
+
+# The one column the package differential leaves out: the package's own mark, MAX(id) per table, whose maxima may
+# differ because ids ship as they are (docs/privacy.md "Sequential ids"); it is checked against the package instead.
+EXEMPT = {("published_version", "history_mark")}
+
+
+def in_76s_terms(folder, exempt=EXEMPT) -> dict:
+    """A package for the differential: every workspace table a multiset of rows whose D3 id columns and
+    package.ID_TEXT places are renumbered by rank within the table they point at (foreign keys name it), id_hash
+    columns left out and a table's own id kept only where a shipped column points at it (F3); attempt rows as
+    (stage, item, outcome); published/v1.db as its table list and row counts (F4); the manifest with both sha256
+    placeholders; the hashes of the originals under files/ as a multiset."""
+    import test_package
+    from gct.reports import package
+    from gct.workspace import published
+
+    b = test_package.read_back(folder)
+    ws = b["workspace"]
+    conn = sqlite3.connect(f"{(Path(folder) / layout.DB_NAME).resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+    fk = {(t, r[3]): r[2] for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+          for r in conn.execute(f"PRAGMA foreign_key_list({t})")}
+    own = published.history_mark(conn)
+    conn.close()
+    assert [r["history_mark"] for r in ws["published_version"]] == [own]  # the package's mark, not the source's
+    rank = {t: {r["id"]: n for n, r in enumerate(sorted(rows, key=lambda r: r["id"]), 1)}
+            for t, rows in ws.items() if rows and "id" in rows[0]}
+    unresolved = [(t, c) for t, cols in package.COLUMNS.items() if t in ws for c, k in cols.items()
+                  if k == package.ID and c != "id" and (t, c) not in fk]
+    assert unresolved == []  # every D3 id column names its table through a foreign key
+    pointed = {fk[x] for x in fk} | {s["table"] for s in package.ID_TEXT.values() if "table" in s} | {
+        t if isinstance(t, str) else t["table"]  # a position is a table or a pattern spec (a series key's metric)
+        for s in package.ID_TEXT.values() for t in [*s.get("positions", {}).values(), *_tables(s.get("json"))]}
+
+    def num(table, i):
+        return None if i is None else rank[table][i]
+
+    def ids_in(x, keys):
+        if isinstance(x, list):
+            return [ids_in(y, keys) for y in x]
+        if isinstance(x, dict):
+            return {k: ([num(keys[k], i) for i in v] if isinstance(v, list) else num(keys[k], v)) if k in keys
+                    else v for k, v in x.items()}
+        return x
+
+    def sub(spec, v):
+        return re.sub(spec["pattern"], lambda m: m[0].replace(m[1], str(num(spec["table"], int(m[1])))), v)
+
+    def place(p, y):
+        if isinstance(p, dict):
+            return sub(p, y) if type(y) is str else y
+        return num(p, y) if p is not None and type(y) is int else y
+
+    def text(t, c, v, row):
+        spec = package.ID_TEXT.get((t, c))
+        if spec is None or v is None or row.get("stage") not in spec.get("stages", (row.get("stage"),)):
+            return v
+        if "pattern" in spec:
+            return sub(spec, v)
+        try:
+            x = json.loads(v)
+        except ValueError:  # a complete package's failed attempt keeps its plain output text, which names no id
+            return v
+        if "positions" in spec:
+            x = [place(spec["positions"].get(i), y) for i, y in enumerate(x)]
+        else:
+            x = ids_in(x, spec["json"][row["stage"]] if "stages" in spec else spec["json"])
+        return json.dumps(x)
+
+    tables = {}
+    for t, rows in ws.items():
+        cols, out = package.COLUMNS[t], []
+        for r in rows:
+            x = {c: text(t, c, num(t if c == "id" else fk[t, c], v) if cols[c] == package.ID else v, r)
+                 for c, v in r.items() if cols[c] != package.ID_HASH and (c != "id" or t in pointed)
+                 and (t, c) not in exempt}
+            out.append(json.dumps([x["stage"], x["item"], x["outcome"]] if t == "attempt" else x, sort_keys=True))
+        tables[t] = Counter(out)
+    m = b["manifest"]
+    sha = m["data_version"]["sha256"]
+    manifest = {**m, "text": m["text"].replace(sha, "0" * 64),
+                **{k: {**m[k], "sha256": "0" * 64} for k in ("data_version", "source_data_version")}}
+    files = Counter(hashlib.sha256((Path(folder) / p).read_bytes()).hexdigest() for p in b["files"]
+                    if p.startswith("files/"))
+    return {"tables": tables, "v1": {t: len(rows) for t, rows in b["published"].items()}, "manifest": manifest,
+            "files": files}
+
+
+def _tables(spec) -> list:
+    """The tables a package.ID_TEXT json spec points at (per stage or flat)."""
+    if not spec:
+        return []
+    return [t for v in spec.values() for t in (v.values() if isinstance(v, dict) else [v])]
+
+
+def test_the_sanitised_packages_of_w_and_w_prime_are_equal_in_76s_terms(lw, lw2):
+    """AC 7a (3): package(W) and package(W'), sanitised, are equal table by table once renumbered (D3 id columns and
+    7.6's package.ID_TEXT places), with only the id_hash columns, the attempt comparison and the two sha256 values
+    exempt, and the originals' hashes equal as a multiset; the same comparison of the complete packages differs
+    (the check can fail)."""
+    at = ("--workspace", lw2["root"])
+    token = gct("package", "preview", *at)["token"]
+    b_folder = lw2["root"] / gct("package", "create", "--confirm", token, *at)["folder"]
+    a, b = in_76s_terms(lw["sanitised package"]), in_76s_terms(b_folder)
+    for part in ("v1", "manifest", "files"):
+        assert a[part] == b[part], part
+    assert set(a["tables"]) == set(b["tables"])
+    wrong = {t: (sorted((a["tables"][t] - b["tables"][t]).elements())[:3],
+                 sorted((b["tables"][t] - a["tables"][t]).elements())[:3])
+             for t in a["tables"] if a["tables"][t] != b["tables"][t]}
+    assert wrong == {}
+    whole = in_76s_terms(lw["sanitised package"], exempt=()), in_76s_terms(b_folder, exempt=())
+    assert {t for t in whole[0]["tables"] if whole[0]["tables"][t] != whole[1]["tables"][t]} == {
+        t for t, _ in EXEMPT}  # without the exemption only its table differs: a second differing column fails
+    token = gct("package", "preview", "--complete", *at)["token"]
+    c = in_76s_terms(lw2["root"] / gct("package", "create", "--complete", "--include-private", "--confirm", token,
+                                       *at)["folder"])
+    assert in_76s_terms(lw["complete package"])["tables"] != c["tables"]
