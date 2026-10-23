@@ -38,9 +38,9 @@ def folder(root, stem, files=None):
         yield tmp
         if files is not None:
             got = {p.relative_to(tmp).as_posix() for p in tmp.rglob("*") if p.is_file()}
-            if odd := sorted(got ^ set(files)):
-                raise GctError(REFUSED, f"An export's files did not match the files its formats listed: {', '.join(odd)}."
-                                        " Nothing was exported.", "Report this to the GCT maintainers.")
+            if got != set(files):  # no file name in the cause: it reaches the run log, and a name can be private
+                raise GctError(REFUSED, "An export's files did not match the files its formats listed. Nothing was"
+                                        " exported.", "Report this to the GCT maintainers.")
         target = exports / stem
         if target.exists():  # os.rename onto an empty folder would succeed silently on POSIX
             raise GctError(REFUSED, f"An export named {stem} already exists; nothing was overwritten.",
