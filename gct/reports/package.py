@@ -126,9 +126,11 @@ ID_TEXT = {
     ("gap_confirmation", "documents_checked"): {"json": {"id": "document"}, "list": True},
     # infer's group key, a JSON list: the claim's document id first and the basis id at index 8 (or "label" or null)
     ("inference", "group_key"): {"positions": {0: "document", 8: "basis"}},
-    # match's series key, a JSON list: the company id first and, for a unit as printed series, the document id at 5
+    # match's series key, a JSON list: the company id first, an unmapped metric's document id inside the metric at 1
+    # ("doc:N:pP:tR:label"), and for a unit as printed series the document id at 5
     **dict.fromkeys((("match_review", "series_key"), ("restatement", "series_key")),
-                    {"positions": {0: "company", 5: "document"}}),
+                    {"positions": {0: "company", 1: {"pattern": r"^doc:(\d+):", "table": "document"},
+                                   5: "document"}}),
 }
 
 FROM_INIT = ("schema_version", "workspace")  # written by init in both modes
@@ -200,11 +202,9 @@ def _decide(conn, root, mode: str, include: tuple):
                 withheld[cause] += 1
     if mode == "sanitised":
         ship.update(dict.fromkeys(COMPLETE_ONLY, []))
-        # A series exists by its rule points (match.compute); one only withheld claims form is not in the package,
-        # so a decision or restatement naming it would reveal it (its key holds the boundary text those claims print)
-        shipped = {c["id"] for c in ship["claim"]}
-        formed = {s["key"] for s in match.compute(conn)["series"].values()
-                  if any(p["link"] == "rule" and p["claim_id"] in shipped for p in s["points"])}
+        # A decision or restatement names a series by its key, which holds the boundary text and ids its claims and
+        # inferences give; it ships only when the shipped rows themselves form that series
+        formed = _formed(conn, ship)
         for t in SERIES_NAMED:
             kept = [r for r in ship[t] if r["series_key"] in formed]
             withheld["selection_recomputed"] += len(ship[t]) - len(kept)
@@ -218,6 +218,26 @@ def _decide(conn, root, mode: str, include: tuple):
             ship[t] = [r for r in ship[t] if r["id"] in pointed[t]]
         ship["run_event"] = [r for r in ship["run_event"] if r["kind"] == "finished" and r["run_id"] in pointed["run"]]
     return ship, withheld, docs, eff
+
+
+def _formed(conn, ship: dict) -> set:
+    """The keys of the series the shipped rows form: match.compute on an in-memory copy of them (the source's tables,
+    no triggers, foreign keys off). Archive is a lifecycle state, so an archived document's claims count here: its
+    archived document_state rows are left out of the copy (P3)."""
+    mem = sqlite3.connect(":memory:")
+    mem.row_factory = sqlite3.Row
+    try:
+        for (sql,) in conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"):
+            mem.execute(sql)
+        for t, rows in ship.items():
+            rows = [r for r in rows if t != "document_state" or r["state"] != "archived"]
+            if rows:
+                cols = rows[0].keys()
+                mem.executemany(f"INSERT INTO {t} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                                [tuple(r) for r in rows])
+        return {s["key"] for s in match.compute(mem)["series"].values()}
+    finally:
+        mem.close()
 
 
 def _cause(conn, table: str, named, docs: dict, eff: dict) -> str | None:

@@ -212,7 +212,12 @@ def id_text_seen(root) -> set:
                 data = json.loads(value)
                 assert isinstance(data[0], int), (table, column, value)
                 for i, target in spec["positions"].items():
-                    if isinstance(data[i], int):
+                    if isinstance(target, dict):  # an id inside a text at that position, where the pattern matches
+                        if found := isinstance(data[i], str) and re.search(target["pattern"], data[i]):
+                            assert conn.execute(f"SELECT 1 FROM {target['table']} WHERE id = ?",
+                                                (int(found[1]),)).fetchone()
+                            seen[table, column, i] = True
+                    elif isinstance(data[i], int):
                         assert conn.execute(f"SELECT 1 FROM {target} WHERE id = ?", (data[i],)).fetchone()
                         seen[table, column, target] = True
                     else:
@@ -1010,6 +1015,158 @@ def keys(ws, table) -> list:
     for r in ws[table]:
         key = json.loads(r["series_key"])
         for i, target in package.ID_TEXT[table, "series_key"]["positions"].items():
-            key[i] = by[target][key[i]] if isinstance(key[i], int) else key[i]
+            if isinstance(target, dict):
+                if isinstance(key[i], str):
+                    key[i] = re.sub(target["pattern"], lambda m: m[0].replace(m[1], by[target["table"]][int(m[1])]),
+                                    key[i])
+            elif isinstance(key[i], int):
+                key[i] = by[target][key[i]]
         out.append(key)
     return sorted(out, key=json.dumps)
+
+
+# Fix round 1 (Codex review of 9e421e2): the reviewer's synthetic workspaces. One company; an optional private PDF
+# added first; one shareable PDF; read, extract, infer, every boundary statement scoped to its page, every proposed
+# group accepted, match.
+def small(root, shared, private=None):
+    gate_fixture.gct("workspace", "init", root)
+
+    def g(*argv):
+        return gate_fixture.gct(*argv, "--workspace", root)
+
+    g("company", "add", "Acme")
+    g("contributor", "add", "ana", "--name", "Ana")
+    for name, page, share in (("private.pdf", private, ()), ("shared.pdf", shared, ("--privacy", "shareable"))):
+        if page is not None:
+            path = root.parent / name
+            path.write_bytes(gate_fixture.make_pdf([page]))
+            doc = g("doc", "add", path, "--company", "Acme", *share)["items"][0]["document"]["id"]
+    for step in ("read", "extract", "infer"):
+        g(step)
+    for b in g("infer", "bases")["bases"]:
+        if b["kind"] == "reporting_boundary":
+            g("infer", "scope", b["id"], "--pages", 1, *gate_fixture.WHO)
+    g("infer")
+    for group in sorted(g("infer", "groups", "--state", "proposed")["groups"],
+                        key=lambda x: (x["document"], x["field"], str(x["start"]))):
+        g("infer", "accept", group["id"], *gate_fixture.WHO)
+    g("match")
+    return g, doc, [c["id"] for c in g("claims", "list", "--doc", doc)["claims"]]
+
+
+def packages(g, root) -> dict:
+    """{mode: (read_back of the package, its preview)} after a fresh publish build."""
+    g("publish", "build")
+    out = {}
+    for mode, flags in (("sanitised", ()), ("complete", ("--complete",))):
+        p = g("package", "preview", *flags)
+        folder = g("package", "create", *flags, *(("--include-private",) if flags else ()), "--confirm",
+                   p["token"])["folder"]
+        out[mode] = (read_back(root / folder), p)
+    return out
+
+
+def borrow(root, claim, basis_where) -> None:
+    """Seed an accepted boundary inference on the claim's newest version from another document's basis (a valid source
+    that normal inference does not make; the package boundary must hold for it)."""
+    from gct.stages import infer
+    conn = store.connect(root / layout.DB_NAME)
+    b = dict(conn.execute(f"SELECT * FROM basis WHERE kind = 'reporting_boundary' AND {basis_where}").fetchone())
+    version, doc = conn.execute("SELECT MAX(v.id), c.document_id FROM claim_version v JOIN claim c ON c.id = v.claim_id"
+                                " WHERE c.id = ?", (claim,)).fetchone()
+    row = infer._inference(doc, "boundary", lambda: (b["boundary"], b["boundary_detail"], b))
+    run = conn.execute("SELECT MAX(id) FROM run WHERE command = 'infer'").fetchone()[0]
+    infer._record(conn, version, "boundary", row, run, store.now())
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    conn.close()
+    gate_fixture.gct("infer", "accept", infer.group_id(row["group_key"]), *gate_fixture.WHO, "--workspace", root)
+
+
+SECRET = rf.BASIS  # DOC-BASIS-01, printed only in the private PDF's boundary statement
+
+
+# F1: a shareable claim whose boundary comes from a private basis forms no series in the package, so the decisions
+# naming that series (and its private boundary text) are withheld
+def test_a_series_formed_through_a_private_basis_is_not_named_in_the_sanitised_package(tmp_path):
+    root = tmp_path / "w" / "ws"
+    root.parent.mkdir()
+    private = gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "999"]], ["FY 2024-25"],
+                                boundary=f"Report is prepared on a consolidated basis combining the information of {SECRET}.")
+    shared = gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "100"], [gate_fixture.SCOPE_1, "tCO2e", "110"]],
+                               ["FY 2024-25"], boundary="", lines=[(40, 150, gate_fixture.NOTE)])
+    g, doc, claims = small(root, shared, private)
+    sid = g("series", "list")["series"][0]["id"]  # the private PDF's series
+    for c in claims:
+        g("match", "link", c, "--series", sid, *gate_fixture.WHO)
+    borrow(root, claims[0], f"boundary_detail LIKE '%{SECRET}%'")
+    out = packages(g, root)
+    san, p = out["sanitised"]
+    assert san["workspace"]["match_review"] == [] and p["withheld"]["selection_recomputed"] == 2
+    assert not [i for i in san["workspace"]["inference"] if SECRET in (i["boundary_detail"] or "")]
+    folder = root / "exports" / next(n for n in made(root) if n.endswith("sanitised"))
+    assert leakage.found(folder, rf.SEEDS) == {}
+    assert SECRET not in dump_text(folder / layout.DB_NAME) + dump_text(folder / "published" / "v1.db")
+    assert len(out["complete"][0]["workspace"]["match_review"]) == 2  # the complete package keeps them
+
+
+# F1, printed: two shareable claims of one table row form a unit as printed series only while both have a boundary;
+# one gets it from a private basis, so the package forms no series and the link review naming it is withheld (W'
+# holds no such review)
+def test_a_printed_series_one_member_reaches_through_a_private_basis_is_not_named(tmp_path):
+    root = tmp_path / "w" / "ws"
+    root.parent.mkdir()
+    private = gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "999"]], ["FY 2024-25"])
+    shared = gate_fixture.page([[gate_fixture.SCOPE_1, "A+B+C", "100", "110", "120"]],
+                               ["FY 2024-25", "FY 2023-24", "FY 2022-23"], boundary="")
+    g, doc, claims = small(root, shared, private)
+    g("infer", "resolve", claims[0], "--field", "boundary", "--boundary", "standalone", *gate_fixture.WHO)
+    borrow(root, claims[1], "document_id != ?".replace("?", str(doc)))
+    sid = next(s["id"] for s in g("series", "list")["series"] if s["unit_family"].startswith("printed:"))
+    g("match", "link", claims[2], "--series", sid, *gate_fixture.WHO)
+    out = packages(g, root)
+    san, p = out["sanitised"]
+    assert san["published"]["series"] == [] and san["workspace"]["match_review"] == []
+    assert p["withheld"]["selection_recomputed"] == 1
+    assert len(out["complete"][0]["workspace"]["match_review"]) == 1
+
+
+# F3: archive is a lifecycle state, so a sanitised package of an all-shareable workspace keeps every match_review and
+# restatement row the complete package keeps, an archived document's restatement included
+def test_an_archived_shareable_documents_restatement_ships(tmp_path):
+    root = tmp_path / "w" / "ws"
+    root.parent.mkdir()
+    shared = gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "100"], [gate_fixture.SCOPE_1, "tCO2e", "110"]],
+                               ["FY 2024-25"], lines=[(40, 150, gate_fixture.NOTE)])
+    g, doc, claims = small(root, shared)
+    g("restate", "record", "--original", claims[0], "--restated", claims[1], "--page", 1, "--quote",
+      gate_fixture.QUOTE, *gate_fixture.WHO)
+    g("doc", "archive", doc, *gate_fixture.WHO)
+    out = packages(g, root)
+    san, p = out["sanitised"]
+    for t in package.SERIES_NAMED:
+        assert [(r["id"], r["series_key"]) for r in san["workspace"][t]] == [
+            (r["id"], r["series_key"]) for r in out["complete"][0]["workspace"][t]], t
+    assert len(san["workspace"]["restatement"]) == 1 and p["withheld"]["selection_recomputed"] == 0
+
+
+# F2: an unmapped metric's series key holds its document id inside the metric ("doc:N:..."); ID_TEXT declares it, so
+# the sanitised packages of W (a private PDF added first) and W' hold equal keys once renumbered
+def test_an_unmapped_metric_series_key_renumbers_equal_in_w_and_w_prime(tmp_path):
+    shared = gate_fixture.page([["Mystery water recycled", "kL", "100", "110", "120"]], ["FY 2024-25"] * 3,
+                               lines=[(40, 150, gate_fixture.NOTE)])
+    got = {}
+    for name, private in (("w", gate_fixture.page([[gate_fixture.SCOPE_1, "tCO2e", "999"]], ["FY 2024-25"])),
+                          ("w2", None)):
+        root = tmp_path / name / "ws"
+        root.parent.mkdir()
+        g, doc, claims = small(root, shared, private)
+        g("infer", "reject", "--claim", claims[2], "--field", "boundary", *gate_fixture.WHO)
+        sid = next(s["id"] for s in g("series", "list")["series"] if s["document_id"] == doc)
+        g("match", "link", claims[2], "--series", sid, *gate_fixture.WHO)
+        ws = packages(g, root)["sanitised"][0]["workspace"]
+        got[name] = ws
+        if private:
+            assert ("match_review", "series_key", 1) in id_text_seen(root)
+    raw = {n: sorted(r["series_key"] for r in ws["match_review"]) for n, ws in got.items()}
+    assert raw["w"] != raw["w2"] and json.loads(raw["w"][0])[1].startswith("doc:")
+    assert keys(got["w"], "match_review") == keys(got["w2"], "match_review") != []
