@@ -360,7 +360,7 @@ One record per expectation, as for `expect add`, computed when asked.
 ## publish build
 - top: status, version, built_at, history_mark, companies, documents
 
-In the published version (`projection_schema` 4), a claim's `period_kind`, `period_start`, `period_end`, `reporting_boundary` and `boundary_detail` hold only accepted or resolved values, else what was extracted. A proposal is in `proposed_period_kind`, `proposed_period_start`, `proposed_period_end`, `proposed_reporting_boundary` and `proposed_boundary_detail`. `period_state` and `boundary_state` are `resolved`, `accepted`, `proposed`, `unresolved` or `extracted`. `period_basis` and `boundary_basis` (`{"page", "wording"}` as JSON, or null) are filled for a proposal as well as for an accepted value, so read them together with the state: while the state is `proposed` the main values stay empty. From `projection_schema` 6 (story 4.1) a claim also has `metric_key` (the assigned key, null when unmapped), `metric_rule`, `unit_key`, `unit_factor`, `series_id`, `match_state` (`series`, `reviewed`, `uncertain` or `not matchable`) and `match_reason`, and the tables `series` and `series_point` hold the series of `gct series list` and their points (a time series is `series_point` ordered by `period_end`). From `projection_schema` 8 (story 4.4) the table `hidden_by_archive` has one row per archived document (`document_id`, `logical_name`, `archived_at`, `claims`, `evidence_refs`, `review_records`, counted as in `doc archive`), and `meta` key `hidden_by_archive` holds the totals as JSON (`documents`, `claims`, `evidence_refs`, `review_records`). An archived document, its claims, their locations and series points are not in the other tables. From `projection_schema` 15 (story 7.1 part B) `expected_item_document` links every declared document of an expectation that is not deleted, archived ones included, with its `state` (`registered`, `restored` or `archived`); the table `page` has one row per page of each active PDF that opens: `read_state` (`read`, `read failed` or `not read`), the newest reading's `rung`, `method`, `words`, `tables`, `flags`, `width` and `height` (null when the newest read failed), and `limit_text`, `limit_tables` and `limit_figures`, why the page is not ready for that type (`accepted #ID` for an acceptance, null when ready); `expected_item.accepted` lists `{type, acceptance_id, count}` entries; `gap_confirmation.documents_checked` holds `[{id, artifacts}]`, the documents and readings the confirmation looked in, without file hashes. A document's `privacy` is its label (see `doc list`) when the version was built; a `gct doc label` change makes the current version stale (story 7.1 part A).
+In the published version (`projection_schema` 4), a claim's `period_kind`, `period_start`, `period_end`, `reporting_boundary` and `boundary_detail` hold only accepted or resolved values, else what was extracted. A proposal is in `proposed_period_kind`, `proposed_period_start`, `proposed_period_end`, `proposed_reporting_boundary` and `proposed_boundary_detail`. `period_state` and `boundary_state` are `resolved`, `accepted`, `proposed`, `unresolved` or `extracted`. `period_basis` and `boundary_basis` (`{"page", "wording"}` as JSON, or null) are filled for a proposal as well as for an accepted value, so read them together with the state: while the state is `proposed` the main values stay empty. From `projection_schema` 6 (story 4.1) a claim also has `metric_key` (the assigned key, null when unmapped), `metric_rule`, `unit_key`, `unit_factor`, `series_id`, `match_state` (`series`, `reviewed`, `uncertain` or `not matchable`) and `match_reason`, and the tables `series` and `series_point` hold the series of `gct series list` and their points (a time series is `series_point` ordered by `period_end`). From `projection_schema` 8 (story 4.4) the table `hidden_by_archive` has one row per archived document (`document_id`, `logical_name`, `archived_at`, `claims`, `evidence_refs`, `review_records`, counted as in `doc archive`), and `meta` key `hidden_by_archive` holds the totals as JSON (`documents`, `claims`, `evidence_refs`, `review_records`). An archived document, its claims, their locations and series points are not in the other tables. From `projection_schema` 15 (story 7.1 part B) `expected_item_document` links every declared document of an expectation that is not deleted, archived ones included, with its `state` (`registered`, `restored` or `archived`); the table `page` has one row per page of each active PDF that opens: `read_state` (`read`, `read failed` or `not read`), the newest reading's `rung`, `method`, `words`, `tables`, `flags`, `width` and `height` (null when the newest read failed), and `limit_text`, `limit_tables` and `limit_figures`, why the page is not ready for that type (`accepted #ID` for an acceptance, null when ready); `expected_item.accepted` lists `{type, acceptance_id, count}` entries; `gap_confirmation.documents_checked` holds `[{id, artifacts}]`, the documents and readings the confirmation looked in, without file hashes. A document's `privacy` is its label (see `doc list`) when the version was built; a `gct doc label` change makes the current version stale (story 7.1 part A). From `projection_schema` 16 (story 7.1 part C) the table `match_candidate` has one row per candidate series of each claim that waits for review (`claim_id`, `claim_version_id`, `series_id`, `series_key`, and `decision`, the newest match review's `linked` or `not_linked`, null when none; nothing else of the review), and each `restatement` row has `original_claim_id` and `restated_claim_id`, the claims of its two versions.
 
 ## publish restore
 - top: status, version, built_at, history_mark, companies, documents
@@ -459,7 +459,8 @@ The table shape (the default). `--shape graph`, `series` and `values` answer wit
 `view` is the saved view as `view list` shows it: the name as typed (trimmed), the normalised filter, `section`
 (`tables` or `graphs`), the contributor's name, when it was saved and `earlier`, the number of older saves under the
 same name, which are kept. `data_version` is the current version, or null before the first build; a save builds no
-version. An empty name, one over 80 characters or with a line break, a section other than tables or graphs and a filter
+version. An empty name (or one with no visible character), one over 80 characters or with a line break (U+2028 and
+U+2029 included), a section other than tables or graphs and a filter
 the filter rules refuse (the field named) are refused with exit 2; an unknown contributor with exit 3; a locked
 workspace with exit 4. Nothing is written on a refusal. `POST /api/views` (`name`, `filter`, optional `section`,
 `contributor`) answers the same.
@@ -498,6 +499,35 @@ The six guided questions in a fixed order, each with its filter, the section it 
 filter matches on the current version. `choices` is empty except for `metric-over-time`, where it lists the series with
 two or more periods, each `{series, company, label, periods, filter}` (`company` is the company's name and `filter` is
 `{"series": [ID]}`); that question's count is the number of its choices. `GET /api/questions` answers the same.
+
+## report preview
+- top: status, mode, include, data_version, preview
+- data_version: version, built_at, sha256, projection_schema
+- preview: included, withheld, history_mark, labels_mark, filter, lines, answer
+
+`gct report preview [--filter JSON|@FILE] [--complete] [--include identity,contributor_text,flags] [--data-version V]`
+shows what a report of the current published version would hold, for the local user only, and writes nothing: it
+takes the workspace lock, opens `workspace.db` read-only, opens no run and applies no upgrade (see
+`docs/privacy.md`). `mode` is `sanitised` (the default) or `complete` (`--complete`); `include` is the sorted list of
+classes a sanitised output keeps (`identity`, `contributor_text`, `flags`). `data_version` identifies the version file
+read. `preview.included` is `{documents: [{id, sha256, label}], rows: {table: rows}}`, the documents and the rows per
+report and sub-table the output holds. `preview.withheld` counts, per cause in this order, the rows the complete output
+of the same filter holds and this output does not, each row once under its first cause (`private_document`,
+`absent_from_version`, `same_bytes_private`, `names_private_document`, `flag`, `archived`, `deleted`,
+`selection_recomputed`), then the shipped rows with a field left out (`contributor_text`, `identity`); in complete
+mode every count is 0. `history_mark` and `labels_mark` are the version's marks, `filter` the normalised filter as
+given. `lines` is empty unless a document in the selection is private in a sanitised output: then it is the sentence
+"Every document in this selection is private, so a sanitised output holds no rows." (or, when some are shareable,
+"These documents in this selection are private, so a sanitised output leaves out their rows:"), one line `ID  COMPANY
+NAME  private` per private document, and the relabel command. `answer` holds the complete selection's
+`matched`, `total` and `excluded`, `hidden_by_archive` (`documents`, `claims`) and `deleted_in_filter` (a count).
+Refused, with nothing written: a filter that is not valid JSON or names an unknown field (exit 2), an unknown
+inclusion class (exit 2), a missing filter file (exit 3), another command holding the workspace (exit 4), a workspace
+that needs an upgrade (exit 4, cause "This workspace needs an upgrade before a report can be built.", next step "Run a
+command that writes, for example gct publish build: it upgrades the workspace first and records the upgrade in the
+run log."), a workspace made by a newer gct (exit 4), a folder where SQLite cannot read the database (exit 4), and
+every refusal of the version pin (exit 4): no published version, a `--data-version` that is not current, an unfinished
+deletion, a version file missing, holding a deleted document or built by an older gct.
 
 ## serve
 - top: status, url, port

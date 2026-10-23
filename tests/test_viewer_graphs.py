@@ -191,11 +191,23 @@ def test_graphs_in_a_headless_browser(gws, srv, tmp_path):
     assert s1["x"]["point:2"][0] == s1["x"]["point:5"][0] and s1["x"]["point:2"][1] != s1["x"]["point:5"][1]
     assert [c.split("\t")[-1] for c in s1["comparisons"]] == ["restatement"]
     assert [e[2:] for e in energy["edges"]] == [["unresolved conflict", True]]
+    for s in (s1, energy):  # H2: the Points table is captioned with the series as its Series choice names it
+        assert s["choice"].startswith("Acme: ") and s["caption"] == f"Points of {s['choice']}", s
+    # 6.4 part B F1 mechanism: a quick return from Evidence, then focus on another row; the opener does not take it back
+    assert out["disarmed"] == "claim:2"
     assert out["newest"]["graph"] == out["newest"]["shell"] == "14 claims match in data version 1."
     shown = out["graphText"] + out["text"]
     assert not re.search(r"\w_\w|\b(claim|page|period|boundary|series|hub):\S", shown)
     assert not re.search(r"verified|assured|certified|compliant", re.sub(r'"[^"]*"', "", shown), re.I)
     assert out["grabbable"] is True  # nodes can be dragged for viewing; nothing is saved
+    assert 0 < out["zoom"] <= 1.25  # H5: a small drawing is fitted, never enlarged past 1.25 (labels in proportion)
+    # review 6.3 P3: an Edges-table button is named by both ends and the relation, so no two edges sound alike
+    names = [r["name"] for r in out["edgeRows"]]
+    assert len(names) == len(set(names)) == len(out["edgeRows"]) > 0
+    for r in out["edgeRows"]:
+        start, relation, end, _ = r["cells"]
+        kind = "comparison" if relation == "compared with" else "member"
+        assert r["name"] == f"{start} {relation} {end} ({kind} edge)", r
 
 
 # R2 as ruled in 6.1 F11 i1: a second writer publishes while the tab shows version 1; the Graphs tab's own next request
@@ -205,7 +217,8 @@ def test_a_newer_version_is_offered_never_mixed_in(srv, tmp_path):
     out = browse(srv, tmp_path, "graphs-stale")
     assert out["second_writer"] == 200
     assert out["notice"] == "Data version 2 is available. Reload"
-    assert out["kept"] == {"drawn": True, "graph": "14 claims match in data version 1.", "hint": None}
+    assert out["kept"] == {"drawn": True, "graph": "14 claims match in data version 1.", "hint": None,
+                           "pressed": "Neighbourhood"}  # review 6.3 P2: the pressed view is the one drawn
     assert out["graph"] == out["shell"] == "14 claims match in data version 2."
 
 

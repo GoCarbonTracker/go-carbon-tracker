@@ -1,0 +1,59 @@
+/* The transfer bar and the chip (story 6.4 B1, note "Look"): plain text buttons; a disabled button keeps its label and
+   the reason line sits under it; the chip is a small bordered label with its remove button. */
+.transfer {
+  margin: 0 0 0.75rem;
+}
+
+.transfer-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.transfer button,
+.chip button {
+  padding: 0.25rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.transfer button:disabled {
+  color: var(--muted);
+  background: #f6f7f8;
+  cursor: default;
+}
+
+.transfer-reason {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.transfer-reason:empty {
+  display: none;
+}
+
+.count .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: 100%;
+  margin: 0.3rem 0 0;
+  padding: 0.15rem 0.2rem 0.15rem 0.6rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent-fill);
+  font-variant-numeric: tabular-nums;
+}
+
+.chip span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chip button {
+  padding: 0.1rem 0.6rem;
+  font-size: 0.85rem;
+}

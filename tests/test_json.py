@@ -483,6 +483,18 @@ def test_package_preview_and_create_match_the_documented_keys(tmp_path, gct, mak
     check("error", gct("package", "create", "--confirm", token, "--complete", *w).data)
 
 
+def test_report_preview_matches_the_documented_keys(tmp_path, gct):
+    import gate_fixture
+
+    root = gate_fixture.build(tmp_path / "gws")
+    w = ("--workspace", root, "--json")
+    for extra in ((), ("--complete",), ("--include", "flags,identity"), ("--filter", '{"document": [2]}')):
+        r = gct("report", "preview", *extra, *w)
+        assert r.code == 0, r.out
+        check("report preview", r.data)
+    check("error", gct("report", "preview", "--data-version", 9, *w).data)
+
+
 def test_every_command_has_a_documented_section():
     assert set(spec()) == {
         "workspace init", "company add", "company list", "doc add", "doc list", "doc show", "doc archive", "doc restore",
@@ -495,7 +507,7 @@ def test_every_command_has_a_documented_section():
         "adjudicate list", "adjudicate record", "adjudicate status", "flag raise", "flag withdraw", "flag list",
         "highlight add", "highlight list", "contributor add", "contributor edit", "contributor list", "expect add", "expect list", "pages accept", "gap confirm",
         "publish build", "publish restore", "publish status", "package preview", "package create", "view records", "view save", "view list", "view open",
-        "view remove", "view questions",
+        "view remove", "view questions", "report preview",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",
         "approve spend", "approve transfer", "approve list", "model list", "measure g2",
     }

@@ -47,7 +47,12 @@ CREATE TABLE restatement (
     id INTEGER PRIMARY KEY, original_version_id INTEGER NOT NULL, restated_version_id INTEGER NOT NULL,
     series_key TEXT NOT NULL, decision TEXT NOT NULL, evidence_document_id INTEGER NOT NULL, evidence_page INTEGER,
     evidence_quote TEXT, contributor_name TEXT NOT NULL, contributor_organisation TEXT, capacity TEXT NOT NULL,
-    rationale TEXT NOT NULL, created_at TEXT NOT NULL, binds INTEGER NOT NULL
+    rationale TEXT NOT NULL, created_at TEXT NOT NULL, binds INTEGER NOT NULL, original_claim_id INTEGER NOT NULL,
+    restated_claim_id INTEGER NOT NULL
+);
+CREATE TABLE match_candidate (
+    claim_id INTEGER NOT NULL, claim_version_id INTEGER NOT NULL, series_id TEXT NOT NULL, series_key TEXT NOT NULL,
+    decision TEXT
 );
 CREATE TABLE evidence_ref (
     id INTEGER PRIMARY KEY, claim_version_id INTEGER NOT NULL, document_id INTEGER NOT NULL, page_number INTEGER,
@@ -112,6 +117,17 @@ CREATE TABLE highlight (
     binds INTEGER NOT NULL, created_at TEXT NOT NULL
 );
 """  # story 5.1's two ledgers share one shape; story 5.3's two tables and story 5.4's highlight follow
+# Story 7.1 part C (projection 16): a deleted claim, a deleted series or the last rule point of a series takes its
+# match_candidate rows with it, so purge code that does not know the table (an older gct) leaves none behind.
+PROJECTION_TRIGGERS = (
+    "CREATE TRIGGER match_candidate_claim AFTER DELETE ON claim"
+    " BEGIN DELETE FROM match_candidate WHERE claim_id = OLD.id; END",
+    "CREATE TRIGGER match_candidate_series AFTER DELETE ON series"
+    " BEGIN DELETE FROM match_candidate WHERE series_id = OLD.id; END",
+    "CREATE TRIGGER match_candidate_rule AFTER DELETE ON series_point WHEN NOT EXISTS"
+    " (SELECT 1 FROM series_point WHERE series_id = OLD.series_id AND link = 'rule')"
+    " BEGIN DELETE FROM match_candidate WHERE series_id = OLD.series_id; END",
+)
 # Ids and dates only: a reader of any later version (and E7's exports) can tell which ids were deleted (story 4.5).
 DELETED_SQL = "SELECT document_id, at FROM document_state WHERE state = 'deleted' ORDER BY document_id"
 # Contributors project their name and organisation only; the sanitised package (E7) decides what leaves.
@@ -267,14 +283,18 @@ def _missing(conn: sqlite3.Connection, root: Path, docs) -> dict:
 
 
 def _series(matched: dict) -> dict:
-    """The series and series_point rows of a match result (story 4.1). A time series is series_point by period_end."""
+    """The series and series_point rows of a match result (story 4.1). A time series is series_point by period_end.
+    Each candidate series of a claim that waits for review, with the newest match review decision on it (linked,
+    not_linked or null), and nothing else of that review (story 7.1 part C)."""
     series = [(s["id"], s["company_id"], s["metric_key"], s["label"], s["document_id"], s["reporting_boundary"],
                s["boundary_detail"], s["unit_family"], s["period_kind"], s["periods"], s["latest_period_end"])
               for s in matched["series"].values()]
     points = [(s["id"], p["claim_id"], p["claim_version_id"], p["period_start"], p["period_end"], p["value_text"],
                p["unit_text"], p["unit_key"], p["number"], p["value_base"], p["link"], int(p["comparable"]), p["reason"])
               for s in matched["series"].values() for p in s["points"]]
-    return {"series": series, "series_point": points}
+    candidates = [(c["claim_id"], c["claim_version_id"], sid, key, c["decided"][sid])
+                  for c in matched["claims"] if "candidates" in c for sid, key in c["candidates"].items()]
+    return {"series": series, "series_point": points, "match_candidate": candidates}
 
 
 def _comparison(conn: sqlite3.Connection, matched: dict) -> dict:
@@ -287,7 +307,11 @@ def _comparison(conn: sqlite3.Connection, matched: dict) -> dict:
     rows = conn.execute(
         "SELECT r.id, r.original_version_id, r.restated_version_id, r.series_key, r.decision, r.evidence_document_id,"
         " r.evidence_page, r.evidence_quote, c.name, c.organisation, r.capacity, r.rationale, r.created_at,"
-        f" {restate.BINDS} FROM restatement r JOIN contributor_version c ON c.id = r.contributor_version_id"
+        f" {restate.BINDS},"
+        # Both claims, so a row on an earlier version still finds its pair (story 7.1 part C).
+        " (SELECT claim_id FROM claim_version WHERE id = r.original_version_id),"
+        " (SELECT claim_id FROM claim_version WHERE id = r.restated_version_id)"
+        " FROM restatement r JOIN contributor_version c ON c.id = r.contributor_version_id"
         # A row naming a claim version of an archived document leaves with it; comparison pairs come from
         # match.compute, which already reads active documents only.
         " WHERE (SELECT COUNT(*) FROM claim_version v JOIN claim k ON k.id = v.claim_id JOIN document d ON d.id = k.document_id"
@@ -392,7 +416,7 @@ def _write_projection(path: Path, meta: dict, companies, docs, claims, refs, ext
     try:
         out.execute("PRAGMA journal_mode = DELETE")
         out.execute("BEGIN")
-        for stmt in filter(str.strip, PROJECTION_SCHEMA.split(";")):
+        for stmt in (*filter(str.strip, PROJECTION_SCHEMA.split(";")), *PROJECTION_TRIGGERS):
             out.execute(stmt)
         out.executemany("INSERT INTO meta VALUES (?, ?)", [(k, str(v)) for k, v in meta.items()])
         out.executemany(f"INSERT INTO company VALUES ({','.join('?' * 4)})", [tuple(r) for r in companies])
@@ -435,7 +459,7 @@ def build(conn: sqlite3.Connection, root: Path) -> dict:
     hid = extra["hidden_by_archive"]
     meta = {
         "version": version, "built_at": built_at, "history_mark": mark,
-        "gct_version": __version__, "projection_schema": 15,
+        "gct_version": __version__, "projection_schema": 16,
         "hidden_by_archive": json.dumps({"documents": len(hid), **{k: sum(h[i] for h in hid) for i, k in (
             (3, "claims"), (4, "evidence_refs"), (5, "review_records"))}}),
         "deleted_documents": len(extra["deleted_document"]),
@@ -483,7 +507,8 @@ def purge(path: Path, doc_id: int, claims: list, versions: list, gaps: list, mar
     the page table) holds acceptance ids only, so the entries of the document's acceptances are dropped and every other
     entry stays as it was; an older file's acceptance lines of expectations that declared it are rewritten with the
     marker, which also clears another document's lines of those expectations. Then VACUUM, so freed pages do not keep
-    the text. A file of an older projection schema is purged in the tables and columns it has."""
+    the text. A file of an older projection schema is purged in the tables and columns it has. In a file of projection
+    16 a match candidate goes with its claim, its series, or the last rule point of its series."""
     from gct.stages.deletion import PROJECTION  # the stages import this package
 
     ids = {"document": [doc_id], "claim": claims, "version": versions}
@@ -519,6 +544,9 @@ def purge(path: Path, doc_id: int, claims: list, versions: list, gaps: list, mar
             if "gap_confirmation" in cols:
                 out.execute("UPDATE gap_confirmation SET capacity = ?, rationale = ? WHERE id IN"
                             " (SELECT value FROM json_each(?))", (marker, marker, json.dumps(gaps)))
+            if "match_candidate" in cols:  # projection 16; its triggers already did this, a newer gct says it again
+                out.execute("DELETE FROM match_candidate WHERE series_id NOT IN"
+                            " (SELECT series_id FROM series_point WHERE link = 'rule')")
             if "series_point" in cols:
                 out.execute("DELETE FROM series WHERE id NOT IN (SELECT series_id FROM series_point)")
             out.execute("COMMIT")

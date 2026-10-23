@@ -384,6 +384,7 @@ def test_the_shell_counts_on_its_pinned_version_and_offers_a_newer_one(tmp_path,
     assert out["acme"] == "9 claims match in data version 1."
     assert out["evidenceHidden"] is True
     assert out["openPanels"] == 1  # review F4
+    assert out["covering"] == {"1280": [], "900": []}  # review F4: no open choice panel lies over the count line
     assert "2 claims of 1 archived document are not in this or any view." in out["lines"]
     assert out["series"] == 5
     assert out["second_writer"] == 200
@@ -405,3 +406,199 @@ def test_the_filter_bar_keeps_a_wording_set_from_outside(tmp_path):
     out = browse(SimpleNamespace(url=(tmp_path / "index.html").as_uri()), tmp_path, "filterbar")
     assert out["log"] == ["{}", '{"text":"scope 1","company":[1]}']
     assert out["input"] == "scope 1"
+
+
+# Story 6.4 B1 and G3 on the gate fixture (headless Chrome): rows of two companies, one of them a spreadsheet row, go to
+# Graphs and back with the same ids, filter and version; the chip; every D10 reason with no tab change; a time series
+# both ways; after another writer publishes, a selection of the older version is refused until Reload.
+def test_transfer_between_tables_and_graphs(tmp_path):
+    import re
+    import gate_fixture
+    s = server.serve(gate_fixture.build(tmp_path / "gws"), port=0)
+    try:
+        out = browse(s, tmp_path, "transfer")
+    finally:
+        s.stop()
+    none = "Select rows to show them in Graphs."
+    assert out["empty"] == {"buttons": ["Show 0 rows in Graphs (disabled)", "Show as a time series (disabled)"],
+                            "reason": none, "tab": "Tables"}
+    g = out["toGraphs"]
+    assert g["companies"] == ["Beta", "Acme"] and g["cells"] == 1  # two companies; the sheet row with its cell node
+    assert g["nodes"] == [f"claim:{i}" for i in g["picked"]]
+    assert g["chip"] == {"text": "2 claims from Tables", "label": "Remove the selection: 2 claims from Tables"}
+    assert g["line"] == "14 claims match in data version 1." and g["graph"] == "2 claims match in data version 1."
+    b = out["back"]  # G3: the same ids, the same filter (count line) and version
+    assert b["bar"]["buttons"] == ["Show 2 claims in Tables", "Show this series in Tables (disabled)"]
+    assert b["ids"] == g["picked"] and b["line"] == g["line"]
+    assert b["caption"] == "Claims matching the filter in published data version 1"
+    assert b["chip"]["text"] == "2 claims from Graphs"
+    assert g["active"] == "BUTTON Graphs" and b["active"] == "BUTTON Tables"  # review L1, H4: focus on the receiving tab
+    assert b["cleared"] is None  # review L2, H3: no "the filter changed" line when only the incoming selection changed
+    assert out["removed"]["active"] == "BUTTON Tables"  # focus goes to the tab when the chip goes
+    assert out["removed"]["graphsChip"]["text"] == "2 claims from Tables"  # each tab keeps its own chip
+    assert out["twoSeries"] == {"reason": "These claims are in 2 series; pick one.", "tab": "Tables"}
+    assert out["noSeries"]["reason"].startswith("These claims are in no series: ") and out["noSeries"]["tab"] == "Tables"
+    sr = out["series"]
+    assert sr["nodes"] == [f"point:{i}" for i in sr["ids"]] and sr["view"] == "Time series"
+    assert sr["chip"]["text"] == "Time series: Scope 1 emissions from Tables"
+    back = out["seriesBack"]
+    assert back["chip"]["text"] == "Time series: Scope 1 emissions from Graphs"
+    assert back["ids"] == sr["ids"]  # the series node's claims are the series the rows went to Graphs as
+    kinds = {k["kind"]: k for k in out["kinds"]}
+    assert kinds["page"]["reason"] == "A page has no rows of its own; select claims or a series."
+    assert {"period", "boundary", "company", "auditor", "adjudication", "edge"} <= set(kinds)
+    for k in out["kinds"]:
+        assert k["reason"].endswith(" has no rows of its own; select claims or a series."), k
+        assert k["tab"] == "Graphs" and all(x.endswith("(disabled)") for x in k["buttons"]), k
+    assert kinds["adjudication"]["reason"].startswith("An adjudication ")
+    assert kinds["edge"]["reason"].startswith("A member edge ")
+    assert [len(set(m["ids"])) for m in out["mixed"]] == [2, 2]
+    for m in out["mixed"]:  # a series with a claim, then two series (review L3)
+        assert m["reason"] == "Select one series, or claims only.", m
+        assert m["tab"] == "Graphs" and all(x.endswith("(disabled)") for x in m["buttons"]), m
+    assert out["second_writer"] == 200
+    assert out["stale"]["reason"] == ("Data version 1 is no longer the current one; the current version is 2. Reload to see"
+                                      " version 2.")
+    assert out["stale"]["tab"] == "Tables" and out["stale"]["notice"] == "Data version 2 is available. Reload"
+    assert out["reloaded"]["reason"] == none and out["reloaded"]["line"] == "14 claims match in data version 2."
+    assert not re.search(r"verified|assured|certified|compliant", json.dumps(out), re.I)
+
+
+# Story 6.4 R2: a selection across three Tables pages is drawn whole and counted by the chip; 501 rows show the limit and
+# the tab stays (the 501-claim fixture of story 6.3).
+def test_transfer_across_pages_and_the_graph_limit(tmp_path):
+    from test_viewer_graphs import big
+    s = server.serve(big(tmp_path / "big"), port=0)
+    try:
+        out = browse(s, tmp_path, "transfer", "limit")
+    finally:
+        s.stop()
+    assert out["across"]["chip"]["text"] == "405 claims from Tables" and out["across"]["nodes"] == 405
+    assert out["across"]["graph"] == "405 claims match in data version 1."
+    assert out["over"] == {"buttons": ["Show 501 rows in Graphs (disabled)", "Show as a time series"],
+                           "reason": "501 rows selected; a graph draws at most 500. Select fewer.", "tab": "Tables"}
+
+
+
+
+# Story 6.4 part B, the views mode (AC 7, AC 8 G3 browser, R2 keyboard rows): the Saved views panel saves the filter bar's
+# filter and the tab, says when a name exists and when a chip is showing, removes with a key and a confirmation; Escape
+# closes a panel or form and focus returns to its button. A view opened after a later report shows its claims on the
+# version current then; after an archive it shows the remaining claims and the F7 line.
+def test_saved_views_in_a_headless_browser(tmp_path):
+    import sqlite3
+    import gate_fixture
+    from test_review_api import bearer
+    from test_saved_view import later_report
+    from test_correct import post
+    root = gate_fixture.build(tmp_path / "gws")
+    flt = {"company": [1], "metric": ["ghg_scope_1"]}
+
+    def matched(s, version):
+        status, a = post(s, "/api/records", {"filter": flt, "data_version": version, "shape": "table", "limit": 1000},
+                         **bearer(s))
+        assert status == 200, a
+        return [r["claim"]["id"] for r in a["rows"]]
+
+    s = server.serve(root, port=0)
+    try:
+        v1 = matched(s, 1)
+        out = browse(s, tmp_path, "views", "save")
+        _, listed = get(s, "/api/views")
+    finally:
+        s.stop()
+    assert out["filtered"]["line"] == f"{len(v1)} claims match in data version 1."
+    assert sorted(out["filtered"]["ids"]) == sorted(v1)
+    assert out["opened"] == {"active": "SECTION Saved views", "expanded": "true",
+                             "empty": "No saved views yet. Save the current filter below to come back to it."}
+    assert out["escaped"] == {"open": False, "active": "BUTTON Saved views"}
+    assert out["tabNext"] == "BUTTON Questions"  # Tab order follows the screen
+    assert out["saved"]["items"] == [{"name": "scope 1", "meta": out["saved"]["items"][0]["meta"]}]
+    assert out["saved"]["items"][0]["meta"].startswith("Tables · saved ") and out["saved"]["items"][0]["meta"].endswith(" by Ana")
+    assert out["saved"]["done"] == "Saved scope 1." and out["saved"]["name"] == ""
+    assert out["exists"] == "A view named scope 1 exists. Saving puts this one first and keeps the earlier one."
+    assert out["chip"]["chip"] == "1 claim from Tables"
+    assert out["chip"]["notes"] == ["The selection is not part of a saved view; a saved view keeps the filter."]
+    assert [i["name"] for i in out["chip"]["items"]] == ["scope 1", "with chip"]
+    assert out["removeForm"] == {"active": True, "key": "ana"}  # one key for both forms
+    assert out["removeEscaped"] == {"form": False, "active": "BUTTON Remove", "panel": True}
+    assert [i["name"] for i in out["removed"]["items"]] == ["scope 1"]
+    assert out["removed"]["done"] == "Removed with chip. Its record stays in the workspace."
+    # What was stored: the filter and the tab, never the chip's ids; a removal is a row; no version was built.
+    assert listed["views"][0]["filter"] == flt and listed["views"][0]["section"] == "tables"
+    assert listed["hidden"] == 1 and listed["data_version"] == 1
+    with sqlite3.connect(root / "workspace.db") as conn:
+        rows = conn.execute("SELECT name, action, filter, section FROM saved_view ORDER BY id").fetchall()
+    assert rows == [("scope 1", "save", json.dumps(flt), "tables"), ("with chip", "save", json.dumps(flt), "graphs"),
+                    ("with chip", "remove", None, None)]
+
+    doc = later_report(root)  # version 2: two more Acme Scope 1 points
+    s = server.serve(root, port=0)
+    try:
+        out = browse(s, tmp_path, "views", "open")  # the page pins 2; another writer publishes 3 before Open
+        v3 = matched(s, 3)
+    finally:
+        s.stop()
+    assert out["second_writer"] == 200
+    assert out["line"] == f"{len(v3)} claims match in data version 3." and out["notice"] is None
+    assert out["caption"] == "Claims matching the filter in published data version 3"
+    assert sorted(out["ids"]) == sorted(v3) and len(set(v3) - set(v1)) == 2  # the later report's claims
+    assert out["tab"] == "Tables" and out["company"] == "1" and out["metric"] == "1"
+    assert out["active"] == "BUTTON Saved views"  # the panel closed and focus went back to its button
+
+    who = ("--as", "ana", "--capacity", "analyst", "--rationale", "superseded", "--workspace", root)
+    gate_fixture.gct("doc", "archive", str(doc), *who)
+    gate_fixture.gct("publish", "build", "--workspace", root)
+    s = server.serve(root, port=0)
+    try:
+        out = browse(s, tmp_path, "views", "archived")
+        v4 = matched(s, 4)
+    finally:
+        s.stop()
+    assert out["line"] == f"{len(v4)} claims match in data version 4."
+    assert sorted(out["ids"]) == sorted(v4) and set(v4) == set(v3) & set(v1)  # the later report's claims are gone
+    assert ("4 claims of 2 archived documents are not in this or any view. Restore a document to include its claims."
+            in out["count"])  # F7 (Q21, E6-D5): the gate fixture's own archived document and this one
+
+
+# Story 6.4 B3 (AC 7, R2 questions rows): the six questions with their counts on the pinned version, each equal to what
+# the records endpoint matches for its filter (metric-over-time: its number of choices); different-values opens Graphs
+# with its filter; a metric-over-time choice opens Graphs in the series shape.
+def test_guided_questions_in_a_headless_browser(tmp_path):
+    import gate_fixture
+    from test_review_api import bearer
+    from test_correct import post
+    s = server.serve(gate_fixture.build(tmp_path / "gws"), port=0)
+    try:
+        _, q = get(s, "/api/questions")
+        counts = {}
+        for x in q["questions"]:
+            status, a = post(s, "/api/records", {"filter": x["filter"], "data_version": 1, "shape": "table", "limit": 1},
+                             **bearer(s))
+            assert status == 200, a
+            counts[x["key"]] = a["matched"]
+        out = browse(s, tmp_path, "views", "questions")
+    finally:
+        s.stop()
+    want = []
+    for x in q["questions"]:
+        n = len(x["choices"]) if x["key"] == "metric-over-time" else counts[x["key"]]
+        assert x["matched"] == counts[x["key"]]
+        count = (f"{n} series with two or more periods" if x["key"] == "metric-over-time"
+                 else f"{n} claim{'' if n == 1 else 's'} in data version 1")
+        want.append({"text": x["text"], "count": count, "live": "polite"})  # review L5: the counts in the panel's region
+    assert out["opened"]["questions"] == want and len(want) == 6
+    assert out["opened"]["active"] == "SECTION Questions"
+    assert out["escaped"] == {"open": False, "active": "BUTTON Questions"}
+    d = out["different"]
+    assert d["tab"] == "Graphs" and d["comparison"] == "1" and d["chip"] is None
+    assert d["line"] == f"{counts['different-values']} claims match in data version 1."
+    assert len(d["nodes"]) == counts["different-values"] > 0
+    first = next(x for x in q["questions"] if x["key"] == "metric-over-time")["choices"][0]
+    sr = out["series"]
+    assert sr["choicesLive"] == "off"  # the series list a person opens is not read out as a change
+    assert sr["expanded"] == "true" and len(sr["choices"]) == len(next(
+        x for x in q["questions"] if x["key"] == "metric-over-time")["choices"])
+    assert sr["choices"][0].startswith(f"{first['company']}: ") and sr["choices"][0].endswith(f", {first['periods']} periods")
+    assert sr["chip"].startswith("Time series: ") and sr["chip"].endswith(" from Questions")
+    assert sr["view"] == "Time series" and sr["series"] == "1" and sr["points"] >= 2

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canvasLabel, claimLabel, degrees, elements, type GraphAnswer, type GraphNode, hyperedgeRows, hypergraph, layoutOf, type Location,
+import { canvasLabel, claimLabel, degrees, edgeName, elements, type GraphAnswer, type GraphNode, hyperedgeRows, hypergraph, layoutOf, type Location,
   neighbourhood, opening, picked, type Point, pointRow, positions, request, reasonText, type Row, type SeriesAnswer,
   SERIES_SOURCE, sideText, timeSeries } from "../src/graphs.ts";
 
@@ -75,6 +75,15 @@ test("the neighbourhood graph draws every node of the answer once, its member ed
   const comparison = items.find((i) => i.kind === "comparison")!;
   assert.equal(comparison.label, "restatement");
   assert.equal(items.find((i) => i.id === "claim:1>page:1:1")!.label, "printed on");
+});
+
+test("an Edges-table button is named by both ends, the relation and the kind of its edge (review 6.3 P3)", () => {
+  const items = neighbourhood(answer, words);
+  const byId = new Map(items.map((i) => [i.id, i]));
+  assert.equal(edgeName(byId.get("claim:1>page:1:1")!, byId), `${claimLabel(a)} printed on page 1 of report-1.pdf (member edge)`);
+  assert.equal(edgeName(byId.get("comparison:1:2")!, byId), `${claimLabel(a)} compared with ${claimLabel(b)} (comparison edge)`);
+  const names = items.filter((i) => i.group === "edges").map((i) => edgeName(i, byId));
+  assert.equal(new Set(names).size, names.length); // claim 1's edges no longer share claim 1's name
 });
 
 test("the hypergraph has one hub per claim joined to the claim and to the same shared member nodes", () => {
