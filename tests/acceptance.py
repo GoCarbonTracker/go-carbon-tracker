@@ -470,11 +470,17 @@ def render(result) -> list[str]:
     return out + ["", result["cp4"]["text"]]
 
 
+def show(text: str) -> None:
+    """Everything the harness prints, text or --json, goes through here: the home folder reads ~, so no output
+    carries a home path or user name (paths stay readable: ~/... is this user's)."""
+    print(text.replace(str(Path.home()) + os.sep, "~" + os.sep), flush=True)
+
+
 def main(argv=None) -> int:
     var = git_variable(os.environ)
     if var:
-        print(f"Refused: {var} is set, so git (and the suite's git tests) would act on another repository. "
-              f"Nothing was made. Unset {var} and run the harness again.")
+        show(f"Refused: {var} is set, so git (and the suite's git tests) would act on another repository. "
+             f"Nothing was made. Unset {var} and run the harness again.")
         return 2
     parser = argparse.ArgumentParser(description="M1 acceptance harness (story 8.5)")
     parser.add_argument("--g2-report", metavar="PATH", help="a gct measure g2 report file (read only)")
@@ -484,25 +490,25 @@ def main(argv=None) -> int:
     try:  # the whole G2 row is read before anything is made, so a bad report cannot end a long run
         g2 = g2_result(load_g2(args.g2_report) if args.g2_report else None, args.g2_report, env["head"])
     except Refused as e:
-        print(f"Refused: {e} Nothing was made.")
+        show(f"Refused: {e} Nothing was made.")
         return 2
     except (OSError, ValueError, KeyError, TypeError) as e:
-        print(f"Refused: the G2 report {args.g2_report} could not be read ({type(e).__name__}: {e}). "
-              "Nothing was made.")
+        show(f"Refused: the G2 report {args.g2_report} could not be read ({type(e).__name__}: {e}). "
+             "Nothing was made.")
         return 2
     env["folder"] = tempfile.mkdtemp(prefix="gct-acceptance-")  # printed, never deleted
     if not args.json:
-        print("\n".join(header_lines(env) + [f"Folder {env['folder']} (kept)"]), flush=True)
+        show("\n".join(header_lines(env) + [f"Folder {env['folder']} (kept)"]))
     try:
         workflow = run_workflow(Path(env["folder"]), gct_script())
         if not args.json:
-            print("\n".join(workflow_lines(workflow)), flush=True)
+            show("\n".join(workflow_lines(workflow)))
         suite = run_suite(Path(env["folder"]))
     except KeyboardInterrupt:
-        print("Interrupted: no CP4 line.")
+        show("Interrupted: no CP4 line.")
         return 130
     result = assemble(env, workflow, suite, g2)
-    print(json.dumps(result) if args.json else "\n".join(render(result)))
+    show(json.dumps(result) if args.json else "\n".join(render(result)))
     return 1 if result["cp4"]["not_passing"] else 0
 
 

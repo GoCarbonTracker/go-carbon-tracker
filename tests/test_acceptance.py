@@ -546,6 +546,19 @@ def test_text_output_ends_with_the_cp4_line(monkeypatch, capsys, fake_run):
     assert "Assistant interface, Claude (prd :120, :648, M1 pending E8-D27): no test" in out
 
 
+def test_printed_text_and_json_carry_no_home_folder(tmp_path, monkeypatch, capsys, fake_run):
+    """No output names the home folder (so no user name): with HOME at the folder's parent, the folder reads ~/."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(acceptance, "run_suite", fake_suite({}))
+    assert acceptance.main([]) == 1
+    text = capsys.readouterr().out
+    assert str(tmp_path) + os.sep not in text and "\nFolder ~/gct-acceptance-" in text
+    assert acceptance.main(["--json"]) == 1
+    raw = capsys.readouterr().out
+    assert str(tmp_path) + os.sep not in raw
+    assert json.loads(raw)["environment"]["folder"].startswith("~/gct-acceptance-")
+
+
 def test_g2_refusal_comes_before_the_folder(tmp_path, capsys, no_folder):
     """Section 5 probe 2: scorer "2" is refused and nothing is made."""
     assert acceptance.main(["--g2-report", str(g2_report(tmp_path, scorer="2"))]) == 2
