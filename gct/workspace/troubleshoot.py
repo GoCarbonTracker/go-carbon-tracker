@@ -17,7 +17,7 @@ from gct.reports import export, package
 from gct.workspace import published, registry, runs, store
 
 # pyproject.toml dependencies, then the dev extra (tests/test_troubleshoot.py keeps the two equal).
-DEPENDENCIES = ("fastapi", "uvicorn", "pdfplumber", "pypdfium2", "openpyxl", "pytest", "jsonschema")
+DEPENDENCIES = ("fastapi", "uvicorn", "pdfplumber", "pypdfium2", "openpyxl", "reportlab", "pillow", "pytest", "jsonschema")
 FILES = ("troubleshooting.json", "troubleshooting.txt")
 LOGS = 5  # the newest error logs carried (D-8.3-4)
 WITHHELD = "withheld"
