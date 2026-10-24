@@ -1488,7 +1488,9 @@ def cmd_model_list(args) -> None:
         f"{r['name']}  {r['provider']}  {r['model']}  {r['base_url']}  {'external' if r['external'] else 'local'}  "
         f"{'paid' if r['paid'] else 'free'}  {key(r)}" for r in rows
     ) or f"No model adapters configured (looked for {path}). Rung 1 reading needs none."
-    _print(args, {"status": "ok", "path": str(path), "adapters": rows}, text)
+    if rows:
+        text += "\nNo reading step uses these adapters in this version; see docs/models.md."
+    _print(args, {"status": "ok", "path": str(path), "adapters": rows, "reading_steps": []}, text)
 
 
 TRANSFER = {"granted": "granted", "not granted": "not granted",

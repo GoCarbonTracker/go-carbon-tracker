@@ -419,10 +419,10 @@ Amounts are USD. `spent` is the cost of every attempt so far: the cost the provi
 `cap` is null when no spend cap was ever set. `transfer_granted` is true only when the newest transfer approval for that adapter was given for its current address and model. `adapters` lists every adapter in the configuration file (empty without one).
 
 ## model list
-- top: status, path, adapters
+- top: status, path, adapters, reading_steps
 - adapters: name, provider, model, base_url, external, paid, price_in, price_out, api_key_env, key_set
 
-`path` is the configuration file looked for (`$GCT_MODELS`, else `~/.config/gct/models.toml`). `api_key_env` is the name of the environment variable that holds the key (null for none); `key_set` says whether it is set. The key itself is never printed.
+`reading_steps` lists the stages that call an adapter. It is empty in this version: a configured adapter changes nothing about reading. `path` is the configuration file looked for (`$GCT_MODELS`, else `~/.config/gct/models.toml`). `api_key_env` is the name of the environment variable that holds the key (null for none); `key_set` says whether it is set. The key itself is never printed.
 
 ## measure g2
 - top: published_version, gct_commit, scorer_version, status, run_id, report_path, workspace, published, gold, headline, target, delta, rows, types, document_types, documents, runs, adjudication, aggregate
