@@ -1,9 +1,14 @@
 # Code origins
 
-Code copied or adapted from `go-carbon-insights` is logged here. Nothing has been copied yet.
+Code copied or adapted from `go-carbon-insights` is logged here.
 
-| Source path | Commit | What changed | Why |
+| Source path | Verified source commit | What changed | Why |
 |---|---|---|---|
+| `services/hypergraph-rag/scripts/core/score_ground_truth.py` (scorer 1.1.0) | `64e80947d20a0d17e9f89f431245bfa0aedc15ef` | `normalize`, `number_tokens`, and their number-token expression were copied into `gct/measure/g2.py`. The two function bodies match this source snapshot. | Keep G2 text and number normalization consistent with the frozen scorer. |
+
+The source commit above identifies a verified matching snapshot. The original copying-source commit was not recorded.
+The copied code is licensed under MIT, copyright (c) 2025 GoCarbonTracker.
+The MIT permission and warranty text is included in `LICENSE`; retain this copyright attribution with the copied code.
 
 ## Dependency notes
 
