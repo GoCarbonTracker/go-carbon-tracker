@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import tomllib
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -151,13 +152,22 @@ def test_serve_is_stopped_when_the_run_is_interrupted(tmp_path, monkeypatch):
     started, real = [], subprocess.Popen
     monkeypatch.setattr(acceptance.subprocess, "Popen", lambda *a, **k: started.append(real(*a, **k)) or started[-1])
 
+    class NoAnswer:
+        def open(self, *a, **k):
+            raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(acceptance.urllib.request, "build_opener", lambda *a: NoAnswer())
+    silent = acceptance.serve_page(acceptance.SERVE, (0, "ok"), tmp_path / "ws", tmp_path / "x.pdf", script, env)
+    assert not silent["ok"] and silent["cause"] == "no answer from the page: <urlopen error connection refused>"
+    assert len(started) == 1 and started[0].poll() is not None
+
     def interrupt(*a, **k):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(acceptance.urllib.request, "build_opener", interrupt)
     with pytest.raises(KeyboardInterrupt):
         acceptance.serve_page(acceptance.SERVE, (0, "ok"), tmp_path / "ws", tmp_path / "x.pdf", script, env)
-    assert len(started) == 1 and started[0].poll() is not None
+    assert len(started) == 2 and started[1].poll() is not None
 
 
 def test_report_step_takes_every_format_from_export_formats(monkeypatch):
@@ -524,9 +534,11 @@ def test_json_prints_one_object_and_never_claims_cp4(tmp_path, monkeypatch, caps
 
 
 def test_text_output_ends_with_the_cp4_line(monkeypatch, capsys, fake_run):
-    monkeypatch.setattr(acceptance, "run_suite", fake_suite({}))
+    """Every failed test is printed under the suite, even one no gate row reads (section 3.4: no retry)."""
+    monkeypatch.setattr(acceptance, "run_suite", fake_suite({"tests/test_zz.py::test_flaky": ("failed", "timed out\nx")}))
     assert acceptance.main([]) == 1
     out = capsys.readouterr().out.strip().splitlines()
+    assert "  failed: tests/test_zz.py::test_flaky (timed out)" in out
     assert out[-1].startswith("CP4: not claimed. M1 gate lines not passing: G1 clean install (no test)")
     assert "Seed scan: both seeds found in workspace.db (the positive control), none under exports/" in out
     assert any(x.startswith("Privacy in exports (prd :109, :647): fail") for x in out)
@@ -538,6 +550,29 @@ def test_g2_refusal_comes_before_the_folder(tmp_path, capsys, no_folder):
     """Section 5 probe 2: scorer "2" is refused and nothing is made."""
     assert acceptance.main(["--g2-report", str(g2_report(tmp_path, scorer="2"))]) == 2
     assert "scorer_version 2 (expected 1)" in capsys.readouterr().out
+
+
+def test_a_g2_report_the_row_cannot_be_read_from_is_refused_before_the_folder(tmp_path, capsys, no_folder):
+    """The whole G2 row is read before the run starts: a cell without its found count is refused, nothing made."""
+    path = g2_report(tmp_path)
+    report = json.loads(path.read_text())
+    del report["types"][2]["found"]
+    path.write_text(json.dumps(report))
+    assert acceptance.main(["--g2-report", str(path)]) == 2
+    assert f"Refused: the G2 report {path} could not be read (KeyError: 'found')" in capsys.readouterr().out
+
+
+def test_g2_unmeasured_cells_print_without_an_interval(tmp_path):
+    """g2.summarise gives UNMEASURED to a cell with no gold rows; the row prints 0/0 and stays no test."""
+    path = g2_report(tmp_path, found=lambda n: round(0.95 * n))
+    report = json.loads(path.read_text())
+    for t in report["types"]:
+        if t["kind"] == "figure":
+            t.update(n=0, found=0, missed=0, verdict="UNMEASURED")
+    path.write_text(json.dumps(report))
+    g2 = acceptance.g2_result(acceptance.load_g2(path), path, "h")
+    assert g2["status"] == "no test" and "figure 0/0 (0/0, UNMEASURED)" in g2["reason"]
+    assert "Tata Motors Limited figure: 0/0, UNMEASURED" in g2["lines"]
 
 
 def test_interrupted_run_prints_no_cp4_line(monkeypatch, capsys, fake_run):

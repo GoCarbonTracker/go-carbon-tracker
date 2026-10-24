@@ -133,6 +133,9 @@ def serve_page(command: str, stated: tuple, workspace: Path, pdf: Path, script: 
                     http, kind, body = r.status, r.headers.get_content_type(), r.read()
             except urllib.error.HTTPError as e:
                 http, kind, body = e.code, e.headers.get_content_type(), b""
+            except OSError as e:  # no answer: refused, reset or timed out
+                http, kind, body = None, None, b""
+                step["cause"] = f"no answer from the page: {e}"
             step["page"] = f"HTTP {http}, {kind}, {len(body)} bytes"
             step["ok"] = http == 200 and kind == "image/png" and body.startswith(PNG)
     finally:
@@ -281,6 +284,8 @@ def load_g2(path) -> dict:
 
 
 def _counts(found, n, verdict) -> str:
+    if not n:  # g2.summarise's UNMEASURED cell: no interval
+        return f"0/0, {verdict}"
     low, high = wilson(found, n)
     return f"{found}/{n}, Wilson 95% {low:.3f} to {high:.3f}, {verdict}"
 
@@ -303,7 +308,8 @@ def g2_result(report, path, head) -> dict:
     for kind in g2.KINDS:
         found = sum(t["found"] for t in report["types"] if t["kind"] == kind)
         n = sum(t["n"] for t in report["types"] if t["kind"] == kind)
-        verdict = "fail" if found / n < g2.TARGET else "at or above 90% before adjudication"
+        verdict = ("UNMEASURED" if not n else "fail" if found / n < g2.TARGET
+                   else "at or above 90% before adjudication")
         lines.append(f"{kind}: {_counts(found, n, verdict)} (the {sum(t['kind'] == kind for t in report['types'])} "
                      f"company cells summed)")
         per_type.append(f"{kind} {found}/{n} ({_counts(found, n, verdict)})")
@@ -313,7 +319,8 @@ def g2_result(report, path, head) -> dict:
         return {"status": "fail", "reason": "measured, not passed: " + "; ".join(per_type), "lines": lines,
                 "run_id": report["run_id"], "row": row}
     return {"status": "no test", "lines": lines, "run_id": report["run_id"], "row": row,
-            "reason": "no cell below 90%: at or above 90% before adjudication; adjudication is story 3.6's hand method"}
+            "reason": f"no cell below 90% ({'; '.join(per_type)}): before adjudication, not a pass; adjudication "
+                      "is story 3.6's hand method"}
 
 
 def _row(gate, prd, milestone, tests=(), method=None, hand=None, uses=(), inherited=None):
@@ -447,6 +454,8 @@ def render(result) -> list[str]:
     """Everything after the workflow, which main prints as soon as it has run."""
     suite = result["suite"]
     out = ["", f"Suite: {suite['command']}", f"  exit {suite['code']}, {suite['seconds']} s: {suite['line']}"]
+    out += [f"  failed: {n} ({(m.splitlines() or [''])[0][:200]})" for n, (o, m) in sorted(suite["results"].items())
+            if o == "failed"]  # every failure, read by a gate row or not; no retry
     out += ["  skipped: " + n + " (" + m + ")" for n, (o, m) in sorted(suite["results"].items()) if o == "skipped"]
     out += ["", *result["g2"]["lines"], "", "Gates (PRD line, status, reasons):"]
     for g in result["gates"]:
@@ -471,12 +480,16 @@ def main(argv=None) -> int:
     parser.add_argument("--g2-report", metavar="PATH", help="a gct measure g2 report file (read only)")
     parser.add_argument("--json", action="store_true", help="print one JSON object")
     args = parser.parse_args(argv)
-    try:
-        report = load_g2(args.g2_report) if args.g2_report else None
-    except (Refused, OSError, ValueError) as e:
+    env = environment()
+    try:  # the whole G2 row is read before anything is made, so a bad report cannot end a long run
+        g2 = g2_result(load_g2(args.g2_report) if args.g2_report else None, args.g2_report, env["head"])
+    except Refused as e:
         print(f"Refused: {e} Nothing was made.")
         return 2
-    env = environment()
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        print(f"Refused: the G2 report {args.g2_report} could not be read ({type(e).__name__}: {e}). "
+              "Nothing was made.")
+        return 2
     env["folder"] = tempfile.mkdtemp(prefix="gct-acceptance-")  # printed, never deleted
     if not args.json:
         print("\n".join(header_lines(env) + [f"Folder {env['folder']} (kept)"]), flush=True)
@@ -488,7 +501,7 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         print("Interrupted: no CP4 line.")
         return 130
-    result = assemble(env, workflow, suite, g2_result(report, args.g2_report, env["head"]))
+    result = assemble(env, workflow, suite, g2)
     print(json.dumps(result) if args.json else "\n".join(render(result)))
     return 1 if result["cp4"]["not_passing"] else 0
 
