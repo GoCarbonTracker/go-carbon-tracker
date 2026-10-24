@@ -18,6 +18,15 @@
 
 ---
 
+```mermaid
+flowchart LR
+    A["Source Filings<br/>(PDF, CSV, XLSX)"] --> B["Rung-1 Parser<br/>(Text, Tables, Boxes)"]
+    B --> C["Append-Only Store<br/>(SQLite / Snapshots)"]
+    C --> D["Evidence Viewer<br/>(Highlights & Graphs)"]
+```
+
+---
+
 ## Status
 
 This is experimental software. Do not rely on it to keep private material out of what you share.
