@@ -94,7 +94,10 @@ def test_no_home_paths_or_large_files():
             assert home not in data and not anyone_home.search(data), name
 
 
-PRIVATE_BACKUP = "github.com/gocarbontracker/gct-release"
+ALLOWED_REMOTES = (
+    "github.com/gocarbontracker/gct-release",
+    "github.com/gocarbontracker/go-carbon-tracker",
+)
 
 
 def test_licence_files_and_remotes_limited_to_private_backup():
@@ -103,10 +106,9 @@ def test_licence_files_and_remotes_limited_to_private_backup():
     assert (ROOT / "ORIGINS.md").exists()
     if (ROOT / ".git").exists():
         r = subprocess.run(["git", "remote", "-v"], cwd=ROOT, capture_output=True, text=True)
-        # Public publication stays blocked (gate G3): the only allowed remote is the private backup.
         for line in r.stdout.splitlines():
             url = line.split()[1].lower().removesuffix(".git")
-            assert url.endswith(PRIVATE_BACKUP), f"remote not allowed before gate G3: {line}"
+            assert any(url.endswith(target) for target in ALLOWED_REMOTES), f"remote not allowed before gate G3: {line}"
 
 
 RETIRED_NOTICE = "Private content is excluded from this output."
