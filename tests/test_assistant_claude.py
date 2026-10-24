@@ -454,14 +454,19 @@ def test_the_mention_check_leaves_a_real_mention_alone(text):
     assert not mention_problems(text)
 
 
-@pytest.mark.parametrize("path", ASSISTANT_FILES, ids=lambda p: p.name)
-def test_every_code_text_quotation_is_in_the_code(path):
-    source = "\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "gct").rglob("*.py")))
+def check_code_text_quotations(root, path):
+    source = "\n".join(p.read_text(encoding="utf-8") for p in sorted((root / "gct").rglob("*.py")))
     quoted = re.findall(r'Code text: "([^"]+)"', path.read_text(encoding="utf-8"))
-    if path != COMMANDS_MD:
-        assert quoted or path == CLAUDE_MD
+    if path != root / COMMANDS_MD.relative_to(ROOT):
+        assert quoted or path == root / CLAUDE_MD.relative_to(ROOT)
     missing = [(q, part) for q in quoted for part in re.split(r"\{[^}]*\}", q) if part and part not in source]
     assert not missing, missing
+    return quoted
+
+
+@pytest.mark.parametrize("path", ASSISTANT_FILES, ids=lambda p: p.name)
+def test_every_code_text_quotation_is_in_the_code(path):
+    check_code_text_quotations(ROOT, path)
 
 
 def _sections(text):

@@ -12,7 +12,7 @@ import pytest
 
 from conftest import make_pdf
 from gate_fixture import SCOPE_1, page
-from test_assistant_claude import REPLAY_FILES, mention_problems, replay_lines  # story 8.1: replay grammar, file list
+from test_assistant_claude import REPLAY_FILES, check_code_text_quotations, mention_problems, replay_lines
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -133,12 +133,7 @@ def check_readme(root):
 
 
 def check_quotes(root):
-    source = "".join(p.read_text() for p in (root / "gct").rglob("*.py"))
-    quoted = re.findall(r'^\s*(?:- )?Code text: "(.+)"$', guide(root), flags=re.M)
-    assert len(quoted) >= 4
-    for text in quoted:
-        for piece in re.split(r"\{[^}]*\}", text):
-            assert piece in source, piece
+    assert len(check_code_text_quotations(root, root / "docs" / "setup.md")) >= 4
 
 
 def check_privacy_status(root):
@@ -219,6 +214,18 @@ def check_replay_block(root):
                                    check_replay_block])
 def test_guide(check):
     check(ROOT)
+
+
+def test_the_quotation_check_rejects_an_inline_refusal(tmp_path):
+    root = tmp_path / "tree"
+    shutil.copytree(ROOT / "gct", root / "gct")
+    shutil.copytree(ROOT / "docs", root / "docs")
+    path = root / "docs" / "setup.md"
+    with path.open("a", encoding="utf-8") as file:
+        file.write('\nAnother refusal is Code text: "This workspace is safe to publish."\n')
+    check_quotes(ROOT)
+    with pytest.raises(AssertionError, match="This workspace is safe to publish"):
+        check_quotes(root)
 
 
 def sample_command(first_run: str) -> str | None:
