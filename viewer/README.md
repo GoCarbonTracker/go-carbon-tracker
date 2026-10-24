@@ -19,7 +19,13 @@ The pure viewer logic (`src/logic.ts`) has its own tests, run with Node's test r
 node --test test/logic.test.ts
 ```
 
-Known limits of this setup: for the story that added the viewer, `node_modules/` was filled from a local copy of the same locked packages, because no download was allowed. The registry install with `npm ci` was not run, and no check of the installed packages against the registry tarballs was made. Cytoscape 3.34.3 (story 6.3) was added the same way: its `package-lock.json` entry was written by hand, with the registry integrity value copied from another project's lockfile, and its files were copied from a local install; `npm install --offline` with the registry blocked then completed, and its rewritten lockfile was not kept. The copied files were not checked against the registry tarball. A clean `npm ci --offline` fails on `react-refresh`, which is not in the local cache.
+## Build provenance
+
+The original viewer build used locally copied packages because downloads were not allowed. Cytoscape 3.34.3 was added from another local install. Its lockfile entry was written by hand using an integrity value from another project's lockfile. No registry install or package comparison was performed for that build.
+
+The cached npm registry archives for React 18.3.1, React DOM 18.3.1, Scheduler 0.23.2, Cytoscape 3.34.3 and Vite 6.4.4 have since been checked against their lockfile integrity values. Each archive matched. The corresponding React, Vite and Cytoscape licence text accompanies the committed build in `NOTICES.txt`.
+
+This offline archive check does not prove that the committed JavaScript was built from those packages. A rebuild with verified dependencies and a comparison against the committed assets remains pending. A clean dependency installation has not been demonstrated. Keep those checks separate from the source hash and the presence of licence notices.
 
 ## What ships
 

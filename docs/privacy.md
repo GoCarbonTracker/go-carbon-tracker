@@ -142,3 +142,7 @@ skipped, the gate has not passed. The browser check of the viewer pages needs Ch
 GCT cannot recall an output it has already written. Deleting a document removes it from every later output and
 package. A report or package made before the deletion still holds what it held. So does anything you put in
 `exports/` yourself, which no package carries.
+
+## The assistant
+
+Whatever you show Claude, such as claim lists, page images, run lines or report files, leaves your machine through Claude, so showing it the content of a private document is your own transfer; `gct approve transfer` covers processing models only and does not extend to the assistant, and deleting a document later cannot recall what Claude has already read. Claude Code keeps the session transcript on your machine and sends it to Anthropic as your own use of Claude, and GCT does not read or limit it.
