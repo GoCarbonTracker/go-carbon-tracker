@@ -90,7 +90,7 @@ def test_table_and_text_claims(db, doc, gct):
     assert json.loads(energy["boxes"]) == [[words["4,560"]["x0"], words["4,560"]["top"], words["MWh"]["x1"],
                                             words["MWh"]["bottom"]]]
     indian = claims["l1w1"]
-    assert (indian["value_text"], indian["value"], indian["unit_text"]) == ("1,23,456", None, "kL")
+    assert (indian["value_text"], indian["value"], indian["unit_text"]) == ("1,23,456", 123456.0, "kL")
     assert not [c for c in claims.values() if c["value_text"] in ("2023", "12")]  # the year, the footer page number
 
 
@@ -101,7 +101,7 @@ def _root_read(db):
 
 
 @pytest.mark.parametrize("token, expected", [
-    ("1,234.5", ("1,234.5", 1234.5)), ("-12", ("-12", -12.0)), ("0.5", ("0.5", 0.5)), ("1,23,456", ("1,23,456", None)),
+    ("1,234.5", ("1,234.5", 1234.5)), ("-12", ("-12", -12.0)), ("0.5", ("0.5", 0.5)), ("1,23,456", ("1,23,456", 123456.0)),
     ("1.234,5", ("1.234,5", None)), ("(1,234)", ("(1,234)", None)), ("45%", ("45", 45.0)), ("4,560MWh", ("4,560", 4560.0)),
     ("2023", None), ("FY2023-24", None), ("12th", None), ("2023-24", None),
 ])

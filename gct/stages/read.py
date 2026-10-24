@@ -65,7 +65,7 @@ BLOCK_GAP = 5
 
 def read_config() -> str:
     """Called once per command, so a changed threshold or pdfplumber version is never served a stale reading."""
-    return version_of("read", 4, "pdfplumber", version("pdfplumber"), quality.thresholds(),
+    return version_of("read", 5, "pdfplumber", version("pdfplumber"), quality.thresholds(),
                       DIRS, LINE_TOL, ROW_TOL, GUTTER, GUTTER_LINES, OVER_SPACE, BLOCK_GAP)
 
 
@@ -220,6 +220,28 @@ def read_page(page) -> dict:
     _columns(words, [t["bbox"] for t in tables])
     ordered = lines(words)
     for t in tables:  # cell text from the words inside the cell, in their own reading order, never t.extract()
+        cells = t["cells"]
+        n_rows = len(cells)
+        n_cols = max((len(r) for r in cells), default=0)
+        col_spans = [
+            (min((row[c][0] for row in cells if c < len(row) and row[c]), default=None),
+             max((row[c][2] for row in cells if c < len(row) and row[c]), default=None))
+            for c in range(n_cols)
+        ]
+        row_bands = [
+            (min((c[1] for c in row if c), default=None),
+             max((c[3] for c in row if c), default=None))
+            for row in cells
+        ]
+        for r in range(n_rows):
+            r_top, r_bottom = row_bands[r]
+            if r_top is None:
+                continue
+            for c in range(len(cells[r])):
+                if cells[r][c] is None:
+                    c_x0, c_x1 = col_spans[c]
+                    if c_x0 is not None:
+                        cells[r][c] = [_r(c_x0), _r(r_top), _r(c_x1), _r(r_bottom)]
         t["rows"] = [[None if c is None else "\n".join(" ".join(w["text"] for w in line)
                                                      for line in lines([w for w in words if _centre_in(w, c)]))
                       for c in row] for row in t["cells"]]

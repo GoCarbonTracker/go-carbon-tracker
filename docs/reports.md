@@ -232,7 +232,7 @@ Each `evidence` entry has `id`, `kind` (what it is evidence of: `claim`, `basis`
 
 `filter` echoes the filter, `{}` for the whole version. Its keys are those of `docs/views.md`, each present only
 when given: `company`, `document`, `metric`, `text`, `period` (with `from`, `to` or both), `boundary`,
-`claim_state`, `evidence`, `match`, `series`, `comparison` and `review`. A complete file shows the filter as given.
+`claim_state`, `evidence`, `match`, `series`, `comparison`, `review` and `source_kind`. A complete file shows the filter as given.
 A sanitised file keeps only the `company`, `document` and `series` ids that have a shipped row, and replaces a
 `text` with `null` and adds `withheld: ["text"]`.
 

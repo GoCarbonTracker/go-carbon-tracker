@@ -44,7 +44,7 @@ BODIES = {
 }
 
 CLAIMS_SQL = """
-SELECT c.id, c.locator, c.metric_text, c.value_text, c.unit_text, c.period_label, c.period_kind, c.period_start,
+SELECT c.id, c.locator, c.metric_text, c.metric_key, c.value_text, c.value, c.unit_text, c.period_label, c.period_kind, c.period_start,
        c.period_end, c.period_state, c.reporting_boundary, c.boundary_detail, c.boundary_state, e.page_number AS page, e.boxes, e.source_match, e.source_match_reason,
        c.boundary_label, c.claim_state, c.version_method, c.correction, c.needs_re_review
 FROM claim c JOIN evidence_ref e ON e.claim_version_id = c.claim_version_id

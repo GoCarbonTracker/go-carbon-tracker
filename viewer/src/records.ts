@@ -5,20 +5,24 @@
 export type Filter = {
   company?: number[]; document?: number[]; metric?: string[]; text?: string; period?: { from?: string; to?: string };
   boundary?: string[]; claim_state?: string[]; evidence?: string[]; match?: string[]; series?: string[];
-  comparison?: string[]; review?: string[];
+  comparison?: string[]; review?: string[]; source_kind?: string[];
 };
 export type ListField = "company" | "document" | "metric" | "boundary" | "claim_state" | "evidence" | "match" | "series"
-  | "comparison" | "review";
+  | "comparison" | "review" | "source_kind";
 
 /** The fixed values of the worded fields, each with the words the filter bar shows (gct.stages.view.CHOICES). */
 export const CHOICES: Record<string, [string, string][]> = {
   metric: [
-    ["ghg_scope_1", "Scope 1 emissions"], ["ghg_scope_2", "Scope 2 emissions"], ["ghg_scope_1_2", "Scope 1 and 2 emissions"],
-    ["ghg_scope_3", "Scope 3 emissions"], ["energy_total", "total energy"], ["energy_renewable", "renewable energy"],
+    ["ghg_scope_1", "Scope 1 emissions"],
+    ["ghg_scope_2_location", "Scope 2 (location-based)"], ["ghg_scope_2_market", "Scope 2 (market-based)"],
+    ["ghg_scope_2", "Scope 2 emissions"],
+    ["ghg_scope_1_2", "Scope 1 and 2 emissions"], ["ghg_scope_3", "Scope 3 emissions"],
+    ["energy_total", "total energy"], ["energy_renewable", "renewable energy"],
     ["energy_non_renewable", "non-renewable energy"], ["water_withdrawal_total", "water withdrawal"],
     ["water_consumption_total", "water consumption"], ["water_discharge_total", "water discharge"],
     ["waste_total", "total waste"], ["unmapped", "no metric key"],
   ],
+  source_kind: [["table", "table KPIs"], ["text", "narrative text"]],
   boundary: [["standalone", "standalone"], ["subsidiary_set", "subsidiary set"], ["consolidated", "consolidated"],
     ["unknown", "unknown"]],
   claim_state: [["current", "current"], ["not-found", "not found in the newest reading"],

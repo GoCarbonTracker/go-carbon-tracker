@@ -4181,6 +4181,8 @@
       "type": "string",
       "enum": [
        "ghg_scope_1",
+       "ghg_scope_2_location",
+       "ghg_scope_2_market",
        "ghg_scope_2",
        "ghg_scope_1_2",
        "ghg_scope_3",
@@ -4306,6 +4308,17 @@
        "adjudicated"
       ]
      }
+    },
+    "source_kind": {
+     "description": "Source kind of claims.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "table",
+       "text"
+      ]
+     }
     }
    },
    "required": [],
@@ -4338,6 +4351,8 @@
       "type": "string",
       "enum": [
        "ghg_scope_1",
+       "ghg_scope_2_location",
+       "ghg_scope_2_market",
        "ghg_scope_2",
        "ghg_scope_1_2",
        "ghg_scope_3",
@@ -4459,6 +4474,17 @@
        "needs-re-review",
        "corrected",
        "adjudicated"
+      ]
+     }
+    },
+    "source_kind": {
+     "description": "Source kind of claims.",
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "table",
+       "text"
       ]
      }
     },

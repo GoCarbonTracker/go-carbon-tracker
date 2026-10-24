@@ -145,7 +145,7 @@ def test_indian_grouping_gets_a_base_value_and_nothing_is_rewritten(ws, db, gct,
     claim = ids(gct, a)[("Total volume of water consumption (in kilolitres)", "FY 2024-25")]
     versions = count(db, "claim_version")
     assert db.execute("SELECT value_text, value FROM claim_version WHERE claim_id = ?", (claim,)).fetchone()[:] == (
-        "29,79,832", None)
+        "29,79,832", 2979832.0)
     (s,) = series(gct, "water_consumption_total")
     points = gct("series", "show", s["id"], "--all", "--json").data["series"]["points"]
     assert [(p["value_text"], p["number"], p["value_base"]) for p in points] == [
@@ -156,12 +156,12 @@ def test_indian_grouping_gets_a_base_value_and_nothing_is_rewritten(ws, db, gct,
     try:
         assert conn.execute("SELECT value_text, number, value_base FROM series_point WHERE claim_id = ?",
                             (claim,)).fetchone()[:] == ("29,79,832", 2979832.0, 2979832.0)
-        assert conn.execute("SELECT value_text, value FROM claim WHERE id = ?", (claim,)).fetchone()[:] == ("29,79,832", None)
+        assert conn.execute("SELECT value_text, value FROM claim WHERE id = ?", (claim,)).fetchone()[:] == ("29,79,832", 2979832.0)
     finally:
         conn.close()
     assert count(db, "claim_version") == versions
     assert db.execute("SELECT value_text, value FROM claim_version WHERE claim_id = ?", (claim,)).fetchone()[:] == (
-        "29,79,832", None)
+        "29,79,832", 2979832.0)
 
 
 # AC 3

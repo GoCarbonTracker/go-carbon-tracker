@@ -82,6 +82,79 @@ function figure(c: Claim): string {
   return c.unit_text ? `${c.value_text} ${c.unit_text}` : c.value_text;
 }
 
+type EsgCategory =
+  | "GHG Emissions (Scope 1, 2 & 3)"
+  | "Energy"
+  | "Water"
+  | "Waste & Materials"
+  | "Targets & Intensity"
+  | "Uncategorized / (no wording)";
+
+const CATEGORY_ORDER: EsgCategory[] = [
+  "GHG Emissions (Scope 1, 2 & 3)",
+  "Energy",
+  "Water",
+  "Waste & Materials",
+  "Targets & Intensity",
+  "Uncategorized / (no wording)",
+];
+
+function categorizeClaim(c: Claim): EsgCategory {
+  const mk = c.metric_key ?? "";
+  const mt = (c.metric_text ?? "").toLowerCase();
+  const ut = (c.unit_text ?? "").toLowerCase();
+
+  if (!c.metric_text || c.metric_text.trim() === "" || c.metric_text === "(no wording)") {
+    return "Uncategorized / (no wording)";
+  }
+
+  // GHG Emissions
+  if (
+    mk.startsWith("ghg_") ||
+    /\b(ghg|scope\s*[123]|emissions?|carbon|co2e?)\b/i.test(mt) ||
+    /co2/i.test(ut)
+  ) {
+    return "GHG Emissions (Scope 1, 2 & 3)";
+  }
+
+  // Energy
+  if (
+    mk.startsWith("energy_") ||
+    /\b(gj|mwh|gwh|kwh|tj|btu)\b/i.test(ut) ||
+    /\b(energy|electricity|fuel|power|renewable|non-renewable)\b/i.test(mt)
+  ) {
+    return "Energy";
+  }
+
+  // Water
+  if (
+    mk.startsWith("water_") ||
+    /\b(kl|m3|m³|megalitres?|megaliters?|gallons?)\b/i.test(ut) ||
+    /\b(water|effluent|discharge|withdrawal|consumption)\b/i.test(mt)
+  ) {
+    return "Water";
+  }
+
+  // Waste & Materials
+  if (
+    mk.startsWith("waste_") ||
+    /\b(waste|plastic|aluminium|aluminum|copper|iron|steel|nickel|lithium|hazardous|scrap|materials?)\b/i.test(mt)
+  ) {
+    return "Waste & Materials";
+  }
+
+  // Targets & Intensity
+  if (
+    /\b(target|intensity|reduction|per\s+turnover|per\s+employee|per\s+tonne|net[-\s]zero)\b/i.test(mt) ||
+    /%|percent/i.test(ut) ||
+    /%/.test(c.value_text)
+  ) {
+    return "Targets & Intensity";
+  }
+
+  return "Uncategorized / (no wording)";
+}
+
 const EMPTY: CorrectionFields = { value: "", unit: "", metric: "", period_label: "", contributor: "", capacity: "", rationale: "" };
 const FIELDS: [keyof CorrectionFields, string][] = [
   ["value", "Value"], ["unit", "Unit"], ["metric", "Metric wording"], ["period_label", "Period label"],
@@ -546,6 +619,30 @@ export function App() {
   const [sent, setSent] = useState<Record<Tab, Sent>>({ tables: null, graphs: null });
   const [chips, setChips] = useState<Record<Tab, Chip | null>>(NO_CHIPS);
   const [panel, setPanel] = useState<"views" | "questions" | null>(null);
+  const [claimSearch, setClaimSearch] = useState("");
+  const [currentPageOnly, setCurrentPageOnly] = useState(false);
+
+  const open = async (d: Doc, at = 1) => {
+    const id = docRequests.start();
+    setCandidatesOf(null);
+    setFailure(null);
+    setOpened(null);
+    setSelected(-1);
+    setClaims([]);
+    try {
+      const [info, list] = await Promise.all([
+        get<{ pages: PageSize[] }>(`/api/documents/${d.id}`),
+        get<{ claims: Claim[] }>(`/api/documents/${d.id}/claims`),
+      ]);
+      if (!docRequests.isCurrent(id)) return; // another document was chosen meanwhile
+      setOpened({ id: d.id, name: d.logical_name, pages: info.pages });
+      setPage(stepPage(at, 0, info.pages.length));
+      setClaims(list.claims);
+    } catch (e) {
+      if (docRequests.isCurrent(id)) setFailure(failureOf(e));
+    }
+  };
+
   const changeFilter = useCallback((f: Filter) => {
     setFilter(f);
     setChips(NO_CHIPS);
@@ -555,14 +652,14 @@ export function App() {
 
   const loadCompanies = async () => {
     const { companies } = await get<{ companies: { id: number; name: string }[] }>("/api/companies");
-    setCompanies(
-      await Promise.all(
-        companies.map(async (c) => ({
-          ...c,
-          documents: (await get<{ documents: Doc[] }>(`/api/companies/${c.id}/documents`)).documents,
-        })),
-      ),
+    const loaded = await Promise.all(
+      companies.map(async (c) => ({
+        ...c,
+        documents: (await get<{ documents: Doc[] }>(`/api/companies/${c.id}/documents`)).documents,
+      })),
     );
+    setCompanies(loaded);
+    return loaded;
   };
 
   useEffect(() => {
@@ -655,27 +752,6 @@ export function App() {
 
   useEffect(() => setPageBox(String(page)), [page]);
 
-  const open = async (d: Doc, at = 1) => {
-    const id = docRequests.start();
-    setCandidatesOf(null);
-    setFailure(null);
-    setOpened(null);
-    setSelected(-1);
-    setClaims([]);
-    try {
-      const [info, list] = await Promise.all([
-        get<{ pages: PageSize[] }>(`/api/documents/${d.id}`),
-        get<{ claims: Claim[] }>(`/api/documents/${d.id}/claims`),
-      ]);
-      if (!docRequests.isCurrent(id)) return; // another document was chosen meanwhile
-      setOpened({ id: d.id, name: d.logical_name, pages: info.pages });
-      setPage(stepPage(at, 0, info.pages.length));
-      setClaims(list.claims);
-    } catch (e) {
-      if (docRequests.isCurrent(id)) setFailure(failureOf(e));
-    }
-  };
-
   const docs = companies.flatMap((c) => c.documents.map((d) => ({ ...d, company: c.name })));
   const docOptions = docs.map((d) => ({ id: d.id, label: `${d.company}: ${d.logical_name}${d.version > 1 ? ` v${d.version}` : ""}` }));
   const docName = (id: number) => docs.find((d) => d.id === id)?.logical_name ?? `document ${id}`;
@@ -762,6 +838,24 @@ export function App() {
     .map((c, i) => ({ c, i }))
     .filter(({ c }) => c.page === page && decide(c, pageCount) === "jump and highlight")
     .sort((a, b) => Number(a.i === selected) - Number(b.i === selected)); // the selected box is drawn last, on top
+
+  const filteredClaims = claims
+    .map((c, originalIndex) => ({ c, originalIndex }))
+    .filter(({ c }) => {
+      if (currentPageOnly && c.page !== page) return false;
+      if (!claimSearch.trim()) return true;
+      const q = claimSearch.toLowerCase().trim();
+      const wording = (c.metric_text ?? "").toLowerCase();
+      const val = (c.value_text ?? "").toLowerCase();
+      const unit = (c.unit_text ?? "").toLowerCase();
+      const period = (c.period_label ?? "").toLowerCase();
+      return wording.includes(q) || val.includes(q) || unit.includes(q) || period.includes(q);
+    });
+
+  const categorizedClaims = CATEGORY_ORDER.map((category) => {
+    const items = filteredClaims.filter(({ c }) => categorizeClaim(c) === category);
+    return { category, items };
+  }).filter(({ items }) => items.length > 0);
 
   return (
     <div className="shell">
@@ -954,28 +1048,69 @@ export function App() {
         <h2>Claims</h2>
         {candidatesOf && <p className="hint">Choose a document on the left to see its claims.</p>}
         {opened && !candidatesOf && claims.length === 0 && <p className="hint">No claims for this document. Run: gct extract</p>}
-        <ul hidden={!!candidatesOf}>
-          {claims.map((c, i) => (
-            <li key={`${c.id}-${i}`}>
-              <button
-                ref={(el) => {
-                  items.current[i] = el;
-                }}
-                className="claim"
-                aria-pressed={i === selected}
-                onClick={() => select(i)}
-              >
-                <span className="figure">{figure(c)}</span>
-                <span className="wording">{c.metric_text ?? "(no wording)"}</span>
-                <span className="meta">
-                  {c.page === null ? "no page" : `page ${c.page}`}
-                  {c.claim_state !== "current" && ` · ${c.claim_state}`}
-                </span>
-                <StatusLabel claim={c} />
-              </button>
-            </li>
+        {!candidatesOf && opened && (
+          <div className="claims-controls">
+            <input
+              type="search"
+              className="claims-search"
+              placeholder="Search claims..."
+              value={claimSearch}
+              onChange={(e) => setClaimSearch(e.target.value)}
+              aria-label="Search claims"
+            />
+            <label className="claims-page-toggle">
+              <input
+                type="checkbox"
+                checked={currentPageOnly}
+                onChange={(e) => setCurrentPageOnly(e.target.checked)}
+              />
+              {" "}Current page only
+            </label>
+          </div>
+        )}
+        <div className="claims-groups" hidden={!!candidatesOf}>
+          {categorizedClaims.map(({ category, items: catItems }) => (
+            <details
+              key={category}
+              className="claim-category"
+              open={category !== "Uncategorized / (no wording)"}
+            >
+              <summary>
+                {category} <span className="meta">({catItems.length})</span>
+              </summary>
+              <ul>
+                {catItems.map(({ c, originalIndex }) => (
+                  <li key={`${c.id}-${originalIndex}`}>
+                    <button
+                      ref={(el) => {
+                        items.current[originalIndex] = el;
+                      }}
+                      className="claim"
+                      aria-pressed={originalIndex === selected}
+                      onClick={() => select(originalIndex)}
+                    >
+                      <span className="figure">{figure(c)}</span>
+                      <span className="wording">{c.metric_text ?? "(no wording)"}</span>
+                      <span className="meta">
+                        {[
+                          c.period_label,
+                          c.page === null ? "no page" : `page ${c.page}`,
+                          c.claim_state !== "current" ? c.claim_state : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
+                      <StatusLabel claim={c} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
           ))}
-        </ul>
+          {!candidatesOf && opened && claims.length > 0 && categorizedClaims.length === 0 && (
+            <p className="hint">No claims match the filter.</p>
+          )}
+        </div>
       </aside>
     </div>
   );

@@ -55,9 +55,10 @@ CY = re.compile(rf"(?:(?P<p>{PART})\s*)?(?:CY\s?'?(?P<y>\d{{4}}|\d{{2}})|calenda
 FY = re.compile(rf"(?:(?P<p>{PART})\s*)?(?:FY\s?'?(?P<a>\d{{4}}|\d{{2}})(?:\s?[-–/]\s?(?P<b>\d{{4}}|\d{{2}}))?"
                 rf"|(?P<c>\d{{4}})\s?[-–]\s?(?P<d>\d{{4}}|\d{{2}}))(?:\s*(?P<q>{PART}))?", re.I)
 # Fiscal-year-end statements: a financial/fiscal year or FY with "ended <date>" or "<date> to <date>", in one sentence.
-FY_WORD = r"(?:(?:financial|fiscal)\s+year|\bFY\b)"
+FY_WORD = r"(?:(?:financial|fiscal|reporting)\s+(?:year|period)|\bFY\b)"
 FY_ENDED = re.compile(rf"{FY_WORD}[^.]{{0,40}}?\b(?:ended|ending)(?:\s+on)?\s+({DATE})", re.I)
 FY_RANGE = re.compile(rf"{FY_WORD}[^.]{{0,80}}?({DATE})\s+to\s+({DATE})|({DATE})\s+to\s+({DATE})[^.]{{0,80}}?{FY_WORD}", re.I)
+FY_SHARED = re.compile(rf"{FY_WORD}[^.]{{0,60}}?\(?(\d{{1,2}}{ORD}\s+{MON}|{MON}\s+\d{{1,2}}{ORD})\s+to\s+({DATE})\)?", re.I)
 # Boundary statements (B1). The BRSR item-13 question names both bases, so it is removed before anything is read.
 QUESTION = re.compile(r"are\s+the\s+disclosures\s+under\s+this\s+report\s+made\s+on\s+a\s+standalone\s+basis.{0,400}?"
                       r"consolidated\s+basis(?:\s*\([^)]*\))?\.?", re.I | re.S)
@@ -176,6 +177,10 @@ def period_of(label, bases) -> tuple[str, date, date, dict | None]:
         _date(text)  # an ambiguous or impossible date says so
         raise Unresolved(NOT_RECOGNISED)
     if re.fullmatch(r"\d{4}", text):
+        year = int(text)
+        dec_basis = next((b for b in bases if b.get("fy_end") == "12-31"), None)
+        if dec_basis:
+            return ("calendar_year", date(year, 1, 1), date(year, 12, 31), dec_basis)
         raise Unresolved(BARE)
     if re.fullmatch(PART, text, re.I):
         raise Unresolved(PART_ONLY)
@@ -226,6 +231,18 @@ def bases_of(reading: dict) -> tuple[list[dict], bool]:
             continue
         try:
             kind, start, end = _span(_date(m[1] or m[3]), _date(m[2] or m[4]))
+        except Unresolved:
+            continue
+        if kind in ("fiscal_year", "calendar_year"):
+            found.append({"kind": "fiscal_year_end", "wording": _clean(m[0]), "fy_end": f"{end:%m-%d}",
+                          "period_start": start.isoformat(), "period_end": end.isoformat()})
+    for m in FY_SHARED.finditer(text):
+        if re.search(SHORTER, m[0], re.I):
+            continue
+        try:
+            end = _date(m[2])
+            start = _date(f"{m[1]} {end.year}")
+            kind, start, end = _span(start, end)
         except Unresolved:
             continue
         if kind in ("fiscal_year", "calendar_year"):

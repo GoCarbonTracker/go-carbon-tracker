@@ -9,16 +9,18 @@ from gct.stages.read import lines as _lines
 from gct.workspace import registry, runs, store
 
 METHOD = "rung1-rules"
-RULES_VERSION = 5
+RULES_VERSION = 6
 READ_FIRST = "read it first: gct read"
 RETRY = "Run gct extract again. Pages already extracted are not extracted twice."
 
 # Detects units; never converts them. A space or a slash inside the unit as printed is allowed ("t CO2e").
-UNITS = {"tCO2e", "tCO2", "tonnes", "t", "kt", "Mt", "MWh", "GWh", "kWh", "GJ", "TJ", "kL", "ML", "m3", "%"}
+UNITS = {"tCO2e", "tCO2", "tonnes", "t", "kt", "Mt", "MWh", "GWh", "kWh", "GJ", "TJ", "kL", "ML", "m3", "%", "million tonnes CO2e", "ktCO2e", "kt CO2e"}
 NUMBER = re.compile(r"(\(?-?\d(?:[\d,.]*\d)?\)?)(\S*)")
 WESTERN = re.compile(r"-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?")
+INDIAN = re.compile(r"-?\d{1,2}(?:,\d{2})*,\d{3}(?:\.\d+)?")
 YEAR = re.compile(r"199\d|20\d\d|2100")
 PERIOD = re.compile(r"(?<!\w)(?<!\d[,.])(?:FY\s?\d{2,4}(?:-\d{2,4})?|\d{4}-\d{2,4}|199\d|20\d\d|2100)(?!\w|[,.]\d)")
+FOOTNOTE_RE = re.compile(r"^[\*#†\^]+$|^\([a-g]\)$", re.I)
 # Column headers printed above a table: lines within HEADER_BAND points of its top; words WORD_GAP points apart or
 # closer are one header. A boundary header is kept as printed and never becomes a reporting boundary (rule B2).
 HEADER_BAND = 30
@@ -59,15 +61,19 @@ def _unit(text: str) -> str | None:
 
 def _figure(token: str):
     """(number as printed, attached unit or None) when the token is a figure, else None. Years are not figures."""
-    m = NUMBER.fullmatch(token.rstrip(".,;:"))
+    clean = token.rstrip(".,;:")
+    m = NUMBER.fullmatch(clean)
     if not m:
         return None
     number, rest = m.groups()
+    is_footnote = bool(rest and FOOTNOTE_RE.fullmatch(rest))
+    if is_footnote:
+        rest = ""
     if rest and not _unit(rest):
         return None
     if not rest and YEAR.fullmatch(number):
         return None
-    return number, rest or None
+    return (clean if is_footnote else number), (rest or None)
 
 
 def _cell_figure(text: str):
@@ -80,8 +86,32 @@ def _cell_figure(text: str):
 
 
 def _value(number: str) -> float | None:
-    """Only the unambiguous Western form gets a value; parentheses never infer a sign."""
-    return float(number.replace(",", "")) if WESTERN.fullmatch(number) else None
+    """Western or Indian grouped numbers get a value after trailing footnote marks are removed."""
+    s = str(number or "").strip().rstrip("*#†^").strip()
+    return float(s.replace(",", "")) if WESTERN.fullmatch(s) or INDIAN.fullmatch(s) else None
+
+
+def _extract_unit(text: str) -> str | None:
+    """Scan parentheticals in text (right-to-left) and return the first valid unit."""
+    if not text:
+        return None
+    matches = re.findall(r"\(([^()]+)\)", text)
+    for g in reversed(matches):
+        g_clean = g.strip()
+        if any(op in g_clean for op in ("+", "=", "–", "—", "-")):
+            continue
+        if re.fullmatch(r"[a-z]|\b(?:i|ii|iii|iv|v|vi|vii|viii|ix|x)\b", g_clean, re.I):
+            continue
+        if re.search(r"market-based|location-based|standalone|consolidated", g_clean, re.I):
+            continue
+        cand = re.sub(r"^(?:in\s+)", "", g_clean, flags=re.I).strip()
+        cand_norm = cand.lower().replace(" ", "").replace("/", "").replace("-", "")
+        if _unit(cand) or cand in UNITS or cand_norm in {u.lower().replace(" ", "").replace("/", "").replace("-", "") for u in UNITS}:
+            return g_clean
+        from gct.stages.match import UNITS as MATCH_UNITS
+        if cand_norm in MATCH_UNITS or any(cand_norm.endswith(k) for k in MATCH_UNITS) or "co2" in cand_norm or "joule" in cand_norm or "tonne" in cand_norm:
+            return g_clean
+    return None
 
 
 def _union(ws) -> list:
@@ -108,7 +138,8 @@ def _headers(reading: dict, t: int, spans: list) -> dict:
     HEADER_BAND of its top, nearest first, stopping at a line that is not all period and boundary words or that has
     another table between it and this one. A header word group heads each column whose x-range it overlaps."""
     x0, top, x1, _ = reading["tables"][t]["bbox"]
-    band = [w for w in _outside(reading) if 0 <= top - w["bottom"] <= HEADER_BAND and _overlaps(w["x0"], w["x1"], x0, x1)]
+    band = [w for w in reading["words"] if -4 <= top - w["bottom"] <= HEADER_BAND and (w["top"] + w["bottom"]) / 2 <= top + 2
+            and _overlaps(w["x0"], w["x1"], x0, x1)]
     others = [o["bbox"] for i, o in enumerate(reading["tables"]) if i != t]
     out = {}
     for line in sorted(_cluster(band, 2), key=lambda line: -max(w["bottom"] for w in line)):
@@ -122,29 +153,25 @@ def _headers(reading: dict, t: int, spans: list) -> dict:
             else:
                 groups.append([w])
         heads = [(" ".join(w["text"] for w in g), g[0]["x0"], g[-1]["x1"]) for g in groups]
-        kinds = ["period" if PERIOD.fullmatch(s) else "boundary" if BOUNDARY.fullmatch(s) else None for s, *_ in heads]
+        kinds = ["period" if PERIOD.search(s) else "boundary" if BOUNDARY.fullmatch(s) else None for s, *_ in heads]
         if None in kinds:
             break
         for (s, g0, g1), kind in zip(heads, kinds):
+            val = re.sub(r"(?:[\*#†\^]|\([a-g]\))+$", "", s).strip() if kind == "period" else s
             for c, span in enumerate(spans):
                 if span and _overlaps(g0, g1, span[0], span[2]):
-                    out.setdefault(c, {}).setdefault(kind, s)  # the nearest header of a kind wins
+                    out.setdefault(c, {}).setdefault(kind, val)  # the nearest header of a kind wins
     return out
 
 
 def _row_label(reading: dict, t: int, cells_row: list) -> str | None:
     """The words left of table t whose vertical centre falls inside the row's cell band."""
-    # ponytail: no column-region test; the cut that keeps a label column beside its table (Tata AR p134) also files
-    # it with the text below, so a prose column left of a detected table would lend its line. Upgrade: regions
-    # recorded per reading, not only a column number.
-    x0 = reading["tables"][t]["bbox"][0]
     boxes = [c for c in cells_row if c]
     if not boxes:
         return None
+    first_cell_x0 = min(b[0] for b in boxes)
     top, bottom = min(b[1] for b in boxes), max(b[3] for b in boxes)
-    left = [w for w in _outside(reading) if w["x1"] <= x0 and top <= (w["top"] + w["bottom"]) / 2 <= bottom]
-    # Figure and unit words right of the last wording word are value columns printed outside the bbox (Mahindra AR
-    # p75), never the label; a row with no wording has no label. Numbers inside the wording stay ("Scope 1 emissions").
+    left = [w for w in reading["words"] if w.get("dir", "ltr") == "ltr" and w["x1"] <= first_cell_x0 and top <= (w["top"] + w["bottom"]) / 2 <= bottom]
     wording = [w for w in left if not (_figure(w["text"]) or _unit(w["text"]) or w["text"] in DASHES
                                        or w["text"].lower() in ("unit", "units"))]
     if not wording:
@@ -156,31 +183,103 @@ def _row_label(reading: dict, t: int, cells_row: list) -> str | None:
 
 def _table_claims(reading: dict):
     for t, table in enumerate(reading["tables"]):
-        rows = [[_clean(c) for c in row] for row in table["rows"]]
+        raw_rows = table["rows"]
         cells = table.get("cells") or []  # readings before reading config 2 have no cell boxes
-        header = rows[0]
+        raw_header = raw_rows[0] if raw_rows else []
+        header = [_clean(c) for c in raw_header]
+        table_default_unit = _extract_unit(raw_header[0]) if raw_header else None
         unit_cols = [c for c, h in enumerate(header) if h.lower() in ("unit", "units")]
-        # Each column's x-range: its first cell box in any row (a merged cell leaves None).
         spans = [next((row[c] for row in cells if c < len(row) and row[c]), None) for c in range(len(header))]
         heads = _headers(reading, t, spans) if cells else {}
-        for r, row in enumerate(rows):
-            # The label is the first non-empty cell that is not a figure; a row without one has no label cell and
-            # takes the words printed left of the table on its row.
-            at = next((c for c, s in enumerate(row) if s and s not in DASHES and not _cell_figure(s)), None)
-            label = row[at] if at is not None else _row_label(reading, t, cells[r]) if r < len(cells) else None
-            suffix = label and re.search(r"\(([^()]+)\)$", label)
-            for c in range(len(row)):
-                fig = None if c == at or c in unit_cols else _cell_figure(row[c])
-                if not fig:
-                    continue
-                head = heads.get(c, {})
-                period = (header[c] if r and PERIOD.search(header[c]) else None) or head.get("period")
-                unit = (row[unit_cols[0]] if unit_cols else None) or fig[1] or (suffix and suffix[1])
-                box = cells[r][c] if r < len(cells) and c < len(cells[r]) else None
-                inside = [w for w in reading["words"] if box and _centre_in(w, box)]
-                exact = inside and " ".join(w["text"] for line in _lines(inside) for w in line) == row[c]
-                yield _claim(f"t{t}r{r}c{c}", label, fig[0], unit or None, period, [_union(inside)] if exact else None,
-                             head.get("boundary"))
+
+        # Detect parallel numeric columns to the right of t["bbox"]
+        x0, top, x1, bottom = table["bbox"]
+        band_right = [w for w in reading["words"] if -4 <= top - w["bottom"] <= HEADER_BAND
+                      and (w["top"] + w["bottom"]) / 2 <= top + 2 and w["x0"] >= x1 - 5]
+        parallel_cols = []
+        if band_right:
+            for line in sorted(_cluster(band_right, 2), key=lambda line: -max(w["bottom"] for w in line)):
+                groups = []
+                for w in sorted(line, key=lambda w: w["x0"]):
+                    if groups and w["x0"] - groups[-1][-1]["x1"] <= WORD_GAP:
+                        groups[-1].append(w)
+                    else:
+                        groups.append([w])
+                for g in groups:
+                    s = " ".join(w["text"] for w in g)
+                    m = PERIOD.search(s)
+                    if m:
+                        p_period = m.group(0)
+                        g0, g1 = g[0]["x0"], g[-1]["x1"]
+                        last_w = (spans[-1][2] - spans[-1][0]) if spans and spans[-1] else (x1 - x0)
+                        c_x0 = x1 if not parallel_cols else parallel_cols[-1]["x1"]
+                        c_x1 = max(g1 + 10, c_x0 + last_w)
+                        parallel_cols.append({"period": p_period, "x0": c_x0, "x1": c_x1})
+
+        # If table default unit not found in header[0], inspect rows for a unit
+        if not table_default_unit:
+            for r in range(1, len(raw_rows)):
+                for c in range(len(raw_rows[r])):
+                    u = _extract_unit(raw_rows[r][c])
+                    if u:
+                        table_default_unit = u
+                        break
+                if table_default_unit:
+                    break
+
+        for r, row in enumerate(raw_rows):
+            cell_lines = [(c or "").split("\n") for c in row]
+            max_l = max((len(cl) for cl in cell_lines), default=1)
+            # Only split into multiple lines if figure cells have multiple lines
+            if max_l > 1 and not any(len(cl) > 1 and any(_figure(tk) for tk in cl) for c, cl in enumerate(cell_lines)):
+                max_l = 1
+
+            for l_idx in range(max_l):
+                sub_row = [_clean(cell_lines[c][l_idx] if l_idx < len(cell_lines[c]) else "") for c in range(len(row))]
+                raw_sub_row = [cell_lines[c][l_idx] if l_idx < len(cell_lines[c]) else "" for c in range(len(row))]
+                at = next((c for c, s in enumerate(sub_row) if s and s not in DASHES and not _cell_figure(s)), None)
+                label = sub_row[at] if at is not None else _row_label(reading, t, cells[r]) if r < len(cells) else None
+                row_unit = _extract_unit(raw_sub_row[at]) if at is not None else _extract_unit(label)
+                for c in range(len(sub_row)):
+                    fig = None if c == at or c in unit_cols else _cell_figure(sub_row[c])
+                    if not fig:
+                        continue
+                    head = heads.get(c, {})
+                    h_clean = re.sub(r"(?:[\*#†\^]|\([a-g]\))+$", "", header[c]).strip() if header[c] else ""
+                    period = (h_clean if r and (PERIOD.search(h_clean) or "as at" in h_clean.lower()) else None) or head.get("period")
+                    unit = (sub_row[unit_cols[0]] if unit_cols else None) or fig[1] or row_unit or table_default_unit
+                    box = cells[r][c] if r < len(cells) and c < len(cells[r]) else None
+                    inside = [w for w in reading["words"] if box and _centre_in(w, box)]
+                    if max_l > 1:
+                        inside_lines = _lines(inside)
+                        line_w = inside_lines[l_idx] if l_idx < len(inside_lines) else []
+                        exact = line_w and " ".join(w["text"] for w in line_w) == sub_row[c]
+                        box_to_use = [_union(line_w)] if exact else ([_union(inside)] if inside else None)
+                    else:
+                        exact = inside and " ".join(w["text"] for line in _lines(inside) for w in line) == sub_row[c]
+                        box_to_use = [_union(inside)] if exact else None
+                    loc = f"t{t}r{r}c{c}" if max_l == 1 else f"t{t}r{r}l{l_idx}c{c}"
+                    yield _claim(loc, label, fig[0], unit or None, period, box_to_use, head.get("boundary"))
+
+            # Parallel numeric columns to the right of t["bbox"]
+            if parallel_cols and r > 0 and r < len(cells):
+                boxes = [c for c in cells[r] if c]
+                if boxes:
+                    r_top, r_bottom = min(b[1] for b in boxes), max(b[3] for b in boxes)
+                    at = next((c for c, s in enumerate(row) if s and s not in DASHES and not _cell_figure(s)), None)
+                    label = _clean(row[at]) if at is not None else _row_label(reading, t, cells[r])
+                    row_unit = _extract_unit(row[at]) if at is not None else _extract_unit(label)
+                    unit = row_unit or table_default_unit
+                    for p_idx, pcol in enumerate(parallel_cols):
+                        p_box = [pcol["x0"], r_top, pcol["x1"], r_bottom]
+                        inside = [w for w in reading["words"] if _centre_in(w, p_box)]
+                        if inside:
+                            txt = " ".join(w["text"] for line in _lines(inside) for w in line)
+                            fig = _cell_figure(txt)
+                            if fig:
+                                exact = " ".join(w["text"] for line in _lines(inside) for w in line) == txt
+                                loc = f"t{t}r{r}c{len(row) + p_idx}"
+                                yield _claim(loc, label, fig[0], unit or None, pcol["period"], [_union(inside)] if exact else None, None)
 
 
 def _text_claims(reading: dict):

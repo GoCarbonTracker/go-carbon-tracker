@@ -5,7 +5,7 @@ type Company = { id: number; name: string; documents: { id: number; logical_name
 
 const WORDED: [ListField, string][] = [
   ["metric", "Metric"], ["boundary", "Boundary"], ["claim_state", "Claim state"], ["evidence", "Evidence"],
-  ["match", "Matching"], ["comparison", "Comparison"], ["review", "Review"],
+  ["match", "Matching"], ["comparison", "Comparison"], ["review", "Review"], ["source_kind", "Source kind"],
 ];
 
 /** A list field as a disclosure of checkboxes; its summary names how many values are chosen. */

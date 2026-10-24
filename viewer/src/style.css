@@ -623,3 +623,58 @@ code {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+.claims-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 2;
+}
+
+.claims-search {
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.claims-page-toggle {
+  font-size: 0.8rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+}
+
+.claim-category {
+  margin-bottom: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.claim-category > summary {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: #f8f9fa;
+  border-radius: 4px;
+}
+
+.claim-category[open] > summary {
+  border-bottom: 1px solid var(--line);
+  border-radius: 4px 4px 0 0;
+}
+
+.claim-category ul {
+  padding: 0.2rem;
+}

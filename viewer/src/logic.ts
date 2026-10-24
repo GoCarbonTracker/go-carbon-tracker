@@ -6,6 +6,8 @@ export type Claim = {
   id: number;
   locator: string;
   metric_text: string | null;
+  metric_key?: string | null;
+  value?: number | null;
   value_text: string;
   unit_text: string | null;
   period_label: string | null; // as printed

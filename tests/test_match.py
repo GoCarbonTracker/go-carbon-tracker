@@ -124,7 +124,7 @@ def test_metric_list_on_the_real_labels():
     assert match.metric_of("Total Scope 1 and Scope 2 emissions")[0] == "ghg_scope_1_2"
     assert match.metric_of("Scope-1 emissions")[0] == match.metric_of("Scope I emissions")[0] == "ghg_scope_1"
     assert match.metric_of("Scope II emissions") == (None, None)
-    assert match.metric_of("Scope 2 emissions (market-based)") == (None, None)
+    assert match.metric_of("Scope 2 emissions (market-based)")[0] == "ghg_scope_2_market"
     # ratio and category are whole words: operations, generation and corporation still map
     assert [match.metric_of(label)[0] for label in (
         "Total Scope 1 emissions from operations", "total energy consumed from generation",

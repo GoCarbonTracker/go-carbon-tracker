@@ -22,7 +22,7 @@ CHOICES = {
     "period": None, "boundary": ("standalone", "subsidiary_set", "consolidated", "unknown"),
     "claim_state": tuple(correct.STATES), "evidence": ("matched", "cited", "unresolved", "not-checked"),
     "match": ("series", "reviewed", "uncertain", "not-matchable"), "series": None, "comparison": tuple(restate.FILTERS),
-    "review": REVIEWS,
+    "review": REVIEWS, "source_kind": ("table", "text"),
 }
 FIELDS = tuple(CHOICES)
 IDS = ("company", "document")
@@ -196,6 +196,16 @@ def select(pconn, flt: dict) -> list[int]:
         states = json.dumps([restate.FILTERS[s] for s in flt["comparison"]])
         cond(f"c.id IN (SELECT claim_a FROM comparison WHERE state IN {IN}"
              f" UNION SELECT claim_b FROM comparison WHERE state IN {IN})", states, states)
+    if "source_kind" in flt:
+        clauses = []
+        if "table" in flt["source_kind"]:
+            clauses.append("c.locator LIKE 't%'")
+        if "text" in flt["source_kind"]:
+            clauses.append("c.locator LIKE 'l%'")
+        if clauses:
+            cond(f"({' OR '.join(clauses)})")
+        else:
+            cond("0")
     if "review" in flt:
         parts = []
         for r in flt["review"]:
