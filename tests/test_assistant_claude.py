@@ -42,6 +42,7 @@ REPLAY_FILES = [
     CLAUDE_MD,
     SKILL_MD,
     COMMANDS_MD,
+    ROOT / "docs" / "setup.md",
 ]
 # The files the mention check (c), the Code text check (d), the presence checks (e) and the AC 8 never-list scan run
 # over. Separate from REPLAY_FILES on purpose: a file added there (8.2's setup guide) is replayed, not scanned.
