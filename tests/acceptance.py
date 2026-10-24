@@ -9,6 +9,7 @@ and never lowers, rewords or claims a gate; G2 and CP4 are never passed here."""
 import argparse
 import importlib.metadata
 import json
+import math
 import os
 import platform
 import subprocess
@@ -24,6 +25,10 @@ CHECKOUT = TESTS.parent
 GIT_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")
 NO_JSON = (["--version"],)  # gct --version is text only (8.3)
 NO_WORKSPACE = (["workspace", "init"], ["model", "list"])  # the replay grammar appends nothing to these (8.1)
+# Story 3.6's G2 ruler. A scorer v2 changes G2_SCORER in the same commit that bumps g2.SCORER_VERSION.
+G2_SCORER, G2_GOLD = "1", "3985743"
+G2_RECORDED = ("recorded baseline 0/80, 0/50, 0/40 Found (text, table, figure; run 20261021T132603934294Z, gct "
+               "e931eeb, scorer 1, gold 3985743), not a fresh measurement")
 
 
 def git_variable(env) -> str | None:
@@ -160,6 +165,63 @@ def read_junit(path) -> dict:
         else:
             out[node] = ("passed", "")
     return out
+
+
+class Refused(Exception):
+    """An input the harness will not read; nothing has been made when it is raised."""
+
+
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """The Wilson score interval for k of n at 95%."""
+    p, q = k / n, z * z / n
+    centre, half = p + q / 2, z * math.sqrt(p * (1 - p) / n + q / (4 * n))
+    return max(0.0, (centre - half) / (1 + q)), min(1.0, (centre + half) / (1 + q))  # no -0.000 at k = 0
+
+
+def load_g2(path) -> dict:
+    """The gct measure g2 report at path, refused unless its scorer and gold are the story's expected values."""
+    report = json.loads(Path(path).read_text(encoding="utf-8"))
+    scorer, gold = str(report.get("scorer_version")), str((report.get("gold") or {}).get("commit"))
+    if scorer != G2_SCORER or not gold.startswith(G2_GOLD):
+        raise Refused(f"G2 report {path} refused: scorer_version {scorer} (expected {G2_SCORER}), gold.commit {gold} "
+                      f"(expected {G2_GOLD}). The harness reads only a report of the story's scorer and gold.")
+    return report
+
+
+def _counts(found, n, verdict) -> str:
+    low, high = wilson(found, n)
+    return f"{found}/{n}, Wilson 95% {low:.3f} to {high:.3f}, {verdict}"
+
+
+def g2_result(report, path, head) -> dict:
+    """The G2 row from a report: fail when any cell fails (measured, not passed); no test when none does (before
+    adjudication) or when no report was given. Never pass."""
+    if report is None:
+        return {"status": "no test", "reason": "no G2 report given; input not available: " + G2_RECORDED,
+                "lines": ["G2: no report given (--g2-report PATH); " + G2_RECORDED]}
+    from gct.measure import g2
+
+    workspace = report["workspace"]
+    row = "review-assisted" if "review-assisted" in workspace else "automatic"
+    lines = [f"G2 report {path}", f"scorer_version {report['scorer_version']} (expected {G2_SCORER}); "
+             f"gold.commit {report['gold']['commit']} (expected {G2_GOLD})",
+             f"{row} run {report['run_id']}, workspace {workspace}"]
+    lines += [f"{t['company']} {t['kind']}: {_counts(t['found'], t['n'], t['verdict'])}" for t in report["types"]]
+    per_type = []
+    for kind in g2.KINDS:
+        found = sum(t["found"] for t in report["types"] if t["kind"] == kind)
+        n = sum(t["n"] for t in report["types"] if t["kind"] == kind)
+        verdict = "fail" if found / n < g2.TARGET else "at or above 90% before adjudication"
+        lines.append(f"{kind}: {_counts(found, n, verdict)} (the {sum(t['kind'] == kind for t in report['types'])} "
+                     f"company cells summed)")
+        per_type.append(f"{kind} {found}/{n} ({_counts(found, n, verdict)})")
+    lines += [f"headline: {report['headline']}", f"gct_commit {report['gct_commit']} beside HEAD {head}",
+              "measured, not passed"]
+    if any(t["verdict"] == "fail" for t in report["types"]):
+        return {"status": "fail", "reason": "measured, not passed: " + "; ".join(per_type), "lines": lines,
+                "run_id": report["run_id"], "row": row}
+    return {"status": "no test", "lines": lines, "run_id": report["run_id"], "row": row,
+            "reason": "no cell below 90%: at or above 90% before adjudication; adjudication is story 3.6's hand method"}
 
 
 def main(argv=None) -> int:

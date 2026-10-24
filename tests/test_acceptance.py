@@ -169,3 +169,81 @@ def test_scan_fails_with_no_export_folder(tmp_path):
     (ws / "exports" / "one" / "dataset.json").unlink()
     (ws / "exports" / "one").rmdir()
     assert acceptance.check_scan(ws, SEEDS) == ["no export folder under exports/"]
+
+
+# The six company-by-kind cells of the recorded baseline (TASK-0230 prep.md section 3), with their n.
+CELLS = [("Tata Motors Limited", "text", 60), ("Tata Motors Limited", "table", 40), ("Tata Motors Limited", "figure", 30),
+         ("Mahindra & Mahindra Limited", "text", 20), ("Mahindra & Mahindra Limited", "table", 10),
+         ("Mahindra & Mahindra Limited", "figure", 10)]
+GOLD = "3985743f8891a8fb06d3ebfd62c7f020ef847f12"
+
+
+def g2_report(tmp_path, found=lambda n: 0, scorer="1", gold=GOLD, workspace="/runs/automatic-75fba9a/ws"):
+    """A synthetic gct measure g2 report with the recorded key shape; found(n) gives each cell's Found count."""
+    types = [{"company": c, "kind": k, "n": n, "found": found(n), "partial": 0, "missed": n - found(n),
+              "found_text": f"{found(n)}/{n}", "verdict": "fail" if found(n) / n < 0.9 else
+              "at or above 90% before adjudication"} for c, k, n in CELLS]
+    report = {"published_version": 1, "gct_commit": "e931eeb34ebaed81acd15e4527291141455b99f4", "scorer_version": scorer,
+              "status": "ok", "run_id": "20261021T132603934294Z", "report_path": "/runs/g2-report-v1.json",
+              "workspace": workspace, "gold": {"version": "g2-gold-v2", "commit": gold},
+              "headline": "Tata Motors Limited only: the second-company validation is not complete",
+              "target": "90% Found per content type", "delta": None, "rows": [], "types": types,
+              "document_types": [], "documents": [], "runs": [{"row": "rung 1", "state": "scored"}],
+              "adjudication": {}, "aggregate": []}
+    path = tmp_path / "g2-report-v1-synthetic.json"
+    path.write_text(json.dumps(report))
+    return path
+
+
+def test_wilson_interval_at_95_percent():
+    """AC 11: z = 1.96."""
+    assert [round(x, 3) for x in acceptance.wilson(0, 170)] == [0.0, 0.022]
+    assert [round(x, 3) for x in acceptance.wilson(5, 10)] == [0.237, 0.763]
+
+
+def test_g2_failing_cells_give_fail_measured_not_passed(tmp_path):
+    """AC 11: identity beside the expected values, the row's label, each cell with its interval, the per-type
+    aggregate of the six cells, gct_commit beside HEAD, and fail."""
+    path = g2_report(tmp_path)
+    g2 = acceptance.g2_result(acceptance.load_g2(path), path, "a" * 40)
+    assert g2["status"] == "fail" and "measured, not passed" in g2["reason"]
+    text = "\n".join(g2["lines"])
+    assert "scorer_version 1 (expected 1)" in text and f"gold.commit {GOLD} (expected 3985743)" in text
+    assert "automatic run 20261021T132603934294Z, workspace /runs/automatic-75fba9a/ws" in text
+    uppers = ["0.060", "0.088", "0.114", "0.161", "0.278", "0.278"]
+    for (company, kind, n), upper in zip(CELLS, uppers):
+        assert f"{company} {kind}: 0/{n}, Wilson 95% 0.000 to {upper}, fail" in text
+    for kind, n in (("text", 80), ("table", 50), ("figure", 40)):
+        assert f"{kind}: 0/{n}, Wilson 95% 0.000 to" in text
+        assert f"{kind} 0/{n}" in g2["reason"]
+    assert f"gct_commit e931eeb34ebaed81acd15e4527291141455b99f4 beside HEAD {'a' * 40}" in text
+    assert "measured, not passed" in text
+
+
+def test_g2_review_assisted_row_is_labelled(tmp_path):
+    path = g2_report(tmp_path, workspace="/runs/review-assisted-75fba9a/ws")
+    assert "review-assisted run" in "\n".join(acceptance.g2_result(acceptance.load_g2(path), path, "h")["lines"])
+
+
+def test_g2_all_cells_at_or_above_90_percent_is_no_test_before_adjudication(tmp_path):
+    """AC 11: never pass; adjudication is story 3.6's hand method."""
+    path = g2_report(tmp_path, found=lambda n: round(0.95 * n))
+    g2 = acceptance.g2_result(acceptance.load_g2(path), path, "h")
+    assert g2["status"] == "no test"
+    assert "at or above 90% before adjudication" in g2["reason"] and "story 3.6" in g2["reason"]
+
+
+@pytest.mark.parametrize("field", ["scorer", "gold"])
+def test_g2_report_with_another_scorer_or_gold_is_refused(tmp_path, field):
+    """AC 11: only the story's scorer "1" and gold 3985743 are read."""
+    path = g2_report(tmp_path, **({"scorer": "2"} if field == "scorer" else {"gold": "0" * 40}))
+    with pytest.raises(acceptance.Refused) as e:
+        acceptance.load_g2(path)
+    assert ("scorer_version 2 (expected 1)" if field == "scorer" else f"gold.commit {'0' * 40} (expected 3985743)") in str(e.value)
+
+
+def test_g2_without_a_report_is_no_test_naming_the_recorded_baseline():
+    """AC 11: no file, no fresh measurement; the recorded baseline is named as recorded evidence."""
+    g2 = acceptance.g2_result(None, None, "h")
+    assert g2["status"] == "no test" and "no G2 report given" in g2["reason"]
+    assert "recorded baseline 0/80, 0/50, 0/40 Found" in g2["reason"] and "not a fresh measurement" in g2["reason"]
