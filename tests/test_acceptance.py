@@ -66,16 +66,30 @@ def test_editable_comes_from_direct_url_json():
     assert acceptance.editable(FakeDist(None)) is False
 
 
-@pytest.mark.parametrize("var", ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"])
-def test_git_variables_refuse_before_anything_is_made(tmp_path, var):
-    """AC 3: the harness names the variable, exits non-zero and makes no folder (TMPDIR stays empty)."""
-    tmp = tmp_path / "tmp"
-    tmp.mkdir()
+def test_harness_runs_directly(tmp_path):
+    """AC 1: python tests/acceptance.py runs as a script (--help stops before anything is made)."""
     env = {k: v for k, v in os.environ.items() if k not in acceptance.GIT_VARS}
-    r = subprocess.run([sys.executable, str(TESTS / "acceptance.py")], capture_output=True, text=True, cwd=tmp_path,
-                       env={**env, var: str(tmp_path / "x"), "TMPDIR": str(tmp)})
-    assert r.returncode != 0 and var in r.stdout + r.stderr
-    assert list(tmp.iterdir()) == []
+    r = subprocess.run([sys.executable, str(TESTS / "acceptance.py"), "--help"], capture_output=True, text=True,
+                       cwd=tmp_path, env=env)
+    assert r.returncode == 0 and "--g2-report" in r.stdout and list(tmp_path.iterdir()) == []
+
+
+@pytest.fixture
+def no_folder(monkeypatch):
+    """Fails a test whose harness run would make its temporary folder."""
+    def refuse(*a, **k):
+        raise AssertionError("the harness made a folder")
+
+    monkeypatch.setattr(acceptance.tempfile, "mkdtemp", refuse)
+
+
+@pytest.mark.parametrize("var", ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"])
+def test_git_variables_refuse_before_anything_is_made(tmp_path, monkeypatch, capsys, no_folder, var):
+    """AC 3: the harness names the variable, exits non-zero and makes no folder. In process, so a broken guard
+    cannot start a suite run."""
+    monkeypatch.setenv(var, str(tmp_path / "x"))
+    assert acceptance.main([]) == 2
+    assert var in capsys.readouterr().out
 
 
 def fake_script(tmp_path, stdout, code):
@@ -247,3 +261,205 @@ def test_g2_without_a_report_is_no_test_naming_the_recorded_baseline():
     g2 = acceptance.g2_result(None, None, "h")
     assert g2["status"] == "no test" and "no G2 report given" in g2["reason"]
     assert "recorded baseline 0/80, 0/50, 0/40 Found" in g2["reason"] and "not a fresh measurement" in g2["reason"]
+
+
+# Story 8.5 section 3's gate table, row by row; the reviewer checks it against prd:102-120 and :631-656 by hand.
+GATE_NAMES = ["G1 clean install", "G2 extraction quality", "G3 publication", "Review records", "Time series",
+              "Evidence upload", "Report formats", "Privacy in exports", "Calculated values", "Resume and cache reuse",
+              "Migration", "Cross-machine handover", "Retrieval", "Deletion", "Tables and Graphs", "Security",
+              "Accessibility", "Performance baseline", "Assistant interface, Claude",
+              "Assistant interface, Codex and agy; Platform", "Schema", "Compatibility",
+              "Interest action; M2 acceptance"]
+OUTSIDE = {"G3 publication", "Calculated values", "Retrieval", "Performance baseline",
+           "Assistant interface, Codex and agy; Platform", "Interest action; M2 acceptance"}
+WITH_METHOD = {"G1 clean install", "G2 extraction quality", "G3 publication", "Review records", "Time series",
+               "Report formats", "Privacy in exports", "Deletion", "Tables and Graphs", "Assistant interface, Claude"}
+
+
+def test_gates_hold_each_row_of_the_story_table_once_with_present_sources():
+    """AC 9: every row once, in order; M1 or outside as D-8.5-2 says; methods only where the story names one;
+    every source file present under tests/."""
+    assert [g["gate"] for g in acceptance.GATES] == GATE_NAMES
+    assert {g["gate"] for g in acceptance.GATES if not g["milestone"].startswith("M1")} == OUTSIDE
+    assert {g["gate"]: g["milestone"] for g in acceptance.GATES if g["milestone"].startswith("M1 ")} == {
+        "Assistant interface, Claude": "M1 pending E8-D27"}
+    assert {g["gate"] for g in acceptance.GATES if g["method"]} == WITH_METHOD
+    assert {g["gate"] for g in acceptance.GATES if g["hand"]} == {"G1 clean install", "Assistant interface, Claude"}
+    missing = {src.split("::")[0] for g in acceptance.GATES for src in g["tests"]
+               if not (ROOT / src.split("::")[0]).is_file()}
+    assert missing <= {"tests/test_assistant_claude.py"}  # 8.1's file; empty once 8.1 is imported (worker.md)
+
+
+JUNIT = """<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest">
+<testcase classname="tests.test_a" name="test_one" />
+<testcase classname="tests.test_a" name="test_two[x-1]" />
+<testcase classname="tests.test_b.TestGroup" name="test_three" />
+<testcase classname="tests.test_c" name="test_skip"><skipped type="pytest.skip" message="no node here" /></testcase>
+<testcase classname="tests.test_d" name="test_bad"><failure message="assert 1 == 2" /></testcase>
+<testcase classname="" name="tests.test_e"><error message="collection failure" /></testcase>
+</testsuite></testsuites>"""
+
+
+def test_junit_gives_node_ids_outcomes_and_skip_reasons(tmp_path):
+    (tmp_path / "j.xml").write_text(JUNIT)
+    assert acceptance.read_junit(tmp_path / "j.xml") == {
+        "tests/test_a.py::test_one": ("passed", ""), "tests/test_a.py::test_two[x-1]": ("passed", ""),
+        "tests/test_b.py::TestGroup::test_three": ("passed", ""),
+        "tests/test_c.py::test_skip": ("skipped", "no node here"),
+        "tests/test_d.py::test_bad": ("failed", "assert 1 == 2"), "tests/test_e.py": ("failed", "collection failure")}
+
+
+ENV = {"editable": False, "pythonpath": [], "gct_file": "/venv/site/gct/__init__.py", "distribution": "/venv/site"}
+NO_G2 = {"status": "no test", "reason": "no G2 report given"}
+
+
+def line(results, **row):
+    """A synthetic GATES row run through the status rule."""
+    base = {"gate": "X", "prd": ":1", "milestone": "M1", "tests": ["tests/test_a.py"], "method": "m", "hand": None,
+            "uses": set(), "inherited": None}
+    return acceptance.gate_line({**base, **row}, results, row.pop("workflow", []), row.pop("env", ENV), NO_G2)
+
+
+PASSED = {"tests/test_a.py::test_one": ("passed", ""), "tests/test_a.py::test_two[1]": ("passed", "")}
+
+
+def test_status_pass_needs_a_method_and_every_source_passed():
+    """AC 10."""
+    assert line(PASSED)["status"] == "pass"
+
+
+def test_status_skipped_source_is_no_test_with_the_reason():
+    got = line({**PASSED, "tests/test_a.py::test_three": ("skipped", "no setuptools")})
+    assert got["status"] == "no test" and got["reasons"] == ["skipped: tests/test_a.py::test_three (no setuptools)"]
+
+
+def test_status_failed_source_is_fail_with_the_node_id():
+    got = line({**PASSED, "tests/test_a.py::test_two[1]": ("failed", "boom")})
+    assert got["status"] == "fail" and got["reasons"] == ["failed: tests/test_a.py::test_two[1]"]
+
+
+def test_status_without_a_method_is_no_test_even_when_every_related_test_passed():
+    got = line(PASSED, method=None)
+    assert got["status"] == "no test" and got["reasons"] == ["no accepted method"]
+
+
+def test_status_names_a_source_that_did_not_run():
+    got = line(PASSED, tests=["tests/test_a.py", "tests/test_absent.py"])
+    assert got["status"] == "no test" and got["reasons"] == ["source not run: tests/test_absent.py"]
+
+
+def test_status_hand_part_open_when_the_automated_part_passed():
+    """AC 12: G1 and the Claude row stay open until their hand records exist."""
+    assert line(PASSED, hand="a trip")["status"] == "automated part passed, hand part open"
+
+
+def test_inherited_failed_privacy_acceptance_stays_fail_beside_passing_tests():
+    """AC 10: passing synthetic sources cannot override Epic 7's failed acceptance; both are reported."""
+    got = line(PASSED, inherited=acceptance.PRIVACY_FAILED)
+    assert got["status"] == "fail" and got["automated"] == {"status": "pass", "reasons": []}
+    assert got["inherited"] == acceptance.PRIVACY_FAILED
+    for part in ("FR1", "FR2", "FR3", "FR4", "15 unread images", "53d8091"):
+        assert part in got["inherited"]
+    privacy = next(g for g in acceptance.GATES if g["gate"] == "Privacy in exports")
+    assert privacy["inherited"] == acceptance.PRIVACY_FAILED
+
+
+def test_workflow_problem_fails_the_rows_that_read_it():
+    got = line(PASSED, uses={"workflow"}, workflow=["gct read: refused: cause"])
+    assert got["status"] == "fail" and got["reasons"] == ["gct read: refused: cause"]
+    assert line(PASSED, uses={"workflow"}, workflow=None)["reasons"] == ["the workflow did not run"]
+
+
+def test_install_row_is_no_test_for_an_editable_install_or_a_pythonpath_tree():
+    """G1 here: an editable install, a PYTHONPATH tree, gct imported from outside its distribution."""
+    here = {"editable": True, "pythonpath": ["/wt", "/deps"], "gct_file": "/wt/gct/__init__.py",
+            "distribution": "/venv/site"}
+    got = line(PASSED, uses={"install"}, hand="a trip", env=here)
+    assert got["status"] == "no test" and got["reasons"] == [
+        "gct is an editable install", "PYTHONPATH is set: /wt; /deps",
+        "gct is imported from /wt/gct/__init__.py, not from its distribution"]
+    assert line(PASSED, uses={"install"}, hand="a trip")["status"] == "automated part passed, hand part open"
+
+
+def test_g2_row_follows_the_report_and_is_never_pass():
+    row = {**acceptance.GATES[1]}
+    results = {"tests/test_measure.py::test_x": ("passed", "")}
+    for g2, status in (({"status": "fail", "reason": "measured, not passed"}, "fail"), (NO_G2, "no test")):
+        assert acceptance.gate_line(row, results, [], ENV, g2)["status"] == status
+
+
+def test_outside_m1_rows_never_count_even_when_a_source_fails():
+    """AC 10: an outside-M1 row never enters the CP4 list."""
+    got = line({"tests/test_a.py::test_one": ("failed", "x")}, milestone="PR (prd:421)")
+    assert got["status"] == "outside M1 (PR (prd:421))" and not got["counts"]
+    assert acceptance.cp4([got])["not_passing"] == []
+
+
+def test_cp4_is_not_claimed_while_any_m1_line_is_not_pass():
+    """AC 12: the not-claimed branch lists every M1 line not at pass and sends it to Varun."""
+    lines = [line(PASSED), line(PASSED, gate="Y", hand="a trip")]
+    got = acceptance.cp4(lines)
+    assert got["claimed"] is False and got["not_passing"] == ["Y"]
+    assert got["text"] == ("CP4: not claimed. M1 gate lines not passing: Y (automated part passed, hand part open). "
+                           "This list goes to Varun for a fix or scope decision (architecture section 7).")
+
+
+def test_cp4_all_pass_branch_leaves_the_decision_to_varun():
+    """AC 12: only a synthetic table reaches it on this machine."""
+    got = acceptance.cp4([line(PASSED), line(PASSED, gate="Y")])
+    assert got["claimed"] is False and got["not_passing"] == []
+    assert got["text"] == ("Every M1 gate line passed on this machine. CP4 acceptance is Varun's decision with the "
+                           "hand records.")
+
+
+def test_harness_never_writes_a_claim_or_a_g2_pass():
+    """AC 12."""
+    source = (TESTS / "acceptance.py").read_text()
+    for s in ("CP4 " + "passed", "CP4: " + "claimed", "G2 " + "passed"):
+        assert s not in source
+
+
+def fake_suite(results):
+    return lambda folder: {"command": "pytest", "code": 0, "line": "n passed", "seconds": 1.0, "results": results}
+
+
+def test_json_prints_one_object_and_never_claims_cp4(tmp_path, monkeypatch, capsys):
+    """AC 13: status, environment, workflow, suite, g2, gates, cp4 (claimed false); exit 1 while CP4 is open."""
+    monkeypatch.setattr(acceptance.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(acceptance, "run_suite", fake_suite({"tests/test_review.py::test_x": ("passed", "")}))
+    path = g2_report(tmp_path)
+    assert acceptance.main(["--json", "--g2-report", str(path)]) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert set(out) == {"status", "environment", "workflow", "suite", "g2", "gates", "cp4"}
+    assert out["status"] == "fail" and out["cp4"]["claimed"] is False and out["g2"]["status"] == "fail"
+    assert [g["gate"] for g in out["gates"]] == GATE_NAMES
+    assert Path(out["environment"]["folder"]).parent == tmp_path
+
+
+def test_text_output_ends_with_the_cp4_line(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(acceptance.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(acceptance, "run_suite", fake_suite({}))
+    assert acceptance.main([]) == 1
+    out = capsys.readouterr().out.strip().splitlines()
+    assert out[-1].startswith("CP4: not claimed. M1 gate lines not passing: G1 clean install (no test)")
+    assert any(x.startswith("Privacy in exports (prd :109, :647): fail") for x in out)
+    assert "  inherited acceptance: " + acceptance.PRIVACY_FAILED in out
+    assert "Assistant interface, Claude (prd :120, :648, M1 pending E8-D27): no test" in out
+
+
+def test_g2_refusal_comes_before_the_folder(tmp_path, capsys, no_folder):
+    """Section 5 probe 2: scorer "2" is refused and nothing is made."""
+    assert acceptance.main(["--g2-report", str(g2_report(tmp_path, scorer="2"))]) == 2
+    assert "scorer_version 2 (expected 1)" in capsys.readouterr().out
+
+
+def test_interrupted_run_prints_no_cp4_line(tmp_path, monkeypatch, capsys):
+    """Section 4: Ctrl-C gives a non-zero exit and no CP4 line."""
+    def interrupt(folder):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(acceptance.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(acceptance, "run_suite", interrupt)
+    assert acceptance.main([]) != 0
+    out = capsys.readouterr().out
+    assert "CP4: not claimed" not in out and "Every M1 gate line" not in out and "Interrupted" in out

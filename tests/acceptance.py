@@ -14,6 +14,7 @@ import os
 import platform
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from xml.etree import ElementTree
@@ -185,6 +186,9 @@ def load_g2(path) -> dict:
     if scorer != G2_SCORER or not gold.startswith(G2_GOLD):
         raise Refused(f"G2 report {path} refused: scorer_version {scorer} (expected {G2_SCORER}), gold.commit {gold} "
                       f"(expected {G2_GOLD}). The harness reads only a report of the story's scorer and gold.")
+    missing = [k for k in ("run_id", "workspace", "headline", "gct_commit", "types") if k not in report]
+    if missing:
+        raise Refused(f"G2 report {path} refused: it has no {', '.join(missing)}.")
     return report
 
 
@@ -224,6 +228,139 @@ def g2_result(report, path, head) -> dict:
             "reason": "no cell below 90%: at or above 90% before adjudication; adjudication is story 3.6's hand method"}
 
 
+def _row(gate, prd, milestone, tests=(), method=None, hand=None, uses=(), inherited=None):
+    return {"gate": gate, "prd": prd, "milestone": milestone, "tests": list(tests), "method": method, "hand": hand,
+            "uses": set(uses), "inherited": inherited}
+
+
+R8 = "the test files approved in readiness resolution 8"
+# Story 7.7's final review, inherited and never overridden by synthetic results (Epic 7 close, 2026-10-24).
+PRIVACY_FAILED = ("FAILED: FR1 annotations, FR2 metadata, FR3 CSV/XLSX originals and FR4 fullwidth database "
+                  "credentials are deferred leaks; the real-data leakage check is incomplete with 15 unread images; "
+                  "scanner correction 53d8091 is excluded")
+# One row per PRD gate (prd:102-120 and the Gate column of :631-656), as story 8.5 section 3 lists them. tests are
+# files or node ids under the checkout; method None means no accepted method; hand is a part no script can run.
+GATES = [
+    _row("G1 clean install", ":102, :631", "M1",
+         ["tests/test_hygiene.py", "tests/test_viewer.py::test_the_wheel_ships_the_viewer"],
+         "8.2 protocol", "the second-laptop trip (D-8.5-4)", uses=("workflow", "install")),
+    _row("G2 extraction quality", ":103, :632-633", "M1", ["tests/test_measure.py"],
+         "story 3.6 (adjudication by hand)", uses=("g2",)),
+    _row("G3 publication", ":104, :656", "publication (D-8.5-2)",
+         ["tests/test_licences.py", "tests/test_hygiene.py"], "IP, SE-001 and privacy review outside code"),
+    _row("Review records", ":105, :640", "M1",
+         ["tests/test_review.py", "tests/test_adjudicate.py", "tests/test_renew.py"], R8),
+    _row("Time series", ":106, :634", "M1", ["tests/test_match.py", "tests/test_restate.py"], R8),
+    _row("Evidence upload", ":107, :643", "M1", ["tests/test_sheet.py"]),
+    _row("Report formats", ":108, :646", "M1", ["tests/test_gate_report_formats.py"], "7.1 G, 7.7 B"),
+    _row("Privacy in exports", ":109, :647", "M1",
+         ["tests/test_gate_privacy_exports.py", "tests/test_leakage_scanner.py"],
+         "7.1 G, 7.7 B and Epic 7's final privacy review", uses=("workflow",), inherited=PRIVACY_FAILED),
+    _row("Calculated values", ":110, :644", "PR (prd:422)"),
+    _row("Resume and cache reuse", ":111, :638", "M1",
+         ["tests/test_stages.py", "tests/test_resume.py", "tests/test_reprocess.py"]),
+    _row("Migration", ":112, :649", "M1",
+         ["tests/test_projection16.py", "tests/test_deletion.py", "tests/test_highlight.py", "tests/test_labels.py",
+          "tests/test_missing.py", "tests/test_review.py"]),  # old_code.py's users: upgrades from 1c9b602
+    _row("Cross-machine handover", ":113, :650", "M1"),
+    _row("Retrieval", ":114, :642", "PR (prd:421)"),
+    _row("Deletion", ":115, :639", "M1", ["tests/test_deletion.py", "tests/test_archive.py"], R8),
+    _row("Tables and Graphs", ":116, :641", "M1", ["tests/test_gate_tables_graphs.py"], "6.1 G (CP3)"),
+    _row("Security", ":117, :653", "M1", ["tests/test_api.py", "tests/test_hygiene.py::test_no_network"]),
+    _row("Accessibility", ":118, :655", "M1", ["tests/test_viewer_tables.py"]),
+    _row("Performance baseline", ":119, :652", "pre-release (architecture :119)"),
+    _row("Assistant interface, Claude", ":120, :648", "M1 pending E8-D27", ["tests/test_assistant_claude.py"],
+         "8.1's replay test (E8-D6)", "the recorded Claude run (E8-D6)"),  # outside M1 if Varun answers otherwise
+    _row("Assistant interface, Codex and agy; Platform", ":120, :651", "after M1"),
+    _row("Schema", ":636", "M1", ["tests/test_documents.py::test_sector_columns_may_stay_empty"]),
+    _row("Compatibility", ":654", "M1"),
+    _row("Interest action; M2 acceptance", ":637, :645", "PR, M2"),
+]
+
+
+def _matches(node, src) -> bool:
+    return node == src or node.startswith((src + "::", src + "["))
+
+
+def gate_line(row, results, workflow, env, g2) -> dict:
+    """One gate's status (D-8.5-3): fail when a source failed; pass only with an accepted method and every source
+    test passed, none skipped; automated part passed, hand part open for a row with a hand part; no test
+    otherwise, with the reasons. Rows outside M1 never count. An inherited failed acceptance keeps the row at fail
+    and the automated result is reported beside it, never in its place."""
+    line = {"gate": row["gate"], "prd": row["prd"], "milestone": row["milestone"],
+            "counts": row["milestone"].split()[0] == "M1"}
+    if not line["counts"]:
+        return {**line, "status": f"outside M1 ({row['milestone']})", "reasons": []}
+    fails, opens = [], [] if row["method"] else ["no accepted method"]
+    for src in row["tests"]:
+        hits = {n: r for n, r in results.items() if _matches(n, src)}
+        opens += [] if hits else [f"source not run: {src}"]
+        fails += [f"failed: {n}" for n, (outcome, _) in sorted(hits.items()) if outcome == "failed"]
+        opens += [f"skipped: {n} ({m})" for n, (outcome, m) in sorted(hits.items()) if outcome == "skipped"]
+    if "workflow" in row["uses"]:
+        opens += [] if workflow is not None else ["the workflow did not run"]
+        fails += workflow or []
+    if "g2" in row["uses"]:
+        (fails if g2["status"] == "fail" else opens).append(g2["reason"])
+    if "install" in row["uses"]:
+        opens += ["gct is an editable install"] if env["editable"] else []
+        opens += [f"PYTHONPATH is set: {'; '.join(env['pythonpath'])}"] if env["pythonpath"] else []
+        if not Path(env["gct_file"]).is_relative_to(env["distribution"]):
+            opens.append(f"gct is imported from {env['gct_file']}, not from its distribution")
+    if fails:
+        status, reasons = "fail", fails
+    elif opens:
+        status, reasons = "no test", opens
+    elif row["hand"]:
+        status, reasons = "automated part passed, hand part open", [f"hand part not recorded: {row['hand']}"]
+    else:
+        status, reasons = "pass", []
+    if row["inherited"]:
+        line["automated"] = {"status": status, "reasons": reasons}
+        line["inherited"] = row["inherited"]
+        status, reasons = "fail", ["inherited acceptance " + row["inherited"]]
+    return {**line, "status": status, "reasons": reasons}
+
+
+def cp4(lines) -> dict:
+    """E8-D23: CP4 is never claimed by the harness; with every M1 line at pass it says so and leaves the decision
+    to Varun."""
+    rest = [x for x in lines if x["counts"] and x["status"] != "pass"]
+    if rest:
+        text = ("CP4: not claimed. M1 gate lines not passing: " + "; ".join(f"{x['gate']} ({x['status']})" for x in rest)
+                + ". This list goes to Varun for a fix or scope decision (architecture section 7).")
+    else:
+        text = "Every M1 gate line passed on this machine. CP4 acceptance is Varun's decision with the hand records."
+    return {"claimed": False, "not_passing": [x["gate"] for x in rest], "text": text}
+
+
+def assemble(env, workflow, suite, g2) -> dict:
+    """The one result object (--json); workflow is {"steps", "problems"} or None when it did not run."""
+    gates = [gate_line(row, suite["results"], workflow and workflow["problems"], env, g2) for row in GATES]
+    result = cp4(gates)
+    return {"status": "fail" if result["not_passing"] else "ok", "environment": env,
+            "workflow": workflow["steps"] if workflow else [], "suite": suite, "g2": g2, "gates": gates, "cp4": result}
+
+
+def render(result) -> list[str]:
+    out = ["", "Workflow:"]
+    out += [x for step in result["workflow"] for x in step_lines(step)] or ["  the workflow did not run"]
+    suite = result["suite"]
+    out += ["", f"Suite: {suite['command']}", f"  exit {suite['code']}, {suite['seconds']} s: {suite['line']}"]
+    out += ["  skipped: " + n + " (" + m + ")" for n, (o, m) in sorted(suite["results"].items()) if o == "skipped"]
+    out += ["", *result["g2"]["lines"], "", "Gates (PRD line, status, reasons):"]
+    for g in result["gates"]:
+        note = f", {g['milestone']}" if g["counts"] and g["milestone"] != "M1" else ""
+        out.append(f"{g['gate']} (prd {g['prd']}{note}): {g['status']}")
+        if "automated" in g:
+            a = g["automated"]
+            out.append(f"  automated: {a['status']}" + (f": {'; '.join(a['reasons'])}" if a["reasons"] else ""))
+            out.append(f"  inherited acceptance: {g['inherited']}")
+        else:
+            out += [f"  {r}" for r in g["reasons"]]
+    return out + ["", result["cp4"]["text"]]
+
+
 def main(argv=None) -> int:
     var = git_variable(os.environ)
     if var:
@@ -231,10 +368,27 @@ def main(argv=None) -> int:
               f"Nothing was made. Unset {var} and run the harness again.")
         return 2
     parser = argparse.ArgumentParser(description="M1 acceptance harness (story 8.5)")
-    parser.add_argument("--g2-report", metavar="PATH")
-    parser.add_argument("--json", action="store_true")
-    parser.parse_args(argv)
-    return 1
+    parser.add_argument("--g2-report", metavar="PATH", help="a gct measure g2 report file (read only)")
+    parser.add_argument("--json", action="store_true", help="print one JSON object")
+    args = parser.parse_args(argv)
+    try:
+        report = load_g2(args.g2_report) if args.g2_report else None
+    except (Refused, OSError, ValueError) as e:
+        print(f"Refused: {e} Nothing was made.")
+        return 2
+    env = environment()
+    env["folder"] = tempfile.mkdtemp(prefix="gct-acceptance-")  # printed, never deleted
+    if not args.json:
+        print("\n".join(header_lines(env) + [f"Folder {env['folder']} (kept)"]), flush=True)
+    try:
+        workflow = None  # 8.1's workflow list is imported once 8.1 is on main (TASK-0230 worker.md)
+        suite = run_suite(Path(env["folder"]))
+    except KeyboardInterrupt:
+        print("Interrupted: no CP4 line.")
+        return 130
+    result = assemble(env, workflow, suite, g2_result(report, args.g2_report, env["head"]))
+    print(json.dumps(result) if args.json else "\n".join(render(result)))
+    return 1 if result["cp4"]["not_passing"] else 0
 
 
 if __name__ == "__main__":
