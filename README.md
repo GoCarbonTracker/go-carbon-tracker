@@ -93,6 +93,36 @@ The viewer opens at `http://127.0.0.1:8765/?token=...`, letting you click any ex
 
 ---
 
+## Architecture
+
+```mermaid
+flowchart LR
+    A["1. Ingest<br/>(PDF, CSV, XLSX)"] --> B["2. Extract & Anchor<br/>(pdfplumber bounding boxes)"]
+    B --> C["3. Append-Only Store<br/>(SQLite snapshots vN.db)"]
+    C --> D["4. Evidence Viewer & Exports<br/>(Browser UI & JSON / PDF)"]
+```
+
+---
+
+## How It Works
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as ESG Analyst / Auditor
+    participant CLI as GCT Engine (gct)
+    participant UI as Evidence Viewer
+
+    User->>CLI: gct doc add report.pdf && gct read && gct extract
+    CLI-->>User: Claims extracted & anchored to physical bounding boxes
+    User->>CLI: gct publish build && gct serve
+    CLI->>UI: Launches local viewer at http://127.0.0.1:8765
+    UI-->>User: Click metric to highlight exact source cell on PDF
+```
+
+
+---
+
 ## What works today
 
 - `gct workspace init PATH` creates a workspace folder (SQLite database plus `files/`, `artifacts/`, `published/`, `exports/`, `logs/`).
