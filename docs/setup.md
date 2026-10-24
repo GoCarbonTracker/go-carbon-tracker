@@ -16,7 +16,7 @@ Codex and agy are not set up in this version.
 
 Nothing here needs Node, npm, Docker or a database server.
 
-A model is not needed either. GCT reads PDF pages with the text layer they carry (see "What the no-model install reads"); a model file, if you ever write one, is described in [docs/models.md](models.md).
+A model is not needed either. GCT reads PDF pages with the text layer they carry (see "What the no-model install reads"). How well those fixed reading rules find figures was measured once, against a private gold set of 170 figures from the reports of two real companies (scorer version 1, gold commit 3985743): 0 of 80 in the text group, 0 of 50 in the table group and 0 of 40 in the figure group were Found, where Found means value, unit, metric, entity, boundary and period all match. The release plan's accuracy gate (G2) sets a target of 90% Found in each group, so the no-model baseline fails it. A model file, if you ever write one, is described in [docs/models.md](models.md).
 
 ## Getting Python 3.11 or newer
 
@@ -34,20 +34,20 @@ Use the folder or archive you were given, unpacked anywhere you like, or run `gi
 
 ## Install (user form)
 
-This installs a copy of GCT into a new virtual environment, not linked to the code folder. Path A is the networked install: pip fetches what GCT needs.
+This installs a copy of GCT into a new virtual environment, not linked to the code folder. Path A is the networked install: pip fetches what GCT needs. `python3` must be 3.11 or newer (check with `python3 --version`). Python 3.13 on Apple Silicon macOS is the only combination that has been run; 3.11 and 3.12 are allowed by the package and have not been run.
 
 macOS:
 
 ```
-python3.13 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install .
 ```
 
-Windows: not tested; the steps follow the macOS ones.
+Windows: not tested; the steps follow the macOS ones, and `py -3` must be 3.11 or newer too (check with `py -3 --version`).
 
 ```
-py -3.13 -m venv .venv
+py -3 -m venv .venv
 .venv\Scripts\activate
 pip install .
 ```
@@ -102,7 +102,15 @@ Contributor form only:
 
 ## First run
 
-Each line below is one command. Replace `<WORKSPACE>` with the folder to create, `<PDF>` with a PDF report and `<COMPANY>` with one word naming the company. After `workspace init`, either run the later lines from inside the workspace folder or set `GCT_WORKSPACE` to it. The numbers 1 and 1 in `flag raise` are the claim and version that `claims list` printed for the first row of your report; use your own.
+If you have no report to try, make a synthetic one from the test fixture. This needs the contributor form and runs in the code folder, because the tests are not part of the installed copy. It writes `test-workspaces/sample.pdf`, a one-page table with one made-up figure (git ignores the `test-workspaces` folder):
+
+```
+python -c "import os, sys; sys.path.insert(0, 'tests'); from conftest import make_pdf; from gate_fixture import page, SCOPE_1; os.makedirs('test-workspaces', exist_ok=True); open('test-workspaces/sample.pdf', 'wb').write(make_pdf([page([[SCOPE_1, 'tCO2e', '100']], ['FY 2024-25'])]))"
+```
+
+Use that file as `<PDF>` below and a new folder inside `test-workspaces` as `<WORKSPACE>`. To see a whole workspace without typing the lines, `python -m tests.gate_fixture FOLDER` builds one in FOLDER (new or empty): two made-up companies, several made-up reports, reviews and a published version, with no real report in it. Open it with `gct serve --workspace FOLDER`.
+
+Each line below is one command. Replace `<WORKSPACE>` with the folder to create, `<PDF>` with a PDF report and `<COMPANY>` with one word naming the company. After `workspace init`, either run the later lines from inside the workspace folder or set `GCT_WORKSPACE` to it. The numbers 1 and 1 in `flag raise` are the claim and version that `claims list` printed for the first row of your report; use your own. `flag raise` needs the contributor named by `--as` to be registered first, which is what the `contributor add` line does; with an unregistered key it stops with exit code 3 and a next step that gives the `contributor add` line.
 
 ```gct-replay
 gct workspace init <WORKSPACE>  # => 0
@@ -121,10 +129,11 @@ Then look at the evidence: `gct serve` prints a web address and opens your brows
 
 Things the lines above do not say:
 
-- A document added with `doc add` is `private` by default. The report step writes a sanitised report, and a sanitised report holds no rows from a private document, so your first report is empty until you decide a document can be shared and relabel it `shareable` (`gct doc label --help` shows how). GCT then says so in plain words and still exits 0.
+- A document added with `doc add` is `private` by default. The report step writes a sanitised report, which is designed to leave out the rows of a private document, so your first report is empty until you decide a document can be shared and relabel it `shareable` (`gct doc label --help` shows how). GCT then says so in plain words and still exits 0. Sanitised output has known limits, listed under [Status](../README.md#status) and in [docs/privacy.md](privacy.md) under "What never leaves"; read it before you share it.
+- This is experimental software: the privacy acceptance of the sharing features FAILED, the release's final acceptance is INCOMPLETE, and the leakage check on exports made from real data left 15 images unread, so a sanitised output or package is not verified to be free of private content.
 - Do not add `--complete` unless you want the private content in the export folder for your own use. It writes private text and figures into `exports/`.
 - `report` and `package preview` take the writer lock. If another gct command is running on the workspace they stop with the third message under "When something fails" instead of waiting.
-- `publish build` comes before views and reports. A view or report reads the published version, so run it again after you add or change documents.
+- `publish build` comes before views and reports. A view or report reads the published version, so run it again after you add or change documents. In the lines above, `contributor add` and `flag raise` come after the build, so the report prints that the workspace has changed since data version 1 was built. That is expected here; `gct publish build` followed by the report again reads the latest state.
 - Nothing above sends anything anywhere.
 
 ## Using Claude
@@ -149,7 +158,7 @@ A workspace is one folder. To move it, copy the whole folder while no gct comman
 
 What comes with the folder: the documents, their history, the published versions, the run log (with the file paths of the old computer in it), the spending limit and the transfer approvals. What does not: the model file (`models.toml`), environment variables and keys, the address of the viewer (new each time you run `gct serve`), and anything you exported and handed on.
 
-The folder holds private documents. To share work outside the team, make a sanitised package ([docs/packages.md](packages.md)) instead of copying the folder. A copy made before a document was permanently deleted still holds that document; GCT cannot recall it ([docs/deletion.md](deletion.md)).
+The folder holds private documents. To share work outside the team, make a sanitised package ([docs/packages.md](packages.md)) instead of copying the folder, and read the package before you share it (see [Status](../README.md#status)). A copy made before a document was permanently deleted still holds that document; GCT cannot recall it ([docs/deletion.md](deletion.md)).
 
 An older gct refuses a newer workspace, and a newer gct upgrades an older one and records the upgrade in the run log ([docs/migrations.md](migrations.md)).
 
