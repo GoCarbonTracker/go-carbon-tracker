@@ -1,6 +1,8 @@
-# gct
+# GoCarbonTracker (gct)
 
-A workspace folder for company documents, kept as an append-only history. Early work: this is not released and not published anywhere.
+An open-source workspace and evidence engine for corporate climate disclosures, tracing claims to document pages with an append-only audit trail.
+
+**Release:** `v0.1.0-alpha` (Developer Preview)
 
 ## Status
 
