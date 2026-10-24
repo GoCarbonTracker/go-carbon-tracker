@@ -2,6 +2,19 @@
 
 A workspace folder for company documents, kept as an append-only history. Early work: this is not released and not published anywhere.
 
+## Status
+
+This is experimental software. Do not rely on it to keep private material out of what you share.
+
+- The privacy acceptance of the sharing features (Epic 7) FAILED, and the release's final acceptance is INCOMPLETE.
+- A sanitised output or a package is designed to leave private content out, but it is not verified to be free of it. These are the known ways a credential (such as an API key or a token) can still get through:
+  - A credential in a PDF annotation, such as a note box, can appear in an evidence image and in the copy of the original that a package holds.
+  - A credential in a PDF's metadata, such as its title, reaches the copy of the original in a package.
+  - A package copies CSV and XLSX originals without checking them for credentials, so a credential in a cell ships.
+  - A credential written in fullwidth characters is removed from every report format, but it ships in the database files inside a package.
+- The leakage check that was run on exports made from real data left 15 images unread, so that check has not passed.
+- None of these is fixed in this version. Read any sanitised output or package before you share it. [docs/privacy.md](docs/privacy.md) records the limits of the credential check under "What never leaves".
+
 ## What works today
 
 - `gct workspace init PATH` creates a workspace folder (SQLite database plus `files/`, `artifacts/`, `published/`, `exports/`, `logs/`).
@@ -30,7 +43,7 @@ Every `gct read`, `gct extract`, `gct link`, `gct infer`, `gct match` and `gct d
 
 ## Claims
 
-Claims from `gct extract` come from fixed reading rules (a no-model baseline). Their accuracy is not measured yet.
+Claims from `gct extract` come from fixed reading rules (a no-model baseline). Their accuracy was measured once, against a private gold set of 170 figures from the reports of two real companies (scorer version 1, gold commit 3985743). The gold set has three groups; the result was 0 of 80 Found in the text group, 0 of 50 in the table group and 0 of 40 in the figure group. Found means value, unit, metric, entity, boundary and period all match the gold row. The release plan's accuracy gate (G2) sets a target of 90% Found in each group, so the no-model baseline fails it. The gold set is private and is not in this repository.
 
 - `gct extract [ID ...] [--company NAME]` lists the figures on every read page: numbers in ruled tables, and numbers followed by a unit (`tCO2e`, `MWh`, `%` and a few more) in the text. Each claim keeps the metric wording, the value, the unit and the period label exactly as printed, plus the page and the box it came from. A value is filled only for a plain Western number (`1,234.5`); other forms such as `1,23,456` or `(12)` keep only the printed text. Years and numbers in the top or bottom 5% of the page are not claims. Units are recognised, never converted; the extracted boundary is `unknown` (see Periods and boundaries). A table figure's box comes from the cell pdfplumber found; when the cell's words do not match the figure, the claim gets no box (its source match is `cited`, reason `no box`), never a guessed one. A page whose reading has not changed is not extracted again; a new reading adds a new version of each claim and keeps the old one. Documents not read yet are skipped with a note.
 - `gct claims list --doc ID` shows one line per claim: claim id, page, value as printed, unit, metric wording, the period (the label as printed until `gct infer` runs, then the dates with a state word, or the label and `unknown` with the reason), the boundary in the same way, the source match status with its reason, and the box when there is one.
@@ -165,7 +178,7 @@ When a newer version replaces the figure people reviewed (a correction, a new re
 
 ## Privacy labels
 
-Every document has a privacy label, `private` or `shareable`, and an availability, `public`, `internal` or `unknown`. Reports will use the label to leave private content out of what you share.
+Every document has a privacy label, `private` or `shareable`, and an availability, `public`, `internal` or `unknown`. Reports are designed to use the label to leave private content out of what you share, within the limits under [Status](#status).
 
 - `gct doc add ... --availability public|internal|unknown` declares the availability (default `unknown`). The label is `shareable` only for `--kind report` with `--availability public`, and `private` otherwise. `--privacy private|shareable` overrides that, and the registered line prints the label used. A file's name, type, folder or web address never sets either value. `--plan` shows the label each item would get.
 - Adding a file that is already a document of the company keeps that document's label; when you asked for another one, the duplicate line says it was not applied and gives the `gct doc label` command. Adding a file that another document (of any company) holds under the other label prints a warning naming it: while one of them is private, reports treat both as private.
@@ -177,7 +190,7 @@ Every document has a privacy label, `private` or `shareable`, and an availabilit
 A package is a copy of the workspace for someone else to reopen, add reports to and process again. gct writes it fresh into `exports/package-v<N>-<stamp>-<mode>/`, with its own data version 1.
 
 - `gct package preview [--complete] [--include identity,contributor_text,flags]` shows what would go in and what is left out, and prints a token. It writes nothing.
-- `gct package create --confirm TOKEN [--include ...]` writes a package without private content: only rows of shareable documents, contributors shown as "Contributor 1", "Contributor 2" and so on, their text withheld, no run log lines, approvals or saved views. Each `--include` class keeps its own part.
+- `gct package create --confirm TOKEN [--include ...]` writes a package that is designed to leave private content out (see [Status](#status)): only rows of shareable documents, contributors shown as "Contributor 1", "Contributor 2" and so on, their text withheld, no run log lines, approvals or saved views. Each `--include` class keeps its own part.
 - `gct package create --complete --include-private --confirm TOKEN` writes everything except approvals, private documents included; the source run log records that you authorised it.
 
 Both refuse a data version that is out of date (build a fresh one with `gct publish build`) and a token from another preview. A copy of the workspace folder is a complete copy of everything in it. Details are in `docs/packages.md`.
@@ -192,28 +205,38 @@ Both refuse a data version that is out of date (build a fresh one with `gct publ
 
 ## Report preview
 
-`gct report preview [--filter JSON|@FILE] [--complete] [--include identity,contributor_text,flags] [--data-version V]` shows what a report of the current published version would hold: the version it reads, the rows per report and, for a sanitised output (the default), what it leaves out and why. A sanitised output leaves out every row that names a private document, archived and deleted documents, reviewer flags, contributor text and contributor names (each contributor becomes "Contributor N"); `--include` keeps the named classes. Values such as the review summary are worked out again from the rows that stay, so they read as if the left-out rows did not exist. `--complete` keeps every row, each with its label. When every document in the selection is private, the preview names them and gives the `gct doc label` command. The preview writes nothing, and it refuses a workspace that needs an upgrade until a writing command such as `gct publish build` has upgraded it. Details are in `docs/privacy.md`.
+`gct report preview [--filter JSON|@FILE] [--complete] [--include identity,contributor_text,flags] [--data-version V]` shows what a report of the current published version would hold: the version it reads, the rows per report and, for a sanitised output (the default), what it leaves out and why. A sanitised output is designed to leave out every row that names a private document, archived and deleted documents, reviewer flags, contributor text and contributor names (each contributor becomes "Contributor N"), within the limits under [Status](#status); `--include` keeps the named classes. Values such as the review summary are worked out again from the rows that stay, so they read as if the left-out rows did not exist. `--complete` keeps every row, each with its label. When every document in the selection is private, the preview names them and gives the `gct doc label` command. The preview writes nothing, and it refuses a workspace that needs an upgrade until a writing command such as `gct publish build` has upgraded it. Details are in `docs/privacy.md`.
 
 ## Exporting report data
 
 `gct report all --format json` writes the report data of the current published version into a new folder, `exports/all-v<N>-<stamp>-sanitised/`: `dataset.json`, which holds the evidence index, the restatement log and the gap report with the data version it came from, and `dataset-1.schema.json`, the JSON Schema the file follows, so anyone can check the file without GCT. `evidence-index`, `restatement-log` and `gap-report` work the same way; a JSON export holds the whole dataset whichever you name. The options are those of `gct report preview`: the export is sanitised unless you add `--complete`, and a complete folder ends in `-complete`. The command prints the preview after the files, on your terminal only. It never overwrites an export, and a refused export writes nothing. When the workspace has changed since the version was built, it still exports that version and tells you to run `gct publish build` first if you want the changes. Copies you have exported or shared cannot be recalled by GCT, also after `gct doc delete`. Details are in `docs/reports.md`.
 
-`--format pdf` writes one PDF per report, for a reader who does not run GCT: the rows, then an evidence appendix that shows each cited figure as a picture of its place on the source page, cut from the stored original with the viewer's renderer and outlined; a sanitised PDF holds no private text or page image.
+`--format pdf` writes one PDF per report, for a reader who does not run GCT: the rows, then an evidence appendix that shows each cited figure as a picture of its place on the source page, cut from the stored original with the viewer's renderer and outlined; a sanitised PDF is designed to hold no private text or page image (see [Status](#status)).
 
 `--format page` writes one HTML page per report with the same rows and pictures, which opens from the export folder in a browser and runs no script and loads nothing from the network.
 
 ## What does not exist yet
 
-OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, review in the viewer of page acceptance, gap confirmation, infer review and restatement (those stay CLI commands).
+OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, review in the viewer of page acceptance, gap confirmation, infer review and restatement (those stay CLI commands). `docs/setup.md` says what the no-model install reads and does not read.
 
 ## Setup
 
-Needs Python 3.11 or newer.
+Needs Python 3.11 or newer. [docs/setup.md](docs/setup.md) is the whole guide: Windows (not tested), an offline install, the first run and moving a workspace to another computer. The commands below are for macOS. `python3` must be 3.11 or newer (check with `python3 --version`). Python 3.13 on Apple Silicon macOS is the only combination that has been run; 3.11 and 3.12 are allowed by the package and have not been run.
+
+User form (a copy of gct in its own environment, from the code folder):
 
 ```
-python3.13 -m venv .venv
-.venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest
+python3 -m venv .venv
+source .venv/bin/activate
+pip install .
+gct --version
+```
+
+Contributor form (linked to the code folder, with the tests):
+
+```
+pip install -e '.[dev]' 'setuptools>=77'
+pytest
 ```
 
 ## Licence
