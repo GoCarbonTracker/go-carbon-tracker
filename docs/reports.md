@@ -108,7 +108,7 @@ The top-level keys, in file order:
 | `unpaired_restatements` | The sub-table of restatement records whose two claims form no pair in this version. |
 | `gap_report` | The gap report: `candidates`, `expectations`, `documents_checked`, `extraction_limits`, `archived` and `deleted`. |
 | `evidence` | One entry per evidence location of a shipped row. |
-| `notices` | The sentences every rendering prints, in order, for example "Private content is excluded from this output." |
+| `notices` | The sentences every rendering prints, in order, for example "Sanitised output may still contain private content. Review it before sharing." |
 
 Every key is always present. A file with no matching rows still has every key, with empty lists.
 

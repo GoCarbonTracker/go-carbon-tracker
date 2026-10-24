@@ -151,7 +151,7 @@ SUB_TABLES = {"records": "claim_id", "disagreements": "claim_id", "restatements"
               "declared": "expected_item_id", "unpaired_restatements": None}  # C3: the one parent_key null
 
 EARLIER = "on an earlier version"
-PRIVACY_NOTICE = "Private content is excluded from this output."
+PRIVACY_NOTICE = "Sanitised output may still contain private content. Review it before sharing."
 ARCHIVE_NOTICE = "Archived and permanently deleted documents are not included."
 EXPECTATIONS_SCOPE = ("Expectations are selected by the filter's company and document fields only; its other fields"
                       " do not apply to them.")
