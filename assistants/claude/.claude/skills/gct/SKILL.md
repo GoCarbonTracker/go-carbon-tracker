@@ -62,7 +62,7 @@ A review is the user's own statement, so ask for every word of it.
 - The shortest record is `gct flag raise CLAIM --version V --as KEY --capacity TEXT --rationale TEXT`.
 - The review the product names is `gct review auditor CLAIM --version V --outcome accepted|rejected|disputed --scope TEXT --conclusion TEXT --as KEY --capacity TEXT` with evidence: `--evidence-doc ID` and `--evidence-page N`, or `--evidence-note TEXT`. Without evidence it is refused.
 - The contributor must exist first: `gct contributor add KEY --name NAME`.
-- The version race: read `gct claims history CLAIM` first and pass the newest version id as `--version`. If the claim changed since, the command is refused. Code text: "is not claim {claim}'s newest version"
+- The version race: read `gct claims history CLAIM` first and pass the newest version id (the largest `versions[].id`) as `--version`. If the claim changed since, the command is refused. Code text: "is not claim {claim}'s newest version"
 - Read the history again, show the user what changed, and ask again before you retry.
 
 ## Evidence

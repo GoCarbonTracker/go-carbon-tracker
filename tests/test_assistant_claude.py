@@ -43,6 +43,8 @@ REPLAY_FILES = [
     SKILL_MD,
     COMMANDS_MD,
 ]
+# The files the mention check (c), the Code text check (d), the presence checks (e) and the AC 8 never-list scan run
+# over. Separate from REPLAY_FILES on purpose: a file added there (8.2's setup guide) is replayed, not scanned.
 ASSISTANT_FILES = [CLAUDE_MD, SKILL_MD, COMMANDS_MD]
 
 # What a user would say. Only the test fills these in; the files never choose them.
@@ -191,6 +193,9 @@ def replay_lines(path):
     return out
 
 
+WORKFLOW = replay_lines(SKILL_MD)  # the shared acceptance workflow, (command, code, status) in order; 8.5 imports it
+
+
 def examples(text):
     """Command lines the file shows as something to run: every fenced line, and every inline `gct ...` on a line that
     is not a "never" sentence."""
@@ -216,7 +221,7 @@ def mentions(text):
     for line in text.splitlines():
         if line.startswith("```"):
             in_fence = not in_fence
-        elif not in_fence:
+        elif not in_fence and "Code text:" not in line:  # quotations belong to the Code text check
             out += re.findall(r"`(gct\b[^`]*)`", line)
     return out
 
