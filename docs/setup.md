@@ -138,7 +138,7 @@ Things the lines above do not say:
 
 ## Using Claude
 
-This is the Claude configuration; the no-assistant path above does not need it. The order matters: make the workspace first, with the environment active, then copy the Claude files into it, then start Claude Code inside the workspace.
+This is the Claude configuration; the no-assistant path above does not need it. It needs Claude Code, which this page does not install, and three files from the code folder: [CLAUDE.md](../assistants/claude/CLAUDE.md) holds the rules Claude works under, [SKILL.md](../assistants/claude/.claude/skills/gct/SKILL.md) the workflow from a PDF to a report, and [commands.md](../assistants/claude/.claude/skills/gct/commands.md) every command with its options. The order matters: make the workspace first, with the environment active, then copy the Claude files into it, then start Claude Code inside the workspace.
 
 ```
 gct workspace init WORKSPACE

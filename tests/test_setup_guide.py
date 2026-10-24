@@ -2,7 +2,6 @@
 Nothing here installs or downloads anything. Each check_* takes a tree root so a copy with one change can be checked."""
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -13,6 +12,7 @@ import pytest
 
 from conftest import make_pdf
 from gate_fixture import SCOPE_1, page
+from test_assistant_claude import REPLAY_FILES, mention_problems, replay_lines  # story 8.1: replay grammar, file list
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -45,6 +45,11 @@ OLD_PROMISES = (
 ABSOLUTE = re.compile(r"\bsanitised (?:output|PDF|report|package)s? (?:holds? no|leaves? out|contains? no)\b")
 # What the one recorded G2 measurement found (story 3.6, scorer version 1, gold commit 3985743).
 G2_FACTS = ("170 figures", "scorer version 1", "3985743", "0 of 80", "0 of 50", "0 of 40", "90%")
+# The steps of the first-run block, in order (AC 6), and the files story 8.1 ships that "Using Claude" links (AC 9).
+FIRST_RUN_STEPS = ("workspace init", "company add", "doc add", "read", "extract", "publish build", "claims list",
+                   "contributor add", "flag raise", "report all")
+CLAUDE_FILES = ("assistants/claude/CLAUDE.md", "assistants/claude/.claude/skills/gct/SKILL.md",
+                "assistants/claude/.claude/skills/gct/commands.md")
 
 
 def sections(text: str) -> dict[str, str]:
@@ -182,10 +187,36 @@ def check_synthetic_sample(root):
     assert sample_command(first_run)
 
 
+def check_claude_files_linked(root):
+    """AC 9: "Using Claude" links the three files story 8.1 ships (check_links makes sure each one exists)."""
+    linked = links(sections(guide(root))["Using Claude"])
+    for name in CLAUDE_FILES:
+        assert f"../{name}" in linked, name
+
+
+def check_mentions(root):
+    """AC 9, 8.1's check (c) read over the guide: every `gct ...` it names is a command that exists, with options it has."""
+    assert not mention_problems(guide(root))
+
+
+def check_replay_block(root):
+    """AC 6 and 9: the first-run block holds the steps in order, and nothing the user has to decide or that does not
+    return. Story 8.1's replay test runs the lines (test_assistant_claude.py, the setup.md case)."""
+    commands = [c for c, _, _ in replay_lines(root / "docs" / "setup.md")]
+    at = 0
+    for step in FIRST_RUN_STEPS:
+        found = [i for i in range(at, len(commands)) if (commands[i] + " ").startswith(f"gct {step} ")]
+        assert found, f"the first-run block has no {step!r} after step {at}"
+        at = found[0] + 1
+    assert not re.search(r"--complete|doc label|--include-private|approve|doc delete|--confirm|\bserve\b",
+                         " ".join(commands))
+
+
 @pytest.mark.parametrize("check", [check_headings, check_links, check_dependency_names, check_python_and_windows,
                                    check_no_node_or_docker, check_labels, check_readme, check_quotes,
                                    check_privacy_status, check_measured_g2, check_python_command,
-                                   check_synthetic_sample])
+                                   check_synthetic_sample, check_claude_files_linked, check_mentions,
+                                   check_replay_block])
 def test_guide(check):
     check(ROOT)
 
@@ -211,36 +242,12 @@ def test_the_sample_pdf_command_makes_a_readable_report(tmp_path, gct):
     assert gct("claims", "list", "--doc", 1, *w).data["claims"]
 
 
-# --- provisional first-run replay: dropped when story 8.1's gct-replay test takes the block over (AC 6, 9) ---
+# --- AC 6 and 9: story 8.1's replay test runs the first-run block ---
 
-def replay_lines(text: str) -> list[tuple[str, int, str | None]]:
-    out = []
-    for block in re.findall(r"^```gct-replay\n(.*?)^```", text, flags=re.M | re.S):
-        for line in block.splitlines():
-            m = re.fullmatch(r"gct (.+?)  # => (\d+)(?: (\w+))?", line)
-            assert m, line
-            out.append((m[1], int(m[2]), m[3]))
-    return out
-
-
-def test_first_run_block_replays(tmp_path, gct):
-    pdf = tmp_path / "report.pdf"
-    pdf.write_bytes(make_pdf([page([[SCOPE_1, "tCO2e", "100"]], ["FY 2024-25"])]))
-    root = tmp_path / "ws"
-    lines = replay_lines(guide(ROOT))
-    assert [line[0].split()[0] for line in lines][:3] == ["workspace", "company", "doc"]
-    for args, code, status in lines:
-        argv = shlex.split(args.replace("<WORKSPACE>", str(root)).replace("<PDF>", str(pdf)).replace("<COMPANY>", "Acme"))
-        if argv[:2] != ["workspace", "init"] and argv[:2] != ["model", "list"]:
-            argv += ["--workspace", str(root), "--json"]
-        r = gct(*argv)
-        assert r.code == code, (args, r.out, r.err)
-        if status:
-            assert r.data["status"] == status, args
-    for step in ("company add", "doc add", "read", "extract", "publish build", "claims list", "contributor add",
-                 "flag raise", "report all"):
-        assert any(line[0].startswith(step) for line in lines), step
-    assert not re.search(r"--complete|doc label|--include-private|approve|--confirm", "".join(l[0] for l in lines))
+def test_the_guide_is_in_the_assistant_replay_list():
+    """8.1's replay test is parametrized over the files in REPLAY_FILES that exist and hold a gct-replay block, so a guide
+    taken out of the list is dropped from that test without a failure. This is the failure."""
+    assert ROOT / "docs" / "setup.md" in REPLAY_FILES
 
 
 # --- AC 7: a workspace folder moves ---
