@@ -17,7 +17,7 @@ from gct.workspace import registry, runs, store
 from gct.workspace.layout import NOT_FOUND, REFUSED, USAGE, GctError
 
 METHOD = "infer-rules"
-RULES_VERSION = 2
+RULES_VERSION = 3
 CONFIG = version_of("infer", 1, RULES_VERSION)
 KINDS = ("fiscal_year", "calendar_year", "half", "quarter", "as_at")
 BOUNDARIES = ("standalone", "subsidiary_set", "consolidated")

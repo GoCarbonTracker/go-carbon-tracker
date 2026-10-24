@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gct"
-version = "0.0.1"
+version = "0.1.2-alpha"
 description = "GoCarbonTracker: a workspace folder for company documents, kept as an append-only history."
 readme = "README.md"
 requires-python = ">=3.11"

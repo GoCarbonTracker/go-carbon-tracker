@@ -14,7 +14,7 @@ from gct.workspace import registry, runs, store
 from gct.workspace.layout import NOT_FOUND, REFUSED, GctError
 
 METHOD = "match-rules"
-RULES_VERSION = 2  # 2: number_of reads Indian grouping and drops trailing footnote marks (story 4.2)
+RULES_VERSION = 3  # 2: number_of reads Indian grouping and drops trailing footnote marks (story 4.2)
 METRICS_VERSION = 2  # 2: records the combined-scope list of 4.1 fix 95e3c9e; the list itself is unchanged here
 UNITS_VERSION = 1
 CONFIG = version_of("match", 1, RULES_VERSION, METRICS_VERSION, UNITS_VERSION)
