@@ -1,0 +1,58 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Length 1178 >>
+stream
+BT /F1 12 Tf 1 0 0 1 44 578 Tm (Parameter) Tj ET
+BT /F1 12 Tf 1 0 0 1 274 578 Tm (Unit) Tj ET
+BT /F1 12 Tf 1 0 0 1 324 578 Tm (FY 2024-25) Tj ET
+BT /F1 12 Tf 1 0 0 1 44 558 Tm (Total Scope 1 emissions) Tj ET
+BT /F1 12 Tf 1 0 0 1 274 558 Tm (tCO2e) Tj ET
+BT /F1 12 Tf 1 0 0 1 324 558 Tm (1,240.5) Tj ET
+BT /F1 12 Tf 1 0 0 1 44 538 Tm (Total energy consumed \(A+B+C\) \(in GJ\)) Tj ET
+BT /F1 12 Tf 1 0 0 1 274 538 Tm (GJ) Tj ET
+BT /F1 12 Tf 1 0 0 1 324 538 Tm (85,400.0) Tj ET
+BT /F1 12 Tf 1 0 0 1 44 518 Tm (Total Scope 2 emissions) Tj ET
+BT /F1 12 Tf 1 0 0 1 274 518 Tm (tCO2e) Tj ET
+BT /F1 12 Tf 1 0 0 1 324 518 Tm (3,810.2) Tj ET
+BT /F1 12 Tf 1 0 0 1 44 498 Tm (Renewable electricity share) Tj ET
+BT /F1 12 Tf 1 0 0 1 274 498 Tm (%) Tj ET
+BT /F1 12 Tf 1 0 0 1 324 498 Tm (42.5) Tj ET
+BT /F1 12 Tf 1 0 0 1 40 712 Tm (The financial year ended March 31, 2025.) Tj ET
+BT /F1 12 Tf 1 0 0 1 40 692 Tm (Reporting boundary: Report is prepared on a standalone basis.) Tj ET
+40 592 m 450 592 l S
+40 572 m 450 572 l S
+40 552 m 450 552 l S
+40 532 m 450 532 l S
+40 512 m 450 512 l S
+40 492 m 450 492 l S
+40 592 m 40 492 l S
+270 592 m 270 492 l S
+320 592 m 320 492 l S
+450 592 m 450 492 l S
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000185 00000 n 
+0000001415 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1541
+%%EOF
