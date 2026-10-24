@@ -204,16 +204,26 @@ Both refuse a data version that is out of date (build a fresh one with `gct publ
 
 ## What does not exist yet
 
-OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, review in the viewer of page acceptance, gap confirmation, infer review and restatement (those stay CLI commands).
+OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, review in the viewer of page acceptance, gap confirmation, infer review and restatement (those stay CLI commands). `docs/setup.md` says what the no-model install reads and does not read.
 
 ## Setup
 
-Needs Python 3.11 or newer.
+Needs Python 3.11 or newer. [docs/setup.md](docs/setup.md) is the whole guide: Windows (not tested), an offline install, the first run and moving a workspace to another computer. The commands below are for macOS.
+
+User form (a copy of gct in its own environment, from the code folder):
 
 ```
 python3.13 -m venv .venv
-.venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest
+source .venv/bin/activate
+pip install .
+gct --version
+```
+
+Contributor form (linked to the code folder, with the tests):
+
+```
+pip install -e '.[dev]' 'setuptools>=77'
+pytest
 ```
 
 ## Licence
