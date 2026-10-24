@@ -133,8 +133,8 @@ def _book(root, doc: dict) -> tuple:
     try:
         return read_book(str(registry.stored_path(Path(root), doc["sha256"])), doc["file_type"], doc["logical_name"])
     except (KeyError, IndexError, AttributeError, TypeError, ValueError, ElementTree.ParseError, zipfile.BadZipFile,
-            csv.Error) as e:
-        raise GctError(REFUSED, f"Document {doc['id']} could not be read as a spreadsheet ({type(e).__name__}).",
+            csv.Error):
+        raise GctError(REFUSED, f"Document {doc['id']} could not be read as a spreadsheet.",
                        "Save the file again as CSV or XLSX and add it with: gct doc add FILE --kind evidence") from None
 
 

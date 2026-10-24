@@ -524,5 +524,5 @@ def test_every_command_has_a_documented_section():
         "view remove", "view questions", "report preview", "report evidence-index", "report restatement-log",
         "report gap-report", "report all",
         "workspace status", "run list", "run show", "run resume", "run retry", "serve", "error",
-        "approve spend", "approve transfer", "approve list", "model list", "measure g2",
+        "approve spend", "approve transfer", "approve list", "model list", "measure g2", "troubleshoot export",
     }

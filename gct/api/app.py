@@ -168,7 +168,7 @@ def create_app(root: Path, token: str) -> FastAPI:
             return await call_next(request)
         except Exception:
             log = layout.write_error_log(root)
-            return error(500, "Something unexpected went wrong.", f"Details were written to {log}.")
+            return error(500, "Something unexpected went wrong.", f"Details were written to {log}." if log else layout.NO_LOG)
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException):

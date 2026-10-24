@@ -121,6 +121,37 @@ def test_handler_exception_is_500_json_and_logged(ws, monkeypatch):
     assert "secret detail" in logs[0].read_text() and "secret detail" not in body
 
 
+def test_handler_exception_with_an_unwritable_logs_folder_is_500_naming_no_path(ws, monkeypatch):
+    def with_boom(root, token):
+        app = app_module.create_app(root, token)
+
+        @app.get("/boom")
+        def boom():
+            raise RuntimeError("secret detail")
+
+        return app
+
+    monkeypatch.setattr(server, "create_app", with_boom)
+    (ws / "logs").chmod(0o555)
+    try:
+        try:
+            (ws / "logs" / "probe").touch()
+        except PermissionError:
+            srv = server.serve(ws, port=0)
+            try:
+                status, _, body = call(srv.port, "/boom", **cookie(srv))
+            finally:
+                srv.stop()
+        else:
+            pytest.skip("this user can write into a read-only folder")
+    finally:
+        (ws / "logs").chmod(0o755)
+    assert status == 500 and json.loads(body) == {
+        "status": "error", "cause": "Something unexpected went wrong.",
+        "next_action": "No log file could be written in the workspace's logs folder."}
+    assert "None" not in body and str(ws.resolve()) not in body and not list((ws / "logs").iterdir())
+
+
 def test_token_appears_once_in_output(tmp_path, monkeypatch, capfd):
     """Only the launch URL printed by gct serve --json carries the token; no log line does."""
     # No ws fixture here: it captures through capsys, which cannot be combined with capfd.

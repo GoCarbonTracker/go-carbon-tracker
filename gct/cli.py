@@ -5,6 +5,7 @@ import os
 import shlex
 import sqlite3
 import sys
+import tempfile
 import webbrowser
 from collections import Counter
 
@@ -22,10 +23,23 @@ def _print(args, payload: dict, text: str) -> None:
     print(json.dumps(payload) if args.json else text)
 
 
+def _refuse_read_only(root) -> None:
+    """D-8.3-5: refuses a workspace folder gct cannot write, before any lock, upgrade or connection (WAL mode writes
+    -wal and -shm beside the database even to read it, and files left from another connection hide that). A write
+    probe (create and remove a file), not os.access: permissions are not the only way a folder refuses."""
+    try:
+        with tempfile.TemporaryFile(dir=root):
+            return
+    except OSError:
+        raise GctError(layout.REFUSED, f"The workspace folder {root} is read-only, so gct cannot open it.",
+                       "Make the folder writable, or copy the workspace to a writable folder.") from None
+
+
 def _open(args, write=True):
     """Locate and upgrade the workspace. A writing command holds the workspace lock until main() returns;
     a read-only one takes it only for an upgrade."""
     args.root = layout.locate(args.workspace)
+    _refuse_read_only(args.root)
     conn = store.connect(args.root / layout.DB_NAME)
     if write or store.pending(conn):
         args.lock = lock.hold(args.root)
@@ -1575,14 +1589,15 @@ def report_dataset(args) -> tuple[dict, dict]:
     """(dataset, preview) of the current data version under the workspace lock (released by main), from workspace.db
     opened read-only: no upgrade, no run and no file is written (7.1-P9, R3)."""
     args.root = layout.locate(args.workspace)
+    _refuse_read_only(args.root)
     args.lock = lock.hold(args.root)
     conn = published.open_version(args.root / layout.DB_NAME)
     try:
         try:
             _no_report_upgrade(conn)
         except sqlite3.OperationalError:
-            raise GctError(layout.REFUSED, f"The working database in {args.root} cannot be read: SQLite adds its -wal"
-                                           " and -shm files beside it to read it, and that folder is read-only.",
+            raise GctError(layout.REFUSED, f"The workspace folder {args.root} is read-only, and building a report needs"
+                                           " to write two small files beside the workspace database.",
                            "Make the folder writable, or build the report from a writable copy of the workspace.") from None
         return dataset.build(conn, args.root, **report_options(args))
     finally:
@@ -1645,6 +1660,7 @@ def cmd_report(args) -> None:
     opts = report_options(args)
     view.normalise(opts["filter"])
     args.root = layout.locate(args.workspace)  # not _open: a refused export must not have upgraded the workspace
+    _refuse_read_only(args.root)
     args.lock = lock.hold(args.root)
     conn = store.connect(args.root / layout.DB_NAME)
     _no_report_upgrade(conn)
@@ -1671,6 +1687,19 @@ def cmd_report(args) -> None:
            "\n".join(lines + report_lines(d, p)))
 
 
+def cmd_troubleshoot_export(args) -> None:
+    """gct troubleshoot export (story 8.3): opened like gct run list; no run is recorded (D-8.3-3)."""
+    from pathlib import Path
+
+    from gct.workspace import troubleshoot
+
+    conn = _open(args, write=False)
+    given = args.workspace or os.environ.get("GCT_WORKSPACE")
+    out = troubleshoot.write(conn, args.root, [Path(given).expanduser().absolute()] if given else [])
+    _print(args, {"status": "ok", **out}, f"Wrote {out['folder']} ({', '.join(out['files'])}).\nRead both files before"
+                                          " you send them to anyone; they hold no document, company or contributor name.")
+
+
 def cmd_serve(args) -> None:
     from gct.api import server  # FastAPI and uvicorn add about 30 MB to every other command's memory (AC 17)
 
@@ -1689,14 +1718,23 @@ def cmd_serve(args) -> None:
         srv.stop()
 
 
+class Parser(argparse.ArgumentParser):
+    """A usage error is a GctError (FR78 shape, exit 2); every subparser inherits this class."""
+
+    def error(self, message):
+        cause = message[:1].upper() + message[1:]
+        raise GctError(layout.USAGE, cause if cause.endswith(".") else cause + ".", f"See the options with: {self.prog} --help")
+
+
 def build_parser() -> argparse.ArgumentParser:
     json_flag = argparse.ArgumentParser(add_help=False)
     json_flag.add_argument("--json", action="store_true", help="print one JSON object")
     common = argparse.ArgumentParser(add_help=False, parents=[json_flag])
     common.add_argument("--workspace", metavar="PATH", help="workspace folder (default: GCT_WORKSPACE, else search upward)")
 
-    parser = argparse.ArgumentParser(prog="gct", description="GoCarbonTracker workspace tools.")
-    top = parser.add_subparsers(dest="group", required=True, metavar="{workspace,company,doc,read,extract,link,infer,match,series,restate,review,adjudicate,flag,claims,sheet,correct,contributor,expect,pages,gap,publish,package,view,run,approve,model,measure,serve}")
+    parser = Parser(prog="gct", description="GoCarbonTracker workspace tools.")
+    parser.add_argument("--version", action="version", version=f"gct {__version__}")
+    top = parser.add_subparsers(dest="group", required=True)
 
     def group(name, help_):
         return top.add_parser(name, help=help_).add_subparsers(dest="command", required=True)
@@ -2115,6 +2153,10 @@ def build_parser() -> argparse.ArgumentParser:
     g2_.add_argument("--against", metavar="REPORT", help="a previous report: print the scorer or extraction delta")
     g2_.set_defaults(func=cmd_measure_g2)
 
+    troubleshoot = group("troubleshoot", "help for a failed command (see docs/troubleshooting.md)")
+    troubleshoot.add_parser("export", parents=[common], help="write a sanitised troubleshooting folder under exports/"
+                            ).set_defaults(func=cmd_troubleshoot_export)
+
     serve = top.add_parser("serve", parents=[common], help="start the local service and open it in the browser")
     serve.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (default: 8765)")
     serve.add_argument("--no-open", action="store_true", help="do not open the browser")
@@ -2130,15 +2172,23 @@ def _fail(args, cause: str, next_action: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    argv = sys.argv[1:] if argv is None else argv
+    try:
+        args = build_parser().parse_args(argv)
+    except GctError as e:  # a usage error; --json counts only before "--", after it it is an argument
+        _fail(argparse.Namespace(json="--json" in argv[:argv.index("--")] if "--" in argv else "--json" in argv),
+              e.cause, e.next_action)
+        return e.code
     try:
         return args.func(args) or 0
     except GctError as e:
         _fail(args, e.cause, e.next_action)
         return e.code
     except Exception:
-        log = layout.write_error_log(getattr(args, "root", None))
-        where = f"Details were written to {log}." if log else "Run it again with --workspace PATH so a log file can be written."
+        root = getattr(args, "root", None)
+        log = layout.write_error_log(root)
+        where = (f"Details were written to {log}." if log else layout.NO_LOG if root
+                 else "Run it again with --workspace PATH so a log file can be written.")
         _fail(args, "Something unexpected went wrong.", where)
         return 1
     finally:
