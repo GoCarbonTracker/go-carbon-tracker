@@ -162,7 +162,7 @@ def test_columns_words_and_titles_follow_the_contract():
     assert set(w["fixed"]["headings"].values()) >= {c["heading"] for cs in cols.values() for c in cs}
     assert "withheld" not in json.dumps(w["fixed"])  # the withheld word is words.withheld only
     assert w["self_declared"] == review.SELF_DECLARED and w["earlier_version"] == "on an earlier version"
-    assert w["privacy_notice"] == "Private content is excluded from this output."
+    assert w["privacy_notice"] == "Sanitised output may still contain private content. Review it before sharing."
 
     def strings(x):
         return [x] if isinstance(x, str) else [s for v in (x.values() if isinstance(x, dict) else x) for s in strings(v)]

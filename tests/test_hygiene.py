@@ -107,3 +107,13 @@ def test_licence_files_and_remotes_limited_to_private_backup():
         for line in r.stdout.splitlines():
             url = line.split()[1].lower().removesuffix(".git")
             assert url.endswith(PRIVATE_BACKUP), f"remote not allowed before gate G3: {line}"
+
+
+RETIRED_NOTICE = "Private content is excluded from this output."
+
+
+def test_the_retired_privacy_notice_appears_nowhere():
+    """A sanitised output is designed to leave private content out and is not verified to (README, Status). Its notice
+    says so, and the sentence that promised exclusion stays out of the code, the docs and the README."""
+    files = [*(ROOT / "gct").rglob("*.py"), *(ROOT / "docs").rglob("*.md"), ROOT / "README.md"]
+    assert [str(p.relative_to(ROOT)) for p in sorted(files) if RETIRED_NOTICE in p.read_text()] == []
