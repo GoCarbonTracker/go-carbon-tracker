@@ -14,9 +14,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from gct import __version__
+from gct.models import redact
 from gct.models.redact import scrub, scrub_key
 from gct.reports import pin as pinning
 from gct.reports.crops import credential_documents
+from gct.reports.dataset import _text
 from gct.reports.export import folder as _folder
 from gct.stages import deletion, match, sheet
 from gct.workspace import labels, layout, published, registry, runs, store
@@ -318,8 +320,8 @@ def _plan(conn, root, mode: str, include: tuple):
                                               "included": included}, sort_keys=True).encode()).hexdigest()[:12]
     paths = sum(bool(LOCAL_PATH.search(r["item"] or "") or LOCAL_PATH.search(r["message"] or ""))
                 for r in ship["run_event"])
-    file_notes = [scrub(f"Original and reading files for document {i} ({docs[i]['logical_name']}) are withheld"
-                        " because its PDF text layer contains a credential or could not be read.") for i in sorted(held)]
+    file_notes = [_text(f"Original and reading files for document {i} ({docs[i]['logical_name']}) are withheld"
+                        " because its source text, metadata or annotations contain a credential or could not be read.") for i in sorted(held)]
     out["lines"] = [*_lines(conn, out, docs, shipped, names, paths), *file_notes]
     files = ["workspace.db", "published/v1.db", MANIFEST, *readings,
              *(registry.stored_path(Path(), s).as_posix() for s in sorted(originals))]
@@ -349,7 +351,7 @@ def _lines(conn, p: dict, docs: dict, shipped: list, names: dict, paths: int) ->
 
     held = [doc(docs[i], _doc_cause(conn, docs[i])[1]) for i in docs if i not in shipped]
     if p["mode"] == "sanitised" and not shipped:
-        return [scrub(line) for line in [head, EMPTY, *held, RELABEL]]
+        return [_text(line) for line in [head, EMPTY, *held, RELABEL]]
     lines = [head, "Included documents:", *(doc(docs[d["id"]], d["label"]) for d in p["included"]["documents"])]
     if held:
         lines += ["Withheld documents:", *held]
@@ -367,7 +369,7 @@ def _lines(conn, p: dict, docs: dict, shipped: list, names: dict, paths: int) ->
         lines.append(f"It also carries contributor names and text, reviewer flags, {tables['saved_view']} saved views"
                      f" and {paths} run log lines that name local paths.")
         lines.append(f"Not in the package: {gone['approvals']} approvals, {gone['page_images']} page images.")
-        return [scrub(line) for line in [*lines, _create_line(p)]]
+        return [_text(line) for line in [*lines, _create_line(p)]]
     inc = p["include"]
     k = len(names)
     lines.append("Contributor names, organisations and keys are kept as recorded." if "identity" in inc else
@@ -379,7 +381,7 @@ def _lines(conn, p: dict, docs: dict, shipped: list, names: dict, paths: int) ->
                  "Reviewer flags are withheld; include flags to keep them.")
     lines.append(f"Not in the package: {gone['run_log_lines']} run log lines (each run keeps its outcome),"
                  f" {gone['approvals']} approvals, {gone['saved_views']} saved views, {gone['page_images']} page images.")
-    return [scrub(line) for line in [*lines, _create_line(p)]]
+    return [_text(line) for line in [*lines, _create_line(p)]]
 
 
 def _failed(cause: str) -> GctError:
@@ -391,7 +393,8 @@ def _row(table: str, row, mode: str, include: tuple, ctx: dict) -> tuple:
     out = []
     for col in row.keys():
         v = row[col]
-        v = (scrub_key if (table, col) in KEY_TEXT else scrub)(v) if isinstance(v, str) else v
+        if isinstance(v, str):
+            v = redact.KEY_PATTERN.sub(redact.MARK, _text(v)) if (table, col) in KEY_TEXT else _text(v)
         cls = COLUMNS[table][col]
         if mode == "sanitised":
             if cls == TEXT and "contributor_text" not in include:
@@ -416,7 +419,7 @@ def _declared(row, wording, ctx):
         return wording
     for m in ctx["ship"]["sheet_mapping"]:
         who = ctx["who"][m["contributor_version_id"]]
-        if m["document_id"] == row["document_id"] and wording == scrub(DECLARED.format(m["id"], who["name"])):
+        if m["document_id"] == row["document_id"] and wording == _text(DECLARED.format(m["id"], who["name"])):
             return DECLARED.format(m["id"], ctx["names"][who["contributor_key"]])
     return MARKER
 
