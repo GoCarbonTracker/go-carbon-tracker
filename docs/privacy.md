@@ -54,7 +54,7 @@ A record whose document the version cannot trace counts as private.
   capacity and contributor-typed text (scope, conclusion, rationale, procedure, notes, follow-up, closure reason,
   and a correction's corrector, organisation, capacity and rationale) are withheld: the key stays, its value is
   `null` and the row's `withheld` list names it. `--include identity,contributor_text,flags` keeps the named
-  classes. A sanitised output carries the line "Private content is excluded from this output."
+  classes. A sanitised output carries the line "Sanitised output may still contain private content. Review it before sharing."
 - **Complete** (`--complete`). Every row of the selection, with its label, and every record.
 
 `gct report preview` shows, for the local user only, the rows a report would hold and, for a sanitised output, the
