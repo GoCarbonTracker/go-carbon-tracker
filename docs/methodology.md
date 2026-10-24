@@ -23,17 +23,10 @@ In ESG assurance, reporting a false finding destroys trust. GCT adheres to the p
 ## 2. Ingestion & Pre-Processing Pipeline
 
 ```mermaid
-flowchart TD
-    A["Source Document (PDF / CSV / XLSX)"] --> B["SHA-256 Content Hash"]
-    B --> C{"Hash Exists in Registry?"}
-    C -- "Yes" --> D["Reject Duplicate / Reuse Cached File"]
-    C -- "No" --> E["Register in Document Registry"]
-    E --> F["Page Quality Diagnostics"]
-    F --> G["Quality Flags Check"]
-    G --> H["Flag: Blank / Scanned Page (No Text)"]
-    G --> I["Flag: Fragmented Text Layout"]
-    G --> J["Flag: Empty Table Cells"]
-    G --> K["Store Layout Artifacts (JSON)"]
+flowchart LR
+    A["Source PDF / Sheet"] --> B["SHA-256 Hash"]
+    B --> C["Layout & Quality Check"]
+    C --> D["Extracted Words & Tables"]
 ```
 
 ### 2.1 SHA-256 Content Deduplication
@@ -54,18 +47,9 @@ Before extraction begins, each page is evaluated against three quality criteria:
 
 ```mermaid
 flowchart LR
-    P["Document Page"] --> R["Rule-Based Tokenizer"]
-    R --> T["Table Extraction (Ruled Cells)"]
-    R --> TX["Text Span Extraction (Regex + Units)"]
-    
-    T --> M["Metric Normalization"]
-    TX --> M
-    
-    M --> B["Bounding Box Alignment (PDF Points)"]
-    B --> S{"Match Quality"}
-    S -- "Exact cell/word overlap" --> ST1["Status: matched"]
-    S -- "Text reference without box" --> ST2["Status: cited"]
-    S -- "Ambiguous / OCR error" --> ST3["Status: unresolved"]
+    P["Page Text & Grid"] --> E["Extract Metric & Value"]
+    E --> B["Box Alignment [x0, y0, x1, y1]"]
+    B --> S["Status: matched | cited | unresolved"]
 ```
 
 ### 3.1 Extraction Scope
@@ -95,20 +79,10 @@ $$\text{Bounding Box} = [x_0, y_0, x_1, y_1]$$
 Corporate climate reports routinely adjust historical baselines due to acquisitions, divestments, or updated emission factors. Many companies do not highlight these changes prominently.
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    participant R22 as 2022 Sustainability Report
-    participant GCT as GoCarbonTracker Engine
-    participant R24 as 2024 Sustainability Report
-
-    R22->>GCT: Ingest: Reports FY22 Scope 1 = 30,000 tCO2e
-    GCT->>GCT: Store Claim: FY22 = 30,000 (Doc ID: 1, Page 45)
-    
-    R24->>GCT: Ingest: Reports FY22 Scope 1 = 33,500 tCO2e
-    GCT->>GCT: Match Metric & Reporting Period (FY22)
-    GCT->>GCT: Detect Delta: +3,500 tCO2e divergence
-    GCT->>GCT: Flag Restatement Candidate
-    GCT-->>GCT: Capture Source Footnote / Explanatory Text
+flowchart LR
+    R22["2022 Report:<br/>FY22 = 30k tCO2e"] --> Match{"Match Period & Boundary"}
+    R24["2024 Report:<br/>FY22 = 33.5k tCO2e"] --> Match
+    Match --> Flag["Flag Restatement<br/>(+3.5k delta)"]
 ```
 
 ### 4.1 Harmonization Logic

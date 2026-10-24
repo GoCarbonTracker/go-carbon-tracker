@@ -18,45 +18,11 @@ Corporate sustainability reporting faces an assurance deficit:
 ## 2. Core Architectural Tenets
 
 ```mermaid
-classDiagram
-    class Document {
-        +String sha256_hash
-        +String filename
-        +DateTime ingested_at
-        +PrivacyLabel label
-    }
-
-    class Page {
-        +Integer page_number
-        +String layout_hash
-        +QualityFlag flags
-    }
-
-    class Claim {
-        +Integer id
-        +String metric_name
-        +Float value
-        +String unit
-        +String period
-        +String boundary
-    }
-
-    class Evidence {
-        +Float x0, y0, x1, y1
-        +MatchStatus status
-        +String page_crop_path
-    }
-
-    class ReviewRecord {
-        +String reviewer_type
-        +String conclusion
-        +DateTime reviewed_at
-    }
-
-    Document "1" *-- "many" Page
-    Page "1" *-- "many" Claim
-    Claim "1" *-- "1" Evidence : physically anchored to
-    Claim "1" *-- "many" ReviewRecord : validated by
+flowchart LR
+    Doc["Document (SHA-256)"] --> Page["Page Layout"]
+    Page --> Claim["Extracted Claim"]
+    Claim --> Box["Evidence Box [x0, y0, x1, y1]"]
+    Claim --> Ledger["Ledger (Company vs Auditor)"]
 ```
 
 ### 2.1 Physical Proof Over Synthetic Estimation
@@ -96,12 +62,9 @@ When comparing two reports, GCT evaluates whether the reporting boundary changed
 
 ```mermaid
 flowchart LR
-    A["Workspace Storage"] --> B{"Document Privacy Label"}
-    B -- "Private (Default)" --> C["Air-Gapped: Never Leaves Machine"]
-    B -- "Shareable" --> D["Exportable to Sanitized Package"]
-    
-    C --> E["Model Adapters Refused"]
-    D --> F["Redacted Credentials & Notes"]
+    Doc["Workspace Document"] --> Label{"Privacy Label"}
+    Label -- "Private (Default)" --> Airgap["Air-Gapped (Never Leaves Machine)"]
+    Label -- "Shareable" --> Export["Sanitized Package Export"]
 ```
 
 1. **Default Privacy**: All imported documents, notes, and claims default to `private`.
