@@ -408,3 +408,69 @@ def test_package_file_notes_truthful_reason(acme, make_file):
         )
     finally:
         conn.close()
+
+
+def test_r1_split_annotation_credential_withheld(acme, make_file):
+    """A credential split across consecutive Tj operations in an annotation AP is detected and withheld in both modes."""
+    at = ("--workspace", acme)
+    key = "sk-REVIEWONLYSyntheticCredential1234567890"
+    parts = [key[:3], key[3:14], key[14:]]
+    appearance = " ".join("(" + p + ") Tj" for p in parts)
+    first = page([[SCOPE_1, "tCO2e", "22"]], ["FY 2024-25"])
+    first["annots"] = [(40, 300, appearance, "raw")]
+    src = make_file("split_annot.pdf", pdf_with([first]))
+    doc = gct("doc", "add", src, "--company", "Acme", "--privacy", "shareable", *at)["items"][0]["document"]["id"]
+    ready(at)
+    gct("publish", "build", *at)
+
+    conn = store.connect(acme / layout.DB_NAME)
+    try:
+        d = registry.show_document(conn, doc)
+        held = crops.credential_documents(conn, acme, [d])
+        assert held == {doc}, f"R1: Split annotation credential was not held: {held}"
+
+        orig = registry.stored_path(acme, d["sha256"])
+        assert orig.is_file(), "R1: Source original file missing from workspace"
+        assert orig.read_bytes() == src.read_bytes(), "R1: Stored original bytes differ from source bytes"
+
+        ds, _ = dataset.build(conn, acme, mode="sanitised")
+        images = crops.cut(acme, ds)
+        doc_ev_ids = [e["id"] for e in ds["evidence"] if e["document_id"] == doc]
+        assert not any(eid in images for eid in doc_ev_ids), "R1: Evidence images not withheld"
+
+        original = orig.relative_to(acme)
+        for mode in dataset.MODES:
+            folder = _create_package(conn, acme, mode)
+            original_copied = (folder / original).is_file()
+            assert not original_copied, f"R1: Original copied into {mode} package when it must be withheld"
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("mode", dataset.MODES)
+def test_r2_clean_xlsx_original_preserved(acme, make_file, mode):
+    """Clean XLSX documents are preserved in packages and not withheld (sqlite3.Row support)."""
+    at = ("--workspace", acme)
+    rows = [["Parameter", "Unit", "FY 2024-25"], [SCOPE_1, "tCO2e", "22"]]
+    src = make_file("clean.xlsx", xlsx_with(rows))
+    doc = gct("doc", "add", src, "--company", "Acme", "--privacy", "shareable", *at)["items"][0]["document"]["id"]
+    gct("publish", "build", *at)
+
+    conn = store.connect(acme / layout.DB_NAME)
+    try:
+        d = registry.show_document(conn, doc)
+        assert crops.credential_documents(conn, acme, [d]) == set(), "R2: Clean XLSX was withheld from registry doc"
+
+        ship, *_ = package._decide(conn, acme, mode, ())
+        row = next(r for r in ship["document"] if r["id"] == doc)
+        assert crops.credential_documents(conn, acme, [row]) == set(), "R2: Clean XLSX was withheld from package sqlite3.Row"
+
+        orig = registry.stored_path(acme, d["sha256"])
+        assert orig.is_file(), "R2: Source original missing"
+        assert orig.read_bytes() == src.read_bytes(), "R2: Stored original bytes differ"
+
+        pkg_folder = _create_package(conn, acme, mode)
+        rel_orig = orig.relative_to(acme)
+        assert (pkg_folder / rel_orig).is_file(), f"R2: Clean XLSX original not copied into {mode} package"
+    finally:
+        conn.close()

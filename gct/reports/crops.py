@@ -61,9 +61,12 @@ def credential_documents(conn, root, documents) -> set:
 
         from pdfminer.pdfinterp import PDFContentParser
         from pdfminer.psexceptions import PSEOF
+        from pdfminer.psparser import PSKeyword
 
         try:
             parser = PDFContentParser([stream])
+            block_strings: list[bytes] = []
+            all_strings: list[bytes] = []
             while True:
                 try:
                     (_, obj) = parser.nextobject()
@@ -75,10 +78,28 @@ def credential_documents(conn, root, documents) -> set:
                     break
                 if _scan_val(obj):
                     return True
-                if isinstance(obj, list):
+                if isinstance(obj, bytes):
+                    block_strings.append(obj)
+                    all_strings.append(obj)
+                elif isinstance(obj, list):
+                    for x in obj:
+                        if isinstance(x, bytes):
+                            block_strings.append(x)
+                            all_strings.append(x)
                     combined = b"".join(x for x in obj if isinstance(x, bytes))
-                    if _scan_val(combined):
+                    if _scan_val(combined) or _scan_val(b" ".join(x for x in obj if isinstance(x, bytes))):
                         return True
+                elif isinstance(obj, PSKeyword) and getattr(obj, "name", None) in (b"ET", b"BT"):
+                    if block_strings:
+                        if _scan_val(b"".join(block_strings)) or _scan_val(b" ".join(block_strings)):
+                            return True
+                        block_strings = []
+            if block_strings:
+                if _scan_val(b"".join(block_strings)) or _scan_val(b" ".join(block_strings)):
+                    return True
+            if all_strings:
+                if _scan_val(b"".join(all_strings)) or _scan_val(b" ".join(all_strings)):
+                    return True
         except Exception:
             return True  # Parser failure withholds the document (fail closed)
         return False
@@ -172,7 +193,8 @@ def credential_documents(conn, root, documents) -> set:
                     if d["id"] not in held:
                         from gct.stages import sheet
 
-                        for _, rows in sheet.read_book(str(stored), "xlsx", d.get("logical_name", "")):
+                        name = dict(d).get("logical_name", "")
+                        for _, rows in sheet.read_book(str(stored), "xlsx", name):
                             for row in rows:
                                 for cell in row:
                                     if cell and _credential(cell):
