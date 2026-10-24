@@ -2,7 +2,9 @@
 
 An open-source workspace and evidence engine for corporate climate disclosures, tracing claims to document pages with an append-only audit trail.
 
-**Release:** `v0.1.0-alpha` (Developer Preview)
+**Release:** `v0.1.0-alpha` (Developer Preview) | **License:** MIT | **Python:** >= 3.11
+
+---
 
 ## Status
 
@@ -17,13 +19,65 @@ This is experimental software. Do not rely on it to keep private material out of
 - The leakage check that was run on exports made from real data left 15 images unread, so that check has not passed.
 - None of these is fixed in this version. Read any sanitised output or package before you share it. [docs/privacy.md](docs/privacy.md) records the limits of the credential check under "What never leaves".
 
+---
+
+## Setup
+
+Needs Python 3.11 or newer. [docs/setup.md](docs/setup.md) is the whole guide: Windows (not tested), an offline install, the first run and moving a workspace to another computer. The commands below are for macOS. `python3` must be 3.11 or newer (check with `python3 --version`). Python 3.13 on Apple Silicon macOS is the only combination that has been run; 3.11 and 3.12 are allowed by the package and have not been run.
+
+User form (a copy of gct in its own environment, from the code folder):
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install .
+gct --version
+```
+
+Contributor form (linked to the code folder, with the tests):
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]' 'setuptools>=77'
+pytest
+```
+
+---
+
+## Quick walkthrough
+
+Once installed, you can create a local workspace, add documents, extract claims, and inspect evidence in your browser:
+
+```bash
+# 1. Initialize a new workspace
+gct workspace init my-workspace
+
+# 2. Add an organisation
+gct company add "Acme Corp" --workspace my-workspace
+
+# 3. Add reports (PDF, CSV, XLSX)
+gct doc add /path/to/report.pdf --company "Acme Corp" --workspace my-workspace
+
+# 4. Read text and extract claims (zero-model baseline)
+gct read --workspace my-workspace
+gct extract --workspace my-workspace
+
+# 5. Launch the local interactive evidence viewer
+gct serve --workspace my-workspace
+```
+
+The viewer opens at `http://127.0.0.1:8765/?token=...`, letting you click any extracted figure to jump directly to its bounding box on the original report page.
+
+---
+
 ## What works today
 
 - `gct workspace init PATH` creates a workspace folder (SQLite database plus `files/`, `artifacts/`, `published/`, `exports/`, `logs/`).
 - `gct company add NAME` and `gct company list`.
 - `gct doc add SOURCE... --company NAME` registers PDF, XLSX and CSV files (recognised from content) for that one company. Each SOURCE is a file, a folder (its direct children of those types, by name) or a direct `http://` or `https://` link. The original is stored once by SHA-256. Adding the same bytes again is reported as a duplicate. Adding a changed file under the same name creates a new version and keeps the old one. A batch keeps going past a bad item, reports each one, and exits 4 if any was refused or failed. A link is downloaded once (only the address is sent); adding it again reuses that download. `--plan` shows what would happen to each item and stores nothing. A batch leaves one run record. Each document gets a privacy label and an availability; see "Privacy labels" below.
 - `gct doc list` and `gct doc show ID`, each with the document's label and availability.
-- Documents default to the `private` label.
+- Documents default to the `private` label (see [Status](#status)).
 - `gct publish build` writes the next numbered, read-only data version (`published/vN.db`, companies and active documents) and makes it current. `gct publish restore` makes the previous version current again without rebuilding. `gct publish status` shows the current version and whether new history has arrived since. Only the current and previous files are kept; history is never touched.
 - `gct publish build` and `gct publish restore` each leave a run record. `gct run list` shows the runs, newest first, with their outcome (`ok`, `failed`, or `interrupted` when the process stopped before finishing). `gct run show ID` shows one run: methods used, failures, retries, estimated and confirmed cost on separate lines, outputs, and every event.
 - `gct workspace status` shows the schema version, the gct version, the number of companies and documents, the current published version, the number of runs and how the latest one ended.
@@ -39,9 +93,13 @@ This is experimental software. Do not rely on it to keep private material out of
 - Only one command that changes a workspace runs at a time: a second one is refused (exit 4) until the first finishes. Commands that only look (`list`, `show`, `status`, `doc pages`, `run list`, `run show`, `serve`) are not held up (apart from a one-time workspace upgrade), so you can watch a long run. The lock is the operating system's, on `workspace.lock`; it goes away with the process, also after a crash.
 - A failed command prints one cause and one next step, also for a mistyped option (exit codes and the run log in `docs/troubleshooting.md`). `gct --version` prints the version. `gct troubleshoot export` writes `exports/troubleshooting-<time>/` with the versions, counts and run history a maintainer needs to help, and no document, company or contributor name, path or key; read it before you send it.
 
+---
+
 ## Resume and retry
 
 Every `gct read`, `gct extract`, `gct link`, `gct infer`, `gct match` and `gct doc add` run records exactly what it was given. `gct run resume ID` runs that again in a new run, for a run that was interrupted or failed: what was already done is reused from cache (pages already read, files already registered show as duplicates), so only the rest is processed. `gct run retry ID` processes again only what failed in that run and has not succeeded since: the pages that failed (to read or to extract), the locations that could not be checked, the documents that could not be inferred, a PDF that could not be opened (read again in full), or the files and links that could not be added. A document that is no longer active is reported as skipped. With nothing failed it says so and exits 0. The run that was resumed or retried is left as it was; the new run notes which one it continues. A finished run cannot be resumed (retry it instead), and only `read`, `extract`, `link`, `infer`, `match` and `doc add` runs can be resumed or retried.
+
+---
 
 ## Claims
 
@@ -51,141 +109,7 @@ Claims from `gct extract` come from fixed reading rules (a no-model baseline). T
 - `gct claims list --doc ID` shows one line per claim: claim id, page, value as printed, unit, metric wording, the period (the label as printed until `gct infer` runs, then the dates with a state word, or the label and `unknown` with the reason), the boundary in the same way, the source match status with its reason, and the box when there is one.
 - `gct publish build` includes the newest version of each claim of active documents, with its source location and source match status.
 
-## Periods and boundaries
-
-Every figure needs the dates it covers and the entity it covers before it can be compared with another. `gct infer` proposes both from what the report itself prints, keeps the sentence it used, and leaves the claim as extracted. A proposal is only a proposal: nothing uses it until a contributor accepts it.
-
-- A period comes from the claim's own period label. A label that prints its dates is enough on its own: `Balance as at 31st March, 2025` is the single day 2025-03-31, `for the year ended March 31, 2024` is the year to that day, and `1 April 2023 to 30 June 2023` is a quarter (a range is a year, a half or a quarter by its dates; any other span stays unknown). `CY24` and `Q3 CY2024` say calendar year themselves. `FY24`, `FY 2023-24`, `2023-24`, `Q1 FY25` and `H2 FY 2023-24` need the document to say when its financial year ends, in a sentence such as "the Financial Year ended March 31, 2024"; the label names the year the period ends in. A sentence about a quarter, a half or some months ("the quarter ended June 30, 2023") never states the year end. If the document has no such sentence, or two that disagree, the label stays unknown and the reason names the pages.
-- Never inferred: a bare year (`2025` does not say which year end), a quarter or half without a year, a label such as `Half year ended 30 September 2024`, `Quarter ended 30 June 2024` or `Nine months ended 31 December 2024` (it gives the end but not the start), an all-numeric date whose day and month could be either way round (`01-04-2024`), and any label not listed above. A claim without a label gets no period, whatever the rest of the report says. No period is taken from the company, the document name or a date elsewhere in the report.
-- A boundary comes only from a sentence that states it, such as BRSR item 13 ("Report is prepared on a standalone basis i.e, ..."), with the entity wording kept as printed. The item-13 question itself, which names both standalone and consolidated, is never read as an answer, and bare words such as a page footer `CONSOLIDATED 262 STANDALONE 383` never count. One PDF can hold standalone and consolidated sections, so a boundary statement covers no figure until a contributor declares the pages it covers: `gct infer scope BASIS --pages FIRST-LAST --as KEY --capacity TEXT --rationale TEXT`. Two declared ranges with different boundaries on one page leave that page unknown. A boundary heading whose answer cannot be read is listed so someone can resolve it by hand.
-- Order of use: `gct infer [--doc ID] [--company NAME]` finds the statements (every boundary is unknown at first), `gct infer bases` lists them with their pages, `gct infer scope` declares boundary ranges, and `gct infer` again proposes boundaries inside them. A document whose claims, readings and ranges have not changed is not inferred again.
-- `gct infer groups [--doc ID] [--state proposed|unresolved]` lists claims inferred the same way to the same result, with the page and wording used and the claim count. `gct infer accept GROUP --as KEY --capacity TEXT --rationale TEXT` accepts the group's proposals at once, leaving any member you resolved or rejected one by one as it was, and says how many it left; for a financial-year label this is your confirmation of the stated year end. `gct infer resolve CLAIM --field period --kind KIND --start DATE --end DATE` (or `--field boundary --boundary B [--detail TEXT]`) sets one claim by hand, and `gct infer reject GROUP` or `gct infer reject --claim CLAIM --field FIELD` turns a proposal down, so the claim stays unknown. Each needs `--as`, `--capacity` and `--rationale`.
-- An acceptance holds for the proposal it was given on. A new claim version (after a re-read and extract) or a changed proposal shows as `proposed` again.
-- `gct publish build` puts only accepted or resolved periods and boundaries in a claim's main fields. Proposals go to separate `proposed_` fields, with each field's state (`resolved`, `accepted`, `proposed`, `unresolved` or `extracted`) and the page and wording it came from. The viewer shows the published values with their state and the printed label beside them (`FY24 · 2023-04-01..2024-03-31 fiscal_year (accepted)`, or `FY24 · unknown (proposed)`), so it never shows a proposal as a value. `gct claims list` shows the label beside the dates in the same way (`FY24 → 2023-04-01..2024-03-31 fiscal_year accepted`).
-
-## Evidence and missing items
-
-A claim's source match says whether its stored location still reproduces the figure. It is the result of a fixed procedure, not a check that the figure is right.
-
-- `matched`: the words whose centre lies in the box, joined, are exactly the figure as printed, alone or followed by its stored unit (attached, `45%`, or as the next word, `4,560 MWh`). Nothing else counts.
-- `cited`: the page has a reading, but the claim has no box (`no box`) or the words in the box no longer give the figure (`box does not reproduce the figure`).
-- `unresolved`: the page has no reading (`page not read: gct read`), which includes a page number past the end of the document. `gct link` never opens the PDF.
-
-`gct extract` records the status of each new claim as it goes. For rung-1 claims `matched` follows from how the box was made, so it says nothing about accuracy; the check is there for later rungs, corrections and re-reads. After a page is read again, `gct link [ID ...] [--company NAME]` checks every location of the newest claims against the newest reading of its page. A location already checked against the same reading is not checked again. A check against the same reading that gives the same answer adds no row; a new reading or a changed answer adds one, and earlier rows stay. `gct link` runs can be resumed and retried like `read` and `extract` runs. Claims extracted before this check existed show "not checked: gct link" until it runs.
-
-A missing item is something else: a figure you expected that has no claim at all. A claim without a box is never a missing item.
-
-- `gct expect add --company NAME --metric TEXT [--period LABEL] [--doc ID ...]` declares an expected figure by its wording, in a fixed set of documents (by default the company's active reports). It is found when the newest version of a claim on one of those documents has a metric wording that contains yours (ignoring case and extra spaces) and, if you gave a period, exactly that period label. This is literal wording only: there is no list of standard metrics, no working out of periods and no unit conversion, so a figure worded differently is not found.
-- `gct expect list [--company NAME]` shows each expectation: found with its claims, or missing in one of three states, worked out each time you ask.
-  - `processing incomplete or failed`: some page of the set is not ready for text, tables or figures. The reasons are counted per type, for example `figures: 822 pages, charts not read`. A page that has not been read, or whose last read failed, is not ready for anything.
-  - `not found in successfully processed material`: every page of every document is ready for all three, and your wording (ignoring case and extra spaces) is printed on none of the pages. Where it is printed but no claim carries it, the item stays `processing incomplete or failed` with the reason `wording printed but no figure extracted` and the pages, because that is a reading gap, not a missing figure. GCT only looks for the exact expectation wording on the pages, so a reworded or abbreviated label (for example "Scope-1" for "scope 1 emissions") is not caught; whoever confirms a gap must check the pages themselves. When the expectation has a period and the claims on a page carry your wording only under other period labels, or none, the reason is `wording printed; figures found only for other or missing period labels`. The check looks at the wording only, never the period, so neither reason says that the figure for your period failed to be extracted. `gap confirm` on such an item is refused and names the pages; reading, retrying or accepting pages does not clear these reasons.  - A document in the set that is not a PDF (a spreadsheet, for example) has no pages to check yet, so the item stays `processing incomplete or failed` with the reason `not a PDF` until spreadsheets are read (E4).
-  - `confirmed disclosure gap`: only when a reviewer has confirmed it, and only while the readings they confirmed are still the newest. gct never decides this on its own.
-- Matching uses the literal wording, so the same figure under different wording can still exist. A gap confirmation is the contributor's own judgment, not a conclusion GCT draws from absent wording. `gct expect list` ends with the same line.
-- A page is ready for text when its newest reading has text that is not flagged, and for tables when its tables are not mostly empty. Figures are never checked yet (no chart reader exists), so under the current reading every item stays `processing incomplete or failed` until a reviewer accepts the pages for figures.
-- `gct pages accept --doc ID --pages SPEC --type text|tables|figures --as KEY --capacity TEXT --rationale TEXT` records that a reviewer accepts flagged or unchecked pages (`SPEC` like `3`, `1-4` or `1,3-5`). It is always shown as `accepted by <name> (<capacity>)`, never as checked. An acceptance holds for the reading it was given on; after the page is read again it shows as `accepted on an earlier reading` and the page needs accepting again. A page that was not read or failed to read cannot be accepted: read it, or retry the run.
-- `gct gap confirm ITEM --as KEY --capacity TEXT --rationale TEXT` records that the figure is not disclosed. It is refused unless the item is `not found in successfully processed material`, so a reading failure is never confirmed as a gap. Its message repeats that only the exact wording was looked for. The confirmation keeps the documents' fingerprints and the readings of every page; after a re-read the item shows its computed state again and names the earlier confirmation.
-- `gct contributor add KEY --name NAME [--organisation ORG]`, `gct contributor edit KEY ...` and `gct contributor list`. An edit adds a new version; records made earlier keep the name they were made under. Every acceptance and confirmation needs `--as KEY` each time, and the capacity is what you declare; nothing is filled in from an earlier command.
-- `gct publish build` includes the expectations with the state and reasons at build time, their declared documents that are not deleted (an archived one stays listed, marked archived), the accepted pages by acceptance id, the newest gap confirmation of each item with the contributor's name, organisation and capacity and the documents and readings it looked in, every page acceptance with whether it is for the page's newest reading (`current`), and one row per page of each active PDF with how it was read and why it is not ready for text, tables or figures.
-
-## Corrections and re-reading
-
-A figure that was read wrongly can be corrected, and a page can be read again with better rules, without losing anything that was there before.
-
-- `gct correct CLAIM [--value TEXT] [--unit TEXT] [--metric TEXT] [--period-label TEXT] --as KEY --capacity TEXT --rationale TEXT` records your correction as a new version of the claim. The earlier version, its location, its source checks and the period and boundary reviews made on it all stay as they were. The corrected version keeps the same page and box, so the next `gct link` checks your value against the page: if the box does not print it, the location shows `cited`, never `matched`. The viewer has the same form ("Correct this figure") on a current claim.
-- `gct claims history CLAIM` shows every version of a claim, who corrected it and why, the value each correction replaced, every source check, every inference and review, and which readings found it.
-- Re-reading uses the same commands: `gct read`, `gct extract`, `gct link`, `gct infer`. Each one only redoes what changed.
-- A figure found again belongs to the same claim only when it is printed in the same place (its box overlaps the old one by at least half), or, when neither has a box, under the same wording. A different figure at the same position on the page becomes a new claim (its locator ends in `~2`); nothing is matched by position alone. A re-read that finds the same figure adds nothing, so a correction stays in place. A re-read that finds a different figure adds a new version, which becomes the claim's value.
-- Every claim shows a state: `current`, `not found in the newest reading` (it stays listed, with its history, and is never shown as current) or `page read again, not yet extracted`. `gct claims list --doc ID --state current|not-found|not-extracted` lists one state.
-- Never carried forward silently: a correction, an accepted or resolved period, and an accepted or resolved boundary hold only for the version they were made on. When a newer version replaces it, the claim is listed as needing re-review, naming the earlier record and its version, and the published period and boundary fall back to what the new version has until someone reviews it again. A correction itself makes a new version, so an earlier period acceptance needs accepting again after it.
-
-## Matching and time series
-
-`gct match` links each figure to the same metric in other periods and in other reports of the same company, but only when the dates, the reporting boundary and the unit allow it. It links figures; the values of one period are compared by `gct restate`. How two values of the same period are compared is in "Restatements" below. The rules, the metric list and the unit table are in `docs/matching.md`.
-
-- `gct match [--doc ID] [--company NAME]` gives each claim a metric key from a small built-in list (absolute totals such as `ghg_scope_1`, `energy_total` or `water_consumption_total`) and a unit from a short unit table. The printed wording is kept as it is. A label that fits no entry, or fits two, is unmapped; intensities, ratios, percentages and categories are always unmapped in this version. The unit comes from the printed unit, else from a unit printed in the label (`(in kilolitres)`, `tCOe 2`). A document whose claims have not changed is not matched again. `gct match metrics` prints the list and the table with their versions. `gct match` runs can be resumed and retried like `gct infer` runs.
-- A figure joins a series on its own only when it is current, its period is accepted or resolved (start and end known), its boundary is accepted or resolved, and its unit is known and accepted for its metric. A series is one company, one metric, one boundary, one unit family and one kind of period, so these never share a series: standalone and consolidated figures, a quarter and a year, tCO2 and tCO2e, a figure in GJ and one in tonnes. An unmapped label forms a series only with the other columns of its own printed table row (same document, page and table row), so generic labels such as `Total` or `NA` never pool rows or tables; an unmapped figure outside a table is not matchable (`unmapped outside a table row`). A figure whose unit is not in the table (formula text such as `A+B+C`, or none) forms a series marked `unit as printed` only with the other columns of the same table row; across documents it never links on its own.
-- `gct series list [--company NAME] [--metric KEY]` shows each series with its latest period. `gct series show SERIES` shows the latest period, and `--all` every period, oldest first, each figure with its value and unit as printed, its value in the base unit when the unit converts, its document, page and claim. Two figures for the same period (a report's previous-year column and the next report's current year) are listed together as `same period: 2 values` with the state of their pair (`same value`, `restatement #ID`, `unresolved conflict` or `not compared` with its reason), both with their sources.
-- A figure that could join a series but has an unknown boundary or an unusable unit goes to the review queue, once for each series it could join: `gct match review [--company NAME] [--reason R]`. `gct match link CLAIM --series SERIES` puts it in that series as `reviewed, not comparable`, and `gct match unlink CLAIM --series SERIES` takes it off the queue; both need `--as`, `--capacity` and `--rationale`. A review never makes the boundary or the unit known, and it holds only for the claim version it was given on.
-- Never linked, not even after review: a figure whose period is unknown or which is not current. `gct match status [--company NAME]` counts, per company, the figures mapped by key, unmapped, without a known unit, the series, the same-period sets and their pairs by state, the review items and the figures that cannot be matched, each with its reason.
-- `gct publish build` adds the metric key, the unit, the series and the match state to every claim, and the series with their points, so a time series can be read from the published version.
-
-## Restatements
-
-When a company prints two figures for the same metric, period and boundary (this year's report repeating last year's number, or two tables of one report), each pair gets one state: `same value`, `restatement`, `unresolved conflict` or `not compared` with its reason. The details are in `docs/restatements.md`.
-
-- Values are compared in the base unit, so 1,000 MWh and 3,600 GJ are the same value. Any other difference counts, however small: there is no size threshold and no rounding.
-- Figures printed with Indian digit grouping (`29,79,832`) and figures with a footnote mark (`48,736*`) are read as numbers for comparison only; the printed value is never changed.
-- Never compared: a figure whose unit is only known as printed, a figure linked by review, a figure with no number, and two columns of one printed table row.
-- A difference is never called a restatement on its own. Someone has to record it with `gct restate record --original CLAIM --restated CLAIM --page N --quote TEXT --as KEY --capacity TEXT --rationale TEXT`, quoting the line printed on a page of the report that carries the restated figure. gct checks that the quote is on that page as read. Without a record the pair stays an `unresolved conflict`, even inside one report. `gct restate withdraw` takes a record back, and both rows stay.
-- gct does not know which report came later. You say which figure is the original and which is the restated one.
-- A record holds for the two claim versions it names. If either figure is corrected or extracted again, the pair is compared again, and the old record stays in the history.
-- `gct restate list [--company NAME] [--state same|restatement|unresolved|not-compared]` lists the pairs, and says how many pairs the filter hid. `gct restate show CLAIM` shows a claim's pairs and every record on its versions. `gct series show` marks each same-period set with its state, `gct match status` counts the pairs by state, and `gct publish build` writes the pair states and every restatement record to the published version.
-- Restatement notes printed in reports are not detected automatically yet.
-
-## Company confirmations and auditor reviews
-
-Someone speaking for the company, or an auditor, can record what they make of one version of a figure. The two are kept in separate ledgers and shown side by side. Details are in `docs/reviews.md`.
-
-- `gct review company CLAIM --version V --outcome accepted|rejected|disputed --scope TEXT --conclusion TEXT --as KEY --capacity TEXT` records a company confirmation; `gct review auditor` with the same options records an auditor review. Evidence is `--evidence-doc ID` (with `--evidence-page N` for a PDF page), `--evidence-note TEXT`, or both; `--date` is the day of the review (default today).
-- `--version` must be the claim's newest version, so nobody confirms a figure they did not see. The conclusion is kept exactly as typed, "verified" included, and attributed to the person who typed it.
-- Identities and capacities are self-declared. GCT does not check them and does not adopt any conclusion as its own.
-- Nothing is overwritten: a later entry is a new row, and a contributor's newest entry on a version is their position. After a correction, earlier entries stay on the earlier version and no longer bind.
-- When the company's and the auditor's positions on a version differ, `gct review list CLAIM` and `gct claims history CLAIM` say so; neither ledger overrides the other. Adding evidence or running any stage never records an entry.
-
-## Archive
-
-A report that should not count (the wrong file, or one replaced by a corrected edition) can be archived. Archiving takes it out of everything gct works with, keeps all of it, and can be undone. Details are in `docs/archive.md`.
-
-- `gct doc archive ID --plan` shows what would drop out, and stores nothing: its claims and their locations, the series it has figures in and how many it gives each, the periods that would go from two values to one, its items in the review queue, the expectations that look in it, and the review records made on it (period and boundary reviews, corrections, match reviews, page acceptances, restatement records, the column mappings of a spreadsheet). Those records are kept; they just stop showing.
-- `gct doc archive ID --as KEY --capacity TEXT --rationale TEXT` archives it and prints the same summary. `gct doc restore ID` with the same three options brings it back. Nothing is deleted or moved: the file, every claim and version, every reading and every review stay where they are, and one record says who archived or restored it, when and why.
-- An archived document is left out of `gct read`, `extract`, `link`, `infer` and `match`; named by id it is reported as skipped. Its figures leave the series, the comparison pairs, the review queue, `gct match status` and the expectations. Correcting one of its figures, resolving or rejecting a period or boundary, declaring a boundary's pages, recording or withdrawing a restatement on one of its figures, mapping a spreadsheet's columns, accepting its pages and naming it in a new expectation are refused until it is restored. An expectation whose documents are all archived is never a confirmable gap: it reads `processing incomplete or failed` with the reason `no active document in its declared set`. `gct claims history`, `gct doc show`, `gct doc pages` and `gct restate show` still work and say it is archived.
-- Series, review items and states are worked out each time you ask, so a restore brings every output back exactly as it was.
-- `gct doc list` shows each document's state; `--active` hides archived ones and says how many it hid. `gct doc show` names who archived it, when and why.
-- `gct publish build` leaves an archived document and its figures out and lists each one it hid with its counts, so a view built on it can say how much is hidden. An older published version made current again with `gct publish restore` can still show a document that is archived now.
-
-## Spreadsheets
-
-Your own evidence, such as a metering export, can be added beside the reports as a CSV or XLSX file. Its figures become claims traced to the file, the sheet and the cell. Adding the file confirms nothing. The rules and the readers' limits are in `docs/spreadsheets.md`.
-
-- Add it with `gct doc add FILE --company NAME --kind evidence`. It is `private` unless you pass `--privacy shareable`.
-- Each sheet needs one header row (row 1). `gct sheet show DOC` prints each sheet's header, its first five rows and its current mapping.
-- `gct sheet map DOC --sheet NAME --metric COL --value COL` says once which column holds what. `--unit`, `--period`, `--boundary`, `--company` and `--note` are optional, and COL is a header exactly as printed in row 1. It needs `--as`, `--capacity` and `--rationale`. A new mapping replaces the old one from the next `gct extract`, and the old one stays in the history. A sheet without a mapping is never read for figures.
-- `gct extract` reads each mapped sheet and makes one claim per row with a value. A row whose company column names another company is skipped and counted. Running it again with nothing changed does nothing; after a new mapping, only the rows whose fields changed get a new version. `gct claims list` shows such a claim as `sheet NAME cell C7`.
-- `gct link` checks that the value cell, read under the current mapping, still holds the claim's value. After a mapping that points elsewhere it says `cited` with the cell and what it holds.
-- `--year-end MM-DD` and `--boundary-is standalone|consolidated|subsidiary_set` on `gct sheet map` declare the sheet's fiscal year end and reporting boundary. `gct infer` turns them into proposals like any report's statements, and they take effect only after `gct infer accept`. The printed boundary column is kept as printed and never becomes a boundary on its own.
-- Once accepted, spreadsheet figures join the series of the same metric from the reports (`gct match`, `gct series show`). The spreadsheet run of `gct extract` is a `sheet` run, which `gct run resume` and `gct run retry` accept. `gct publish build` adds each mapping and each row's note.
-
-## Deleting a document
-
-A document that must not stay in the workspace (sent by mistake, or one you no longer have the right to keep) can be deleted for good. Unlike archive, this cannot be undone. Details are in `docs/deletion.md`.
-
-- `gct doc delete ID` shows what deleting it would do, and stores nothing: what leaves the active outputs, how much of its text is cleared, what is kept, which files go and which stay because another document uses the same file, which published versions it is taken out of, and a confirmation token.
-- `gct doc delete ID --confirm TOKEN --as KEY --capacity TEXT --rationale TEXT` deletes it. Its figures, labels, periods, statements, quotes, readings, page images, original file and its name (for a spreadsheet also its sheet names, column mappings and notes) are removed from the workspace and from the published versions still on disk, so going back to an older version never brings it back. Do not quote the document in your own rationale: it is kept.
-- Reviews other people made on it stay, with who made them, the decision and the date, and say `evidence deleted (document N, date)`. What they typed about it (capacity and rationale) is cleared, since it often quotes the page.
-- If a file is held open by another program, the deletion stops after what it could do and says which steps are left; `gct doc show ID` lists them and running the same `--confirm` command again finishes them.
-- Copies already exported or shared, including files in `exports/`, cannot be recalled. Neither can backups or copies outside the workspace.
-- Adding the same file again later registers a new document; nothing of the deleted one comes back.
-
-## Adjudication and reviewer flags
-
-An `unresolved conflict` pair is an inconsistency candidate: two different figures for the same metric, period and boundary that no restatement record explains. A reviewer can record what the difference is, and separately raise a potential greenwashing concern about a figure. Details are in `docs/adjudication.md`.
-
-- `gct adjudicate list` shows each candidate as `unreviewed candidate` until someone records an adjudication with `gct adjudicate record A B --state explained-difference|extraction-error|reviewer-confirmed-issue|evidence-not-found --procedure TEXT --as KEY --capacity TEXT --rationale TEXT`. An explained difference needs counter-evidence (`--counter-doc ID [--counter-page N]` or `--counter-note TEXT`). Every adjudication stays listed; the newest one on the current figures gives the state.
-- There is no restatement state: a restatement is recorded with its quote through `gct restate record`. An extraction error does not change the figure; `gct correct` does.
-- Correcting either figure makes the candidate unreviewed again; earlier adjudications stay, marked as on an earlier version.
-- `gct flag raise CLAIM --version V ...` and `gct flag withdraw` record a reviewer's concern on the claim's newest version; `gct flag list` shows them. gct never raises a flag itself.
-- `gct adjudicate status` counts candidates per company by state. gct never counts an unreviewed candidate as a confirmed issue and never calls one a contradiction. Identities and capacities are self-declared, and gct does not adopt any conclusion as its own.
-
-When a newer version replaces the figure people reviewed (a correction, a new reading or a new spreadsheet mapping), their company confirmations, auditor reviews, raised reviewer flags and adjudications stay on the version they were made on, and the claim is listed as needing re-review of each, beside corrections and period and boundary reviews. `gct review pending [--company NAME] [--doc ID]` lists every such claim of an active document, grouped by kind, with the command that records it again on the newest version; gct never carries a record forward itself. Details are under "Renewed review" in `docs/reviews.md`.
-
-## Privacy labels
-
-Every document has a privacy label, `private` or `shareable`, and an availability, `public`, `internal` or `unknown`. Reports are designed to use the label to leave private content out of what you share, within the limits under [Status](#status).
-
-- `gct doc add ... --availability public|internal|unknown` declares the availability (default `unknown`). The label is `shareable` only for `--kind report` with `--availability public`, and `private` otherwise. `--privacy private|shareable` overrides that, and the registered line prints the label used. A file's name, type, folder or web address never sets either value. `--plan` shows the label each item would get.
-- Adding a file that is already a document of the company keeps that document's label; when you asked for another one, the duplicate line says it was not applied and gives the `gct doc label` command. Adding a file that another document (of any company) holds under the other label prints a warning naming it: while one of them is private, reports treat both as private.
-- `gct doc label ID [--privacy L] [--availability A] --as KEY --capacity TEXT --rationale TEXT` changes a label. Each change is kept with who made it, in what capacity and why; nothing is overwritten. A deleted document, and a label the document already has, are refused. An archived document can be relabelled. Relabelling does not warn about other documents with the same file; reports still treat the file as private while any of them is private.
-- Documents registered before labels existed keep their label, with availability `unknown`. After that upgrade, `gct publish status` shows the current version as stale until the next `gct publish build`.
+---
 
 ## Packages
 
@@ -197,50 +121,42 @@ A package is a copy of the workspace for someone else to reopen, add reports to 
 
 Both refuse a data version that is out of date (build a fresh one with `gct publish build`) and a token from another preview. A copy of the workspace folder is a complete copy of everything in it. Details are in `docs/packages.md`.
 
+---
+
 ## Highlights
 
 `gct highlight add CLAIM --version V --note TEXT --as KEY --capacity TEXT` marks a claim's newest version with a short note; `gct highlight list CLAIM` lists them per version. A highlight is its own record: it is not a correction, a company confirmation or a review outcome, and nothing counts it as one. Details are under "Highlights" in `docs/reviews.md`.
+
+---
 
 ## Tables and Graphs
 
 `gct view records [--filter JSON|@FILE] [--shape table|graph|series|values] [--offset N] [--limit N] [--sort KEY[:desc]] [--claims ID,ID]` lists the claims of the current published version that one filter selects (company, document, metric, wording, period, boundary, state, evidence, matching, series, comparison, review), as table rows, a graph or one metric's series. Every row, node and edge says where its evidence opens. The viewer's Tables and Graphs section uses the same filter on one pinned version: it counts the claims that match, and offers a newer version with a Reload button when one is published. The table and the graphs themselves are not in the viewer yet. Details are in `docs/views.md`.
 
+---
+
 ## Report preview
 
 `gct report preview [--filter JSON|@FILE] [--complete] [--include identity,contributor_text,flags] [--data-version V]` shows what a report of the current published version would hold: the version it reads, the rows per report and, for a sanitised output (the default), what it leaves out and why. A sanitised output is designed to leave out every row that names a private document, archived and deleted documents, reviewer flags, contributor text and contributor names (each contributor becomes "Contributor N"), within the limits under [Status](#status); `--include` keeps the named classes. Values such as the review summary are worked out again from the rows that stay, so they read as if the left-out rows did not exist. `--complete` keeps every row, each with its label. When every document in the selection is private, the preview names them and gives the `gct doc label` command. The preview writes nothing, and it refuses a workspace that needs an upgrade until a writing command such as `gct publish build` has upgraded it. Details are in `docs/privacy.md`.
+
+---
 
 ## Exporting report data
 
 `gct report all --format json` writes the report data of the current published version into a new folder, `exports/all-v<N>-<stamp>-sanitised/`: `dataset.json`, which holds the evidence index, the restatement log and the gap report with the data version it came from, and `dataset-1.schema.json`, the JSON Schema the file follows, so anyone can check the file without GCT. `evidence-index`, `restatement-log` and `gap-report` work the same way; a JSON export holds the whole dataset whichever you name. The options are those of `gct report preview`: the export is sanitised unless you add `--complete`, and a complete folder ends in `-complete`. The command prints the preview after the files, on your terminal only. It never overwrites an export, and a refused export writes nothing. When the workspace has changed since the version was built, it still exports that version and tells you to run `gct publish build` first if you want the changes. Copies you have exported or shared cannot be recalled by GCT, also after `gct doc delete`. Details are in `docs/reports.md`.
 
-`--format pdf` writes one PDF per report, for a reader who does not run GCT: the rows, then an evidence appendix that shows each cited figure as a picture of its place on the source page, cut from the stored original with the viewer's renderer and outlined; a sanitised PDF is designed to hold no private text or page image (see [Status](#status)).
+- `--format pdf` writes one PDF per report, for a reader who does not run GCT: the rows, then an evidence appendix that shows each cited figure as a picture of its place on the source page, cut from the stored original with the viewer's renderer and outlined; a sanitised PDF is designed to hold no private text or page image (see [Status](#status)).
+- `--format page` writes one HTML page per report with the same rows and pictures, which opens from the export folder in a browser and runs no script and loads nothing from the network.
 
-`--format page` writes one HTML page per report with the same rows and pictures, which opens from the export folder in a browser and runs no script and loads nothing from the network.
+---
 
 ## What does not exist yet
 
 OCR for scanned pages, model-based rungs (no rung above 1 exists yet, so nothing calls a model and no command takes an allowance yet), chart reading, standard metric names, review in the viewer of page acceptance, gap confirmation, infer review and restatement (those stay CLI commands). `docs/setup.md` says what the no-model install reads and does not read.
 
-## Setup
+---
 
-Needs Python 3.11 or newer. [docs/setup.md](docs/setup.md) is the whole guide: Windows (not tested), an offline install, the first run and moving a workspace to another computer. The commands below are for macOS. `python3` must be 3.11 or newer (check with `python3 --version`). Python 3.13 on Apple Silicon macOS is the only combination that has been run; 3.11 and 3.12 are allowed by the package and have not been run.
+## License
 
-User form (a copy of gct in its own environment, from the code folder):
-
-```
-python3 -m venv .venv
-source .venv/bin/activate
-pip install .
-gct --version
-```
-
-Contributor form (linked to the code folder, with the tests):
-
-```
-pip install -e '.[dev]' 'setuptools>=77'
-pytest
-```
-
-## Licence
-
-MIT. See `LICENSE`. Copied code is logged in `ORIGINS.md`.
+This project is licensed under the [MIT License](LICENSE).
+See [ORIGINS.md](ORIGINS.md) for provenance, patents, and copyright notices.
