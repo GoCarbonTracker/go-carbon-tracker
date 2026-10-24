@@ -86,11 +86,12 @@ def no_folder(monkeypatch):
     monkeypatch.setattr(acceptance.tempfile, "mkdtemp", refuse)
 
 
+@pytest.mark.parametrize("value", ["other-repo", ""])
 @pytest.mark.parametrize("var", ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"])
-def test_git_variables_refuse_before_anything_is_made(tmp_path, monkeypatch, capsys, no_folder, var):
-    """AC 3: the harness names the variable, exits non-zero and makes no folder. In process, so a broken guard
-    cannot start a suite run."""
-    monkeypatch.setenv(var, str(tmp_path / "x"))
+def test_git_variables_refuse_before_anything_is_made(tmp_path, monkeypatch, capsys, no_folder, var, value):
+    """AC 3: a variable that is set, even to an empty value, is named, the harness exits non-zero and makes no
+    folder. In process, so a broken guard cannot start a suite run."""
+    monkeypatch.setenv(var, value)
     assert acceptance.main([]) == 2
     assert var in capsys.readouterr().out
 
@@ -546,17 +547,36 @@ def test_text_output_ends_with_the_cp4_line(monkeypatch, capsys, fake_run):
     assert "Assistant interface, Claude (prd :120, :648, M1 pending E8-D27): no test" in out
 
 
-def test_printed_text_and_json_carry_no_home_folder(tmp_path, monkeypatch, capsys, fake_run):
-    """No output names the home folder (so no user name): with HOME at the folder's parent, the folder reads ~/."""
+@pytest.mark.parametrize("workspace, shown", [
+    ("HOME", "~"),  # the home folder itself
+    (str(Path("/Users", "ZqOtherUser", "runs", "ws")), "~/runs/ws"),  # another machine's home (macOS); built from
+    (str(Path("/home", "zqother", "runs", "ws")), "~/runs/ws"),  # parts, so this file holds no home path (hygiene)
+], ids=["home", "other-macos-home", "other-linux-home"])
+def test_printed_text_and_json_carry_no_home_folder(tmp_path, monkeypatch, capsys, fake_run, workspace, shown):
+    """No output names a home folder (so no user name), text or --json: with HOME at the folder's parent the folder
+    reads ~/, and a G2 report whose workspace is the home itself or a home on another machine reads ~, the rest of
+    the path kept."""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr(acceptance, "run_suite", fake_suite({}))
-    assert acceptance.main([]) == 1
+    workspace = str(tmp_path) if workspace == "HOME" else workspace
+    line = f"automatic run 20261021T132603934294Z, workspace {shown}"
+    report = str(g2_report(tmp_path, workspace=workspace))
+    assert acceptance.main(["--g2-report", report]) == 1
     text = capsys.readouterr().out
-    assert str(tmp_path) + os.sep not in text and "\nFolder ~/gct-acceptance-" in text
-    assert acceptance.main(["--json"]) == 1
+    assert str(tmp_path) not in text and "zqother" not in text.lower() and "\nFolder ~/gct-acceptance-" in text
+    assert f"\n{line}\n" in text
+    assert acceptance.main(["--json", "--g2-report", report]) == 1
     raw = capsys.readouterr().out
-    assert str(tmp_path) + os.sep not in raw
-    assert json.loads(raw)["environment"]["folder"].startswith("~/gct-acceptance-")
+    assert str(tmp_path) not in raw and "zqother" not in raw.lower()
+    out = json.loads(raw)
+    assert out["environment"]["folder"].startswith("~/gct-acceptance-") and line in out["g2"]["lines"]
+
+
+def test_show_masks_the_home_folder_as_a_whole_name(monkeypatch, capsys):
+    """A home outside /Users and /home reads ~ as a value and as a parent; a longer name that starts with it does not."""
+    monkeypatch.setenv("HOME", "/srv/zq")
+    acceptance.show("/srv/zq, /srv/zq/x and /srv/zqx")
+    assert capsys.readouterr().out == "~, ~/x and /srv/zqx\n"
 
 
 def test_g2_refusal_comes_before_the_folder(tmp_path, capsys, no_folder):

@@ -12,6 +12,7 @@ import json
 import math
 import os
 import platform
+import re
 import shlex
 import signal
 import subprocess
@@ -47,8 +48,9 @@ G2_RECORDED = ("recorded baseline text 0/80, table 0/50, figure 0/40 Found, scor
 
 
 def git_variable(env) -> str | None:
-    """The first git variable that would point git (and the suite's git tests) at another repository."""
-    return next((v for v in GIT_VARS if env.get(v)), None)
+    """The first git variable that would point git (and the suite's git tests) at another repository: set at all,
+    even to an empty value, which git also reads."""
+    return next((v for v in GIT_VARS if v in env), None)
 
 
 def editable(dist) -> bool:
@@ -471,9 +473,10 @@ def render(result) -> list[str]:
 
 
 def show(text: str) -> None:
-    """Everything the harness prints, text or --json, goes through here: the home folder reads ~, so no output
-    carries a home path or user name (paths stay readable: ~/... is this user's)."""
-    print(text.replace(str(Path.home()) + os.sep, "~" + os.sep), flush=True)
+    """Everything the harness prints, text or --json, goes through here: any /Users/<name> or /home/<name> (this
+    machine's or another's, as a G2 report may carry) and this user's home folder, wherever it is, read ~, so no
+    output carries a home path or user name; the rest of each path stays readable."""
+    print(re.sub(rf"/(?:Users|home)/[\w.-]+|{re.escape(str(Path.home()))}(?![\w.-])", "~", text), flush=True)
 
 
 def main(argv=None) -> int:
