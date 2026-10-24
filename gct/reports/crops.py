@@ -27,12 +27,85 @@ def _credential(text):
 
 
 def credential_documents(conn, root, documents) -> set:
-    """PDF ids with credentials in cached or source text, or unreadable source text. No pixels are inspected."""
-    import pdfplumber
-
+    """Document ids with credentials in cached, source text, metadata or annotations. No pixels are inspected."""
     held = set()
+
+    def _scan_val(val) -> bool:
+        if val is None:
+            return False
+        if isinstance(val, str):
+            return _credential(val)
+        if isinstance(val, bytes):
+            for enc in ("utf-8", "utf-16", "utf-16-be", "latin-1"):
+                try:
+                    if _credential(val.decode(enc)):
+                        return True
+                except UnicodeDecodeError:
+                    pass
+        if hasattr(val, "name") and isinstance(val.name, str):
+            return _credential(val.name)
+        if isinstance(val, (list, tuple)):
+            return any(_scan_val(x) for x in val)
+        if isinstance(val, dict):
+            return any(_scan_val(k) or _scan_val(v) for k, v in val.items())
+        return False
+
+    def _scan_stream(stream) -> bool:
+        if not hasattr(stream, "get_data"):
+            return False
+        try:
+            if _scan_val(stream.get_data()):
+                return True
+        except Exception:
+            return True
+
+        from pdfminer.pdfinterp import PDFContentParser
+        from pdfminer.psexceptions import PSEOF
+        from pdfminer.psparser import PSKeyword
+
+        try:
+            parser = PDFContentParser([stream])
+            block_strings: list[bytes] = []
+            all_strings: list[bytes] = []
+            while True:
+                try:
+                    (_, obj) = parser.nextobject()
+                except PSEOF:
+                    if (parser.curtype is not None or parser.context or
+                            getattr(parser, "paren", 0) > 0 or
+                            getattr(parser, "_parse1", None) != getattr(parser, "_parse_main", None)):
+                        return True  # Incomplete container or literal fails closed
+                    break
+                if _scan_val(obj):
+                    return True
+                if isinstance(obj, bytes):
+                    block_strings.append(obj)
+                    all_strings.append(obj)
+                elif isinstance(obj, list):
+                    for x in obj:
+                        if isinstance(x, bytes):
+                            block_strings.append(x)
+                            all_strings.append(x)
+                    combined = b"".join(x for x in obj if isinstance(x, bytes))
+                    if _scan_val(combined) or _scan_val(b" ".join(x for x in obj if isinstance(x, bytes))):
+                        return True
+                elif isinstance(obj, PSKeyword) and getattr(obj, "name", None) in (b"ET", b"BT"):
+                    if block_strings:
+                        if _scan_val(b"".join(block_strings)) or _scan_val(b" ".join(block_strings)):
+                            return True
+                        block_strings = []
+            if block_strings:
+                if _scan_val(b"".join(block_strings)) or _scan_val(b" ".join(block_strings)):
+                    return True
+            if all_strings:
+                if _scan_val(b"".join(all_strings)) or _scan_val(b" ".join(all_strings)):
+                    return True
+        except Exception:
+            return True  # Parser failure withholds the document (fail closed)
+        return False
+
     for d in documents:
-        if d["file_type"] != "pdf":
+        if d["file_type"] not in ("pdf", "csv", "xlsx"):
             continue
         for r in conn.execute("SELECT a.path FROM page p JOIN artifact a ON a.id = p.artifact_id"
                               " WHERE p.document_id = ? ORDER BY p.id", (d["id"],)):
@@ -44,15 +117,91 @@ def credential_documents(conn, root, documents) -> set:
                     held.add(d["id"])
             except (OSError, ValueError, KeyError, TypeError):
                 continue  # The stored PDF supplies text when the reading cannot.
-        try:
-            with pdfplumber.open(registry.stored_path(Path(root), d["sha256"])) as pdf:
-                for page in pdf.pages:
-                    text = page.extract_text() or ""
+
+        stored = registry.stored_path(Path(root), d["sha256"])
+        if d["file_type"] == "pdf":
+            import pdfplumber
+            from pdfminer.pdftypes import resolve1
+
+            try:
+                with pdfplumber.open(stored) as pdf:
+                    if pdf.metadata and _scan_val(pdf.metadata):
+                        held.add(d["id"])
+                    for info_dict in getattr(pdf.doc, "info", []):
+                        if _scan_val(resolve1(info_dict)):
+                            held.add(d["id"])
+                    if hasattr(pdf.doc, "catalog") and isinstance(pdf.doc.catalog, dict):
+                        cat = resolve1(pdf.doc.catalog)
+                        if isinstance(cat, dict) and "Metadata" in cat:
+                            if _scan_stream(resolve1(cat["Metadata"])):
+                                held.add(d["id"])
+
+                    for page in pdf.pages:
+                        text = page.extract_text() or ""
+                        if _credential(text):
+                            held.add(d["id"])
+                        annots = resolve1(page.page_obj.attrs.get("Annots"))
+                        if isinstance(annots, (list, tuple)):
+                            for a_ref in annots:
+                                annot = resolve1(a_ref)
+                                if not isinstance(annot, dict):
+                                    continue
+                                for key in ("Contents", "RC", "TU", "T"):
+                                    if _scan_val(resolve1(annot.get(key))):
+                                        held.add(d["id"])
+                                ap = resolve1(annot.get("AP"))
+                                if isinstance(ap, dict):
+                                    for sub in ap.values():
+                                        entry = resolve1(sub)
+                                        streams = [resolve1(v) for v in entry.values()] if isinstance(entry, dict) else [entry]
+                                        for s in streams:
+                                            if _scan_stream(s):
+                                                held.add(d["id"])
+                        page.close()
+            except Exception:  # Any PDF read failure must withhold the whole document.
+                held.add(d["id"])
+
+        elif d["file_type"] in ("csv", "xlsx"):
+            try:
+                if d["file_type"] == "csv":
+                    import csv
+
+                    text = stored.read_text(encoding="utf-8-sig")
                     if _credential(text):
                         held.add(d["id"])
-                    page.close()
-        except Exception:  # Any PDF text-layer read failure must withhold the whole document.
-            held.add(d["id"])
+                    else:
+                        for row in csv.reader(text.splitlines()):
+                            for cell in row:
+                                if _credential(cell):
+                                    held.add(d["id"])
+                                    break
+                else:  # xlsx
+                    import zipfile
+                    from xml.etree import ElementTree
+
+                    with zipfile.ZipFile(stored) as z:
+                        for name in z.namelist():
+                            if name.endswith((".xml", ".rels")):
+                                try:
+                                    root_el = ElementTree.fromstring(z.read(name))
+                                    for t in root_el.itertext():
+                                        if t and _credential(t):
+                                            held.add(d["id"])
+                                            break
+                                except Exception:
+                                    pass
+                    if d["id"] not in held:
+                        from gct.stages import sheet
+
+                        name = dict(d).get("logical_name", "")
+                        for _, rows in sheet.read_book(str(stored), "xlsx", name):
+                            for row in rows:
+                                for cell in row:
+                                    if cell and _credential(cell):
+                                        held.add(d["id"])
+                                        break
+            except Exception:
+                held.add(d["id"])
     return held
 
 
