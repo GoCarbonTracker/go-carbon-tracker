@@ -12,24 +12,38 @@ import json
 import math
 import os
 import platform
+import shlex
+import signal
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from itertools import takewhile
 from pathlib import Path
 from xml.etree import ElementTree
 
 import leakage
+from test_assistant_claude import WORKFLOW, argv_for, fixture_pdf  # 8.1's workflow list and replay grammar
 
 TESTS = Path(__file__).resolve().parent
 CHECKOUT = TESTS.parent
 GIT_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")
-NO_JSON = (["--version"],)  # gct --version is text only (8.3)
-NO_WORKSPACE = (["workspace", "init"], ["model", "list"])  # the replay grammar appends nothing to these (8.1)
+VERSION = "gct --version"  # text only, exit 0 (8.3); 8.1 checks it against the parser, never replays it
+SERVE = "gct serve --port 0 --no-open --json"  # never replayed (8.1 AC 9); run here for the page PNG
+NOT_REPLAYED = (VERSION, SERVE)
+# The seeds the workflow plants (kinds path and contributor): the fixture PDF's folder and the contributor's name,
+# each a token no export prints for another reason. 8.1's own <NAME> is a common word, so the harness gives its own.
+PATH_SEED, NAME_SEED = "ZqAccPathSeed", "ZqAccNameSeed"
+SEEDS = [{"kind": "path", "name": "path seed", "value": PATH_SEED},
+         {"kind": "contributor", "name": "contributor seed", "value": NAME_SEED}]
+PNG = b"\x89PNG\r\n\x1a\n"
 # Story 3.6's G2 ruler. A scorer v2 changes G2_SCORER in the same commit that bumps g2.SCORER_VERSION.
 G2_SCORER, G2_GOLD = "1", "3985743"
-G2_RECORDED = ("recorded baseline 0/80, 0/50, 0/40 Found (text, table, figure; run 20261021T132603934294Z, gct "
-               "e931eeb, scorer 1, gold 3985743), not a fresh measurement")
+G2_RECORDED = ("recorded baseline text 0/80, table 0/50, figure 0/40 Found, scorer 1, gold 3985743, target 90% per "
+               "type (run 20261021T132603934294Z, gct e931eeb): recorded evidence, not a fresh measurement")
 
 
 def git_variable(env) -> str | None:
@@ -69,45 +83,117 @@ def gct_script() -> Path:
     return Path(sys.executable).parent / "gct"
 
 
-def run_step(argv: list[str], workspace: Path, script: Path) -> dict:
-    """One workflow step as a subprocess of the console script, with --workspace and --json appended except for
-    gct --version, workspace init and model list. ok needs exit 0 and status ok (--version: exit 0 and text)."""
-    text_only = argv in NO_JSON
-    plain = text_only or any(argv[:len(p)] == p for p in NO_WORKSPACE)
-    full = [str(script), *map(str, argv)] + ([] if plain else ["--workspace", str(workspace), "--json"])
-    env = {**os.environ, "GCT_MODELS": str(Path(workspace).parent / "no-models.toml")}
-    start = time.monotonic()
-    r = subprocess.run(full, capture_output=True, text=True, env=env)
-    step = {"command": " ".join(["gct", *map(str, argv)]), "argv": full, "code": r.returncode,
-            "seconds": round(time.monotonic() - start, 2), "out": r.stdout, "err": r.stderr[-2000:],
-            "status": None, "cause": None, "next_action": None}
-    if text_only:
+def _step(command, argv, stated) -> dict:
+    return {"command": command, "argv": argv, "stated": list(stated), "code": None, "status": None, "cause": None,
+            "next_action": None, "stderr": "", "ok": False}
+
+
+def run_step(command: str, stated: tuple, workspace: Path, pdf: Path, script: Path, env: dict) -> dict:
+    """One line of the 8.1 grammar as a subprocess of the console script (argv_for fills the placeholders and appends
+    --json, and --workspace except for workspace init and model list); ok when it gives its stated code and status.
+    gct --version is text only (8.3): run as it is, exit 0 and no JSON."""
+    argv = [str(script), *(["--version"] if command == VERSION else argv_for(command, workspace, pdf))]
+    step, start = _step(command, argv, stated), time.monotonic()
+    r = subprocess.run(argv, capture_output=True, text=True, env=env, cwd=workspace.parent)
+    step.update(code=r.returncode, seconds=round(time.monotonic() - start, 2), stderr=r.stderr.strip()[-2000:])
+    if command == VERSION:
         step["ok"] = r.returncode == 0 and r.stdout.startswith("gct ")
         return step
     try:
         data = json.loads(r.stdout)
     except ValueError:
         data = {}
-    step.update(status=data.get("status"), cause=data.get("cause"), next_action=data.get("next_action"), data=data)
-    step["ok"] = r.returncode == 0 and step["status"] == "ok"
+    data = data if isinstance(data, dict) else {}
+    step.update(status=data.get("status"), cause=data.get("cause"), next_action=data.get("next_action"))
+    step["ok"] = r.returncode == stated[0] and (stated[1] is None or step["status"] == stated[1])
+    return step
+
+
+def serve_page(command: str, stated: tuple, workspace: Path, pdf: Path, script: Path, env: dict) -> dict:
+    """gct serve --port 0 --no-open --json in the background, then page 1 of document 1 as PNG with the bearer token
+    from the launch URL. The server is stopped in a finally (Ctrl-C included); its code is 0 while it serves."""
+    argv = [str(script), *shlex.split(command)[1:], "--workspace", str(workspace)]
+    step, start = _step(command + "; GET /api/documents/1/pages/1.png", argv, stated), time.monotonic()
+    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                            cwd=workspace.parent)
+    try:
+        try:
+            data = json.loads(proc.stdout.readline())
+        except ValueError:
+            data = {}
+        step.update(code=0, status=data.get("status"), cause=data.get("cause"), next_action=data.get("next_action"))
+        if step["status"] != "ok":
+            step["code"] = proc.wait()  # a refused serve prints its refusal and exits
+        else:
+            token = urllib.parse.parse_qs(urllib.parse.urlsplit(data["url"]).query)["token"][0]
+            request = urllib.request.Request(f"http://127.0.0.1:{data['port']}/api/documents/1/pages/1.png",
+                                             headers={"Authorization": f"Bearer {token}"})
+            try:  # no proxy: the page is on this computer
+                with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=60) as r:
+                    http, kind, body = r.status, r.headers.get_content_type(), r.read()
+            except urllib.error.HTTPError as e:
+                http, kind, body = e.code, e.headers.get_content_type(), b""
+            step["page"] = f"HTTP {http}, {kind}, {len(body)} bytes"
+            step["ok"] = http == 200 and kind == "image/png" and body.startswith(PNG)
+    finally:
+        proc.send_signal(signal.SIGINT)  # gct serve stops its server on Ctrl-C
+        try:
+            step["stderr"] = proc.communicate(timeout=10)[1].strip()[-2000:]
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            step["stderr"] = proc.communicate()[1].strip()[-2000:]
+    step["seconds"] = round(time.monotonic() - start, 2)
     return step
 
 
 def step_lines(step) -> list[str]:
-    """A step's line, and on a refusal the code's cause and next_action verbatim."""
-    lines = [f"{'ok  ' if step['ok'] else 'FAIL'} {step['command']}  # => {step['code']} {step['status'] or ''}".rstrip()]
-    if not step["ok"]:
-        lines += [f"cause: {step['cause']}", f"next_action: {step['next_action']}"]
-        if step["cause"] is None:
-            lines.append(f"stderr: {step['err'].strip()}")
-    return lines
+    """A step in the replay grammar; when it did not give its stated result, the code's cause and next_action
+    verbatim (its stderr when it printed no JSON)."""
+    got = f"{step['code']} {step['status'] or ''}".rstrip() + (f" ({step['page']})" if step.get("page") else "")
+    if step["ok"]:
+        return [f"ok   {step['command']}  # => {got}"]
+    stated = " ".join(str(x) for x in step["stated"] if x is not None)
+    lines = [f"FAIL {step['command']}  # => {got}, the workflow states {stated}",
+             f"  cause: {step['cause']}", f"  next_action: {step['next_action']}"]
+    return lines + ([f"  stderr: {step['stderr']}"] if step["cause"] is None and step["stderr"] else [])
 
 
-def report_argv() -> list[str]:
+def report_command() -> str:
     """The report step asks for every format export.FORMATS holds at run time."""
     from gct.reports import export
 
-    return ["report", "all", "--format", ",".join(export.FORMATS)]
+    return "gct report all --format " + ",".join(export.FORMATS)
+
+
+def plan() -> list[tuple]:
+    """The steps, as (command, code, status) in the 8.1 grammar: gct --version, 8.1's WORKFLOW in order with the
+    contributor seed as <NAME>, gct serve with the page PNG, then report all in every format (AC 5)."""
+    return [(VERSION, 0, None), *((c.replace("<NAME>", NAME_SEED), k, s) for c, k, s in WORKFLOW), (SERVE, 0, "ok"),
+            (report_command(), 0, "ok")]
+
+
+def command_path(command: str) -> str:
+    """The argv words after gct up to the first option (AC 8)."""
+    return " ".join(takewhile(lambda w: not w.startswith("-"), shlex.split(command)[1:]))
+
+
+def run_workflow(folder: Path, script: Path) -> dict:
+    """Story 8.5 section 3.3 in folder: the fixture PDF under a folder named by the path seed, each step of plan()
+    until one does not give its stated result (it stops the run, scan None), then the seed scan."""
+    workspace, pdf = folder / "ws", folder / PATH_SEED / "report.pdf"
+    pdf.parent.mkdir(parents=True)
+    pdf.write_bytes(fixture_pdf())
+    env = {**os.environ, "GCT_MODELS": str(folder / "no-models.toml")}  # a missing file: no model is configured
+    steps = []
+    for command, code, status in plan():
+        steps.append((serve_page if command == SERVE else run_step)(command, (code, status), workspace, pdf, script,
+                                                                     env))
+        if not steps[-1]["ok"]:
+            s = steps[-1]
+            return {"steps": steps, "scan": None, "problems": [
+                f"{command} stopped the workflow ({s['code']} {s['status']}, the workflow states {code} {status}); "
+                f"cause: {s['cause']}; next_action: {s['next_action']}"]}
+    return {"steps": steps, "problems": [], "scan": check_scan(workspace, SEEDS)}
 
 
 def scan(path, seeds) -> dict:
@@ -123,13 +209,14 @@ def check_scan(workspace: Path, seeds: list[dict]) -> list[str]:
         missing = [s["name"] for s in seeds if s["name"] not in hits]
         if missing:
             problems.append(f"positive control: {', '.join(missing)} not found in workspace.db")
-        folders = sorted(p for p in (workspace / "exports").iterdir() if p.is_dir())
-        if not folders:
+        exports = workspace / "exports"
+        entries = sorted(exports.iterdir()) if exports.is_dir() else []
+        if not any(p.is_dir() for p in entries):
             problems.append("no export folder under exports/")
-        for folder in folders:
-            hits = scan(folder, seeds)
+        for entry in entries:  # every export folder, and any file beside them
+            hits = scan(entry, seeds)
             if hits:
-                problems.append(f"exports/{folder.name}: found {json.dumps(hits)}")
+                problems.append(f"exports/{entry.name}: found {json.dumps(hits)}")
     except leakage.Unreadable as e:
         problems.append(str(e))
     return problems
@@ -137,9 +224,10 @@ def check_scan(workspace: Path, seeds: list[dict]) -> list[str]:
 
 def run_suite(folder: Path) -> dict:
     """The suite once, cwd the temporary folder so -m pytest cannot put the checkout's gct/ ahead of the installed
-    copy; JUnit XML gives each test's outcome and skip reason. No retry: a flaky failure is a failure."""
+    copy; JUnit XML gives each test's outcome and skip reason. No retry: a flaky failure is a failure. The argv
+    starts "pytest -q -p no:cacheprovider" so the E8 serialization check (pgrep) sees this run."""
     xml = folder / "junit.xml"
-    argv = [sys.executable, "-m", "pytest", str(TESTS), "-q", "-p", "no:cacheprovider", f"--junitxml={xml}",
+    argv = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(TESTS), f"--junitxml={xml}",
             f"--basetemp={folder / 'pytest'}"]
     start = time.monotonic()
     r = subprocess.run(argv, cwd=folder, capture_output=True, text=True)
@@ -255,7 +343,7 @@ GATES = [
     _row("Report formats", ":108, :646", "M1", ["tests/test_gate_report_formats.py"], "7.1 G, 7.7 B"),
     _row("Privacy in exports", ":109, :647", "M1",
          ["tests/test_gate_privacy_exports.py", "tests/test_leakage_scanner.py"],
-         "7.1 G, 7.7 B and Epic 7's final privacy review", uses=("workflow",), inherited=PRIVACY_FAILED),
+         "7.1 G, 7.7 B and Epic 7's final privacy review", uses=("workflow", "scan"), inherited=PRIVACY_FAILED),
     _row("Calculated values", ":110, :644", "PR (prd:422)"),
     _row("Resume and cache reuse", ":111, :638", "M1",
          ["tests/test_stages.py", "tests/test_resume.py", "tests/test_reprocess.py"]),
@@ -298,8 +386,12 @@ def gate_line(row, results, workflow, env, g2) -> dict:
         fails += [f"failed: {n}" for n, (outcome, _) in sorted(hits.items()) if outcome == "failed"]
         opens += [f"skipped: {n} ({m})" for n, (outcome, m) in sorted(hits.items()) if outcome == "skipped"]
     if "workflow" in row["uses"]:
-        opens += [] if workflow is not None else ["the workflow did not run"]
-        fails += workflow or []
+        fails += workflow["problems"]
+    if "scan" in row["uses"]:
+        if workflow["scan"] is None:
+            opens.append("the seed scan did not run: the workflow stopped")
+        else:
+            fails += [f"seed scan: {p}" for p in workflow["scan"]]
     if "g2" in row["uses"]:
         (fails if g2["status"] == "fail" else opens).append(g2["reason"])
     if "install" in row["uses"]:
@@ -335,18 +427,26 @@ def cp4(lines) -> dict:
 
 
 def assemble(env, workflow, suite, g2) -> dict:
-    """The one result object (--json); workflow is {"steps", "problems"} or None when it did not run."""
-    gates = [gate_line(row, suite["results"], workflow and workflow["problems"], env, g2) for row in GATES]
+    """The one result object (--json); workflow is run_workflow's {"steps", "problems", "scan"}."""
+    gates = [gate_line(row, suite["results"], workflow, env, g2) for row in GATES]
     result = cp4(gates)
-    return {"status": "fail" if result["not_passing"] else "ok", "environment": env,
-            "workflow": workflow["steps"] if workflow else [], "suite": suite, "g2": g2, "gates": gates, "cp4": result}
+    return {"status": "fail" if result["not_passing"] else "ok", "environment": env, "workflow": workflow["steps"],
+            "scan": workflow["scan"], "suite": suite, "g2": g2, "gates": gates, "cp4": result}
+
+
+def workflow_lines(workflow) -> list[str]:
+    out = ["", "Workflow (8.1's list in its replay grammar; gct --version, serve and report all added here):",
+           *(x for step in workflow["steps"] for x in step_lines(step))]
+    if workflow["scan"] is None:
+        return out + ["Seed scan: not run, the workflow stopped"]
+    return out + ([f"Seed scan: {p}" for p in workflow["scan"]] or [
+        "Seed scan: both seeds found in workspace.db (the positive control), none under exports/"])
 
 
 def render(result) -> list[str]:
-    out = ["", "Workflow:"]
-    out += [x for step in result["workflow"] for x in step_lines(step)] or ["  the workflow did not run"]
+    """Everything after the workflow, which main prints as soon as it has run."""
     suite = result["suite"]
-    out += ["", f"Suite: {suite['command']}", f"  exit {suite['code']}, {suite['seconds']} s: {suite['line']}"]
+    out = ["", f"Suite: {suite['command']}", f"  exit {suite['code']}, {suite['seconds']} s: {suite['line']}"]
     out += ["  skipped: " + n + " (" + m + ")" for n, (o, m) in sorted(suite["results"].items()) if o == "skipped"]
     out += ["", *result["g2"]["lines"], "", "Gates (PRD line, status, reasons):"]
     for g in result["gates"]:
@@ -381,7 +481,9 @@ def main(argv=None) -> int:
     if not args.json:
         print("\n".join(header_lines(env) + [f"Folder {env['folder']} (kept)"]), flush=True)
     try:
-        workflow = None  # 8.1's workflow list is imported once 8.1 is on main (TASK-0230 worker.md)
+        workflow = run_workflow(Path(env["folder"]), gct_script())
+        if not args.json:
+            print("\n".join(workflow_lines(workflow)), flush=True)
         suite = run_suite(Path(env["folder"]))
     except KeyboardInterrupt:
         print("Interrupted: no CP4 line.")

@@ -11,7 +11,9 @@ from pathlib import Path
 import pytest
 
 import acceptance
+import leakage
 from gct.reports import export
+from test_assistant_claude import ASSISTANT, WORKFLOW, replay_lines
 
 TESTS = Path(__file__).resolve().parent
 ROOT = TESTS.parent
@@ -100,59 +102,123 @@ def fake_script(tmp_path, stdout, code):
     return path
 
 
-def test_step_runner_checks_exit_code_and_status(tmp_path):
-    """AC 4: exit 0 with a status other than ok fails, and so does status ok with a non-zero exit."""
-    ws = tmp_path / "ws"
-    partial = acceptance.run_step(["read"], ws, fake_script(tmp_path, '{"status": "partial"}', 0))
+def step(command, stated, tmp_path, script):
+    """One step on tmp_path/ws, as the workflow runs it."""
+    return acceptance.run_step(command, stated, tmp_path / "ws", tmp_path / "report.pdf", script, dict(os.environ))
+
+
+def test_step_runner_checks_the_stated_code_and_status(tmp_path):
+    """AC 4: a line stating 0 ok fails on exit 0 with partial and on status ok with exit 1; a stated refusal
+    (4 error) passes; --json and --workspace are appended as the 8.1 grammar says."""
+    partial = step("gct read", (0, "ok"), tmp_path, fake_script(tmp_path, '{"status": "partial"}', 0))
     assert not partial["ok"] and partial["status"] == "partial"
-    nonzero = acceptance.run_step(["read"], ws, fake_script(tmp_path, '{"status": "ok"}', 1))
+    nonzero = step("gct read", (0, "ok"), tmp_path, fake_script(tmp_path, '{"status": "ok"}', 1))
     assert not nonzero["ok"] and nonzero["code"] == 1
-    fine = acceptance.run_step(["read"], ws, fake_script(tmp_path, '{"status": "ok"}', 0))
-    assert fine["ok"] and fine["argv"][-3:] == ["--workspace", str(ws), "--json"]
+    assert step("gct report preview", (4, "error"), tmp_path, fake_script(tmp_path, '{"status": "error"}', 4))["ok"]
+    fine = step("gct read", (0, "ok"), tmp_path, fake_script(tmp_path, '{"status": "ok"}', 0))
+    assert fine["ok"] and fine["argv"][1:] == ["read", "--workspace", str(tmp_path / "ws"), "--json"]
 
 
-def test_step_runner_special_cases_version_and_workspace_init(tmp_path):
+def test_step_runner_runs_version_as_text_and_workspace_init_without_workspace(tmp_path):
     """AC 4: gct --version is text only, exit 0, run without --json; workspace init gets no --workspace."""
     script = acceptance.gct_script()
-    version = acceptance.run_step(["--version"], tmp_path / "ws", script)
-    assert version["ok"] and version["argv"] == [str(script), "--version"]
-    assert version["out"].startswith("gct ")
-    init = acceptance.run_step(["workspace", "init", str(tmp_path / "ws"), "--json"], tmp_path / "ws", script)
+    version = step(acceptance.VERSION, (0, None), tmp_path, script)
+    assert version["ok"] and version["argv"] == [str(script), "--version"] and version["status"] is None
+    init = step("gct workspace init <WORKSPACE>", (0, "ok"), tmp_path, script)
     assert init["ok"] and "--workspace" not in init["argv"]
 
 
 def test_step_runner_reports_a_refusal_verbatim(tmp_path, gct):
-    """AC 4: report before publish build refuses; the step carries the code's cause and next_action unchanged."""
-    ws = tmp_path / "ws"
+    """AC 4: a step that does not give its stated result carries the code's cause and next_action unchanged."""
     script = acceptance.gct_script()
-    assert acceptance.run_step(["workspace", "init", str(ws), "--json"], ws, script)["ok"]
-    step = acceptance.run_step(["report", "all", "--format", "json"], ws, script)
-    direct = gct("report", "all", "--format", "json", "--workspace", ws, "--json")
+    assert step("gct workspace init <WORKSPACE>", (0, "ok"), tmp_path, script)["ok"]
+    got = step("gct report all --format json", (0, "ok"), tmp_path, script)
+    direct = gct("report", "all", "--format", "json", "--workspace", tmp_path / "ws", "--json")
     assert direct.code != 0 and direct.data["status"] == "error"
-    assert not step["ok"] and step["code"] == direct.code
-    assert (step["cause"], step["next_action"]) == (direct.data["cause"], direct.data["next_action"])
-    lines = acceptance.step_lines(step)
-    assert f"cause: {direct.data['cause']}" in lines and f"next_action: {direct.data['next_action']}" in lines
+    assert not got["ok"] and (got["code"], got["status"]) == (direct.code, "error")
+    assert (got["cause"], got["next_action"]) == (direct.data["cause"], direct.data["next_action"])
+    lines = acceptance.step_lines(got)
+    assert f"  cause: {direct.data['cause']}" in lines and f"  next_action: {direct.data['next_action']}" in lines
+
+
+def test_serve_is_stopped_when_the_run_is_interrupted(tmp_path, monkeypatch):
+    """Section 4: gct serve on a workspace with no document answers page 1 with an error (the step fails), and a
+    Ctrl-C while the page is fetched still stops the server."""
+    script, env = acceptance.gct_script(), dict(os.environ)
+    assert step("gct workspace init <WORKSPACE>", (0, "ok"), tmp_path, script)["ok"]
+    missing = acceptance.serve_page(acceptance.SERVE, (0, "ok"), tmp_path / "ws", tmp_path / "x.pdf", script, env)
+    assert missing["status"] == "ok" and not missing["ok"] and not missing["page"].startswith("HTTP 200")
+    started, real = [], subprocess.Popen
+    monkeypatch.setattr(acceptance.subprocess, "Popen", lambda *a, **k: started.append(real(*a, **k)) or started[-1])
+
+    def interrupt(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(acceptance.urllib.request, "build_opener", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        acceptance.serve_page(acceptance.SERVE, (0, "ok"), tmp_path / "ws", tmp_path / "x.pdf", script, env)
+    assert len(started) == 1 and started[0].poll() is not None
 
 
 def test_report_step_takes_every_format_from_export_formats(monkeypatch):
     """AC 5: no format list in the harness; a format added to export.FORMATS is asked for."""
     monkeypatch.setitem(export.FORMATS, "fake", {"write": None, "crops": False})
-    argv = acceptance.report_argv()
-    assert argv[:3] == ["report", "all", "--format"] and argv[3].split(",") == list(export.FORMATS)
-    assert "fake" in argv[3].split(",")
+    assert acceptance.report_command() == "gct report all --format " + ",".join(export.FORMATS)
+    assert "fake" in acceptance.report_command().split()[-1].split(",")
+    assert acceptance.plan()[-1] == (acceptance.report_command(), 0, "ok")
 
 
-SEEDS = [{"kind": "path", "name": "path seed", "value": "ZqAccPathSeed"},
-         {"kind": "contributor", "name": "contributor seed", "value": "ZqAccContribSeed"}]
+def test_the_workflow_runs_end_to_end_in_a_fresh_folder(tmp_path):
+    """AC 7, the end-to-end test the suite lacked (AC 4 to 6 on the console script): gct --version, 8.1's WORKFLOW,
+    the page PNG through gct serve and report all in every format each give their stated result; both seeds are in
+    workspace.db and in no export; the folder holds only what the run made."""
+    got = acceptance.run_workflow(tmp_path, acceptance.gct_script())
+    assert [s for s in got["steps"] if not s["ok"]] == [] and got["problems"] == [] and got["scan"] == []
+    assert [s["command"].split(";")[0] for s in got["steps"]] == [c for c, _, _ in acceptance.plan()]
+    assert [c for c, _, _ in acceptance.plan()][1:-2] == [c.replace("<NAME>", acceptance.NAME_SEED)
+                                                          for c, _, _ in WORKFLOW]
+    page = next(s["page"] for s in got["steps"] if s["command"].startswith(acceptance.SERVE))
+    assert page.startswith("HTTP 200, image/png")
+    assert len([p for p in (tmp_path / "ws" / "exports").iterdir() if p.is_dir()]) == 2  # json,csv and every format
+    assert set(leakage.found(tmp_path / "ws" / "workspace.db", acceptance.SEEDS)) == {"path seed", "contributor seed"}
+    assert {p.name for p in tmp_path.iterdir()} == {acceptance.PATH_SEED, "ws"}
 
 
-def scan_tree(tmp_path, db=b"ZqAccPathSeed ZqAccContribSeed", export_text=b"nothing private here"):
+def test_a_step_that_does_not_give_its_stated_result_stops_the_workflow(tmp_path):
+    """Section 4: the first step off its stated result stops the run, named with the code's cause and next_action
+    verbatim; nothing after it runs and the scan does not run."""
+    script = tmp_path / "fake-gct"
+    script.write_text(f"#!{sys.executable}\nimport json, sys\nif sys.argv[1:] == ['--version']:\n    print('gct 0')\n"
+                      "    sys.exit(0)\nprint(json.dumps({'status': 'error', 'cause': 'Cause one.', 'next_action': "
+                      "'Do two.'}))\nsys.exit(2)\n")
+    script.chmod(0o755)
+    got = acceptance.run_workflow(tmp_path / "run", script)
+    assert [s["ok"] for s in got["steps"]] == [True, False] and got["scan"] is None
+    assert got["problems"] == ["gct workspace init <WORKSPACE> stopped the workflow (2 error, the workflow states 0 "
+                               "ok); cause: Cause one.; next_action: Do two."]
+
+
+def test_every_command_path_but_serve_and_version_is_in_a_replay_block():
+    """AC 8: each step's command path (argv words up to the first option), except gct serve and gct --version, is in
+    a gct-replay block under assistants/claude/; serve is never replayed (8.1's test checks it is documented only as
+    gct serve --no-open --json)."""
+    replayed = {acceptance.command_path(c) for p in sorted(ASSISTANT.rglob("*.md")) for c, _, _ in replay_lines(p)}
+    paths = [acceptance.command_path(c) for c, _, _ in acceptance.plan() if c not in acceptance.NOT_REPLAYED]
+    assert [p for p in paths if p not in replayed] == []
+    assert {acceptance.VERSION, acceptance.SERVE} <= {c for c, _, _ in acceptance.plan()}
+    assert [p for p in replayed if p.split()[:1] == ["serve"]] == []
+    assert acceptance.command_path("gct report all --format json,csv") == "report all"
+
+
+def scan_tree(tmp_path, db=f"{acceptance.PATH_SEED} {acceptance.NAME_SEED}".encode(), export_text=b"nothing here"):
     ws = tmp_path / "ws"
     (ws / "exports" / "one").mkdir(parents=True)
     (ws / "workspace.db").write_bytes(db)
     (ws / "exports" / "one" / "dataset.json").write_bytes(export_text)
     return ws
+
+
+SEEDS = acceptance.SEEDS
 
 
 def test_scan_finds_both_seeds_in_the_database_and_none_in_exports(tmp_path):
@@ -161,13 +227,16 @@ def test_scan_finds_both_seeds_in_the_database_and_none_in_exports(tmp_path):
 
 
 def test_scan_fails_when_the_positive_control_misses_a_seed(tmp_path):
-    problems = acceptance.check_scan(scan_tree(tmp_path, db=b"ZqAccPathSeed only"), SEEDS)
+    problems = acceptance.check_scan(scan_tree(tmp_path, db=acceptance.PATH_SEED.encode()), SEEDS)
     assert problems and "contributor seed" in problems[0] and "workspace.db" in problems[0]
 
 
 def test_scan_fails_when_a_seed_is_in_an_export(tmp_path):
-    problems = acceptance.check_scan(scan_tree(tmp_path, export_text=b"by ZqAccContribSeed"), SEEDS)
+    problems = acceptance.check_scan(scan_tree(tmp_path, export_text=b"by " + acceptance.NAME_SEED.encode()), SEEDS)
     assert problems and "one" in problems[0] and "contributor seed" in problems[0]
+    ws = scan_tree(tmp_path / "file")  # a file beside the export folders is scanned too
+    (ws / "exports" / "stray.txt").write_text(acceptance.PATH_SEED)
+    assert acceptance.check_scan(ws, SEEDS)[0].startswith("exports/stray.txt: found")
 
 
 def test_scan_fails_on_a_part_it_cannot_read(tmp_path):
@@ -260,7 +329,9 @@ def test_g2_without_a_report_is_no_test_naming_the_recorded_baseline():
     """AC 11: no file, no fresh measurement; the recorded baseline is named as recorded evidence."""
     g2 = acceptance.g2_result(None, None, "h")
     assert g2["status"] == "no test" and "no G2 report given" in g2["reason"]
-    assert "recorded baseline 0/80, 0/50, 0/40 Found" in g2["reason"] and "not a fresh measurement" in g2["reason"]
+    assert ("input not available: recorded baseline text 0/80, table 0/50, figure 0/40 Found, scorer 1, gold 3985743, "
+            "target 90% per type") in g2["reason"]
+    assert "recorded evidence, not a fresh measurement" in g2["reason"]
 
 
 # Story 8.5 section 3's gate table, row by row; the reviewer checks it against prd:102-120 and :631-656 by hand.
@@ -287,7 +358,7 @@ def test_gates_hold_each_row_of_the_story_table_once_with_present_sources():
     assert {g["gate"] for g in acceptance.GATES if g["hand"]} == {"G1 clean install", "Assistant interface, Claude"}
     missing = {src.split("::")[0] for g in acceptance.GATES for src in g["tests"]
                if not (ROOT / src.split("::")[0]).is_file()}
-    assert missing <= {"tests/test_assistant_claude.py"}  # 8.1's file; empty once 8.1 is imported (worker.md)
+    assert missing == set()
 
 
 JUNIT = """<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest">
@@ -311,13 +382,14 @@ def test_junit_gives_node_ids_outcomes_and_skip_reasons(tmp_path):
 
 ENV = {"editable": False, "pythonpath": [], "gct_file": "/venv/site/gct/__init__.py", "distribution": "/venv/site"}
 NO_G2 = {"status": "no test", "reason": "no G2 report given"}
+WORKFLOW_OK = {"steps": [], "problems": [], "scan": []}
 
 
-def line(results, **row):
+def line(results, workflow=WORKFLOW_OK, env=ENV, **row):
     """A synthetic GATES row run through the status rule."""
     base = {"gate": "X", "prd": ":1", "milestone": "M1", "tests": ["tests/test_a.py"], "method": "m", "hand": None,
             "uses": set(), "inherited": None}
-    return acceptance.gate_line({**base, **row}, results, row.pop("workflow", []), row.pop("env", ENV), NO_G2)
+    return acceptance.gate_line({**base, **row}, results, workflow, env, NO_G2)
 
 
 PASSED = {"tests/test_a.py::test_one": ("passed", ""), "tests/test_a.py::test_two[1]": ("passed", "")}
@@ -365,9 +437,18 @@ def test_inherited_failed_privacy_acceptance_stays_fail_beside_passing_tests():
 
 
 def test_workflow_problem_fails_the_rows_that_read_it():
-    got = line(PASSED, uses={"workflow"}, workflow=["gct read: refused: cause"])
-    assert got["status"] == "fail" and got["reasons"] == ["gct read: refused: cause"]
-    assert line(PASSED, uses={"workflow"}, workflow=None)["reasons"] == ["the workflow did not run"]
+    """A stopped workflow fails G1 and Privacy with the step and its cause; a seed found in an export fails only
+    the rows that read the scan (Privacy), not G1."""
+    stopped = {"steps": [], "problems": ["gct read stopped the workflow; cause: c; next_action: n"], "scan": None}
+    for uses in ({"workflow"}, {"workflow", "scan"}):
+        got = line(PASSED, uses=uses, workflow=stopped)
+        assert got["status"] == "fail" and got["reasons"] == stopped["problems"]
+    leak = {"steps": [], "problems": [], "scan": ['exports/x: found {"path seed": ["a.csv: text"]}']}
+    got = line(PASSED, uses={"workflow", "scan"}, workflow=leak)
+    assert got["status"] == "fail" and got["reasons"] == ['seed scan: exports/x: found {"path seed": ["a.csv: text"]}']
+    assert line(PASSED, uses={"workflow"}, workflow=leak)["status"] == "pass"
+    assert {g["gate"]: g["uses"] for g in acceptance.GATES if g["uses"] & {"workflow", "scan"}} == {
+        "G1 clean install": {"workflow", "install"}, "Privacy in exports": {"workflow", "scan"}}
 
 
 def test_install_row_is_no_test_for_an_editable_install_or_a_pythonpath_tree():
@@ -385,7 +466,7 @@ def test_g2_row_follows_the_report_and_is_never_pass():
     row = {**acceptance.GATES[1]}
     results = {"tests/test_measure.py::test_x": ("passed", "")}
     for g2, status in (({"status": "fail", "reason": "measured, not passed"}, "fail"), (NO_G2, "no test")):
-        assert acceptance.gate_line(row, results, [], ENV, g2)["status"] == status
+        assert acceptance.gate_line(row, results, WORKFLOW_OK, ENV, g2)["status"] == status
 
 
 def test_outside_m1_rows_never_count_even_when_a_source_fails():
@@ -423,25 +504,31 @@ def fake_suite(results):
     return lambda folder: {"command": "pytest", "code": 0, "line": "n passed", "seconds": 1.0, "results": results}
 
 
-def test_json_prints_one_object_and_never_claims_cp4(tmp_path, monkeypatch, capsys):
-    """AC 13: status, environment, workflow, suite, g2, gates, cp4 (claimed false); exit 1 while CP4 is open."""
+@pytest.fixture
+def fake_run(tmp_path, monkeypatch):
+    """main on tmp_path with the workflow and the suite replaced (the end-to-end test runs the real workflow)."""
     monkeypatch.setattr(acceptance.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(acceptance, "run_workflow", lambda folder, script: WORKFLOW_OK)
+
+
+def test_json_prints_one_object_and_never_claims_cp4(tmp_path, monkeypatch, capsys, fake_run):
+    """AC 13: status, environment, workflow, scan, suite, g2, gates, cp4 (claimed false); exit 1 while CP4 is open."""
     monkeypatch.setattr(acceptance, "run_suite", fake_suite({"tests/test_review.py::test_x": ("passed", "")}))
     path = g2_report(tmp_path)
     assert acceptance.main(["--json", "--g2-report", str(path)]) == 1
     out = json.loads(capsys.readouterr().out)
-    assert set(out) == {"status", "environment", "workflow", "suite", "g2", "gates", "cp4"}
+    assert set(out) == {"status", "environment", "workflow", "scan", "suite", "g2", "gates", "cp4"}
     assert out["status"] == "fail" and out["cp4"]["claimed"] is False and out["g2"]["status"] == "fail"
     assert [g["gate"] for g in out["gates"]] == GATE_NAMES
     assert Path(out["environment"]["folder"]).parent == tmp_path
 
 
-def test_text_output_ends_with_the_cp4_line(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(acceptance.tempfile, "tempdir", str(tmp_path))
+def test_text_output_ends_with_the_cp4_line(monkeypatch, capsys, fake_run):
     monkeypatch.setattr(acceptance, "run_suite", fake_suite({}))
     assert acceptance.main([]) == 1
     out = capsys.readouterr().out.strip().splitlines()
     assert out[-1].startswith("CP4: not claimed. M1 gate lines not passing: G1 clean install (no test)")
+    assert "Seed scan: both seeds found in workspace.db (the positive control), none under exports/" in out
     assert any(x.startswith("Privacy in exports (prd :109, :647): fail") for x in out)
     assert "  inherited acceptance: " + acceptance.PRIVACY_FAILED in out
     assert "Assistant interface, Claude (prd :120, :648, M1 pending E8-D27): no test" in out
@@ -453,12 +540,11 @@ def test_g2_refusal_comes_before_the_folder(tmp_path, capsys, no_folder):
     assert "scorer_version 2 (expected 1)" in capsys.readouterr().out
 
 
-def test_interrupted_run_prints_no_cp4_line(tmp_path, monkeypatch, capsys):
+def test_interrupted_run_prints_no_cp4_line(monkeypatch, capsys, fake_run):
     """Section 4: Ctrl-C gives a non-zero exit and no CP4 line."""
     def interrupt(folder):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(acceptance.tempfile, "tempdir", str(tmp_path))
     monkeypatch.setattr(acceptance, "run_suite", interrupt)
     assert acceptance.main([]) != 0
     out = capsys.readouterr().out
