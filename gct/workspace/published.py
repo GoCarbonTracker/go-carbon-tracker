@@ -365,9 +365,9 @@ def _with_inference(conn: sqlite3.Connection, claims, matched: dict) -> list[tup
         row[18] = m["metric_key"]
         extra += (m["rule"], m["unit_key"], m["unit_factor"], m["series_id"], m["state"], m["reason"])
         p, b = e["period"], e["boundary"]
-        if p["state"] in ("resolved", "accepted"):
+        if p["state"] in ("resolved", "accepted", "proposed"):
             row[15:18] = p["kind"], p["start"], p["end"]
-        if b["state"] in ("resolved", "accepted"):
+        if b["state"] in ("resolved", "accepted", "proposed"):
             row[19:21] = b["boundary"], b["detail"]
         basis = [json.dumps({"page": x["basis"]["page"], "wording": x["basis"]["wording"]}, ensure_ascii=False)
                  if x["basis"] else None for x in (p, b)]

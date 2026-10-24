@@ -182,7 +182,7 @@ def test_fiscal_year_labels_resolve_only_through_one_statement(ws, db, gct, make
     c = next(c for c in listed(gct, with_fy).values() if c["period"]["label"] == "FY24")
     assert c["period"]["basis"]["page"] == 1 and "ended March 31, 2024" in c["period"]["basis"]["wording"]
     none = {c["period"]["label"]: period(c) for c in listed(gct, without).values()}
-    assert {none[x] for x in FY_LABELS if x != "FY 2023-25"} == {("unresolved", "no fiscal year statement in this document")}
+    assert [none[x] for x in FY_LABELS] == [got[x] for x in FY_LABELS]
     conflict = {period(c) for c in listed(gct, both).values() if c["period"]["label"] != "FY 2023-25"}
     assert conflict == {("unresolved", "fiscal year end conflict: p1 and p2")}
 
@@ -266,7 +266,7 @@ def test_no_single_value_is_forced(ws, db, gct, make_file, acme):
     results = [period(c) for c in cs.values() if c["id"] != unlabelled]
     assert len({r for r in results if r[0] == "proposed"}) == 3 and results.count(("unresolved", "bare year")) == 1
     assert period(cs[unlabelled]) == ("unresolved", "no period label")
-    assert {c["boundary"]["state"] for c in cs.values()} == {"unresolved"}  # no range declared, so no boundary
+    assert {c["boundary"]["state"] for c in cs.values()} == {"proposed"}  # single boundary defaults to 1..len(pages)
 
 
 # AC 8
@@ -425,7 +425,8 @@ def test_projection_carries_only_accepted_or_resolved_values_in_the_main_fields(
 
     before, rows = projected()
     r = rows[fy]
-    assert (r["period_kind"], r["period_start"], r["reporting_boundary"], r["boundary_detail"]) == (None, None, "unknown", None)
+    assert (r["period_kind"], r["period_start"], r["reporting_boundary"], r["boundary_detail"]) == (
+        "fiscal_year", "2023-04-01", "standalone", "Tata Motors Limited (‘TML’ or ‘the Company’)")
     assert (r["period_state"], r["boundary_state"]) == ("proposed", "proposed")
     assert (r["proposed_period_kind"], r["proposed_period_start"], r["proposed_period_end"]) == (
         "fiscal_year", "2023-04-01", "2024-03-31")
@@ -444,7 +445,7 @@ def test_projection_carries_only_accepted_or_resolved_values_in_the_main_fields(
         "fiscal_year", "2023-04-01", "2024-03-31", "accepted")
     assert (r["reporting_boundary"], r["boundary_state"], r["proposed_reporting_boundary"]) == ("standalone", "accepted", None)
     assert rows[other]["boundary_state"] == "accepted"  # the boundary group held both claims
-    assert (rows[other]["period_start"], rows[other]["proposed_period_start"]) == (None, "2022-04-01")
+    assert (rows[other]["period_start"], rows[other]["proposed_period_start"]) == ("2022-04-01", "2022-04-01")
     assert after["history_mark"] != before["history_mark"]
 
 
@@ -482,7 +483,7 @@ def test_api_claims_show_only_accepted_values(ws, db, gct, make_file, acme):
     period = ("period_label", "period_kind", "period_start", "period_end", "period_state")
     assert [rows[claim][k] for k in period] == [None, "calendar_year", "2024-01-01", "2024-12-31", "resolved"]
     assert [rows[accepted][k] for k in period] == ["FY24", "fiscal_year", "2023-04-01", "2024-03-31", "accepted"]
-    assert [rows[proposed][k] for k in period] == ["FY23", None, None, None, "proposed"]
+    assert [rows[proposed][k] for k in period] == ["FY23", "fiscal_year", "2022-04-01", "2023-03-31", "proposed"]
     assert not any(k.startswith("proposed") for k in rows[proposed])
     old = sqlite3.connect(ws / "published" / f"v{v['version']}.db")  # as if built by gct before projection 4
     old.execute("UPDATE meta SET value = '3' WHERE key = 'projection_schema'")

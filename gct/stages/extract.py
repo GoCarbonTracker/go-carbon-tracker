@@ -59,6 +59,15 @@ def _unit(text: str) -> str | None:
     return text if text.replace(" ", "").replace("/", "") in UNITS else None
 
 
+def _is_unit_cell(text: str) -> bool:
+    if not text:
+        return False
+    if _unit(text):
+        return True
+    import gct.stages.match as match
+    return match.unit_text_of(text) in match.UNITS
+
+
 def _figure(token: str):
     """(number as printed, attached unit or None) when the token is a figure, else None. Years are not figures."""
     clean = token.rstrip(".,;:")
@@ -237,8 +246,19 @@ def _table_claims(reading: dict):
             for l_idx in range(max_l):
                 sub_row = [_clean(cell_lines[c][l_idx] if l_idx < len(cell_lines[c]) else "") for c in range(len(row))]
                 raw_sub_row = [cell_lines[c][l_idx] if l_idx < len(cell_lines[c]) else "" for c in range(len(row))]
-                at = next((c for c, s in enumerate(sub_row) if s and s not in DASHES and not _cell_figure(s)), None)
-                label = sub_row[at] if at is not None else _row_label(reading, t, cells[r]) if r < len(cells) else None
+                row_unit_cell = None
+                at = None
+                for c, s in enumerate(sub_row):
+                    if s and s not in DASHES and not _cell_figure(s):
+                        if _is_unit_cell(s):
+                            if row_unit_cell is None:
+                                row_unit_cell = s
+                            continue
+                        if s.lower() in ("unit", "units", "uom"):
+                            continue
+                        at = c
+                        break
+                label = sub_row[at] if at is not None else (_row_label(reading, t, cells[r]) if r < len(cells) else None)
                 row_unit = _extract_unit(raw_sub_row[at]) if at is not None else _extract_unit(label)
                 for c in range(len(sub_row)):
                     fig = None if c == at or c in unit_cols else _cell_figure(sub_row[c])
@@ -247,7 +267,7 @@ def _table_claims(reading: dict):
                     head = heads.get(c, {})
                     h_clean = re.sub(r"(?:[\*#†\^]|\([a-g]\))+$", "", header[c]).strip() if header[c] else ""
                     period = (h_clean if r and (PERIOD.search(h_clean) or "as at" in h_clean.lower()) else None) or head.get("period")
-                    unit = (sub_row[unit_cols[0]] if unit_cols else None) or fig[1] or row_unit or table_default_unit
+                    unit = (sub_row[unit_cols[0]] if unit_cols else None) or fig[1] or row_unit_cell or row_unit or table_default_unit
                     box = cells[r][c] if r < len(cells) and c < len(cells[r]) else None
                     inside = [w for w in reading["words"] if box and _centre_in(w, box)]
                     if max_l > 1:
@@ -266,10 +286,22 @@ def _table_claims(reading: dict):
                 boxes = [c for c in cells[r] if c]
                 if boxes:
                     r_top, r_bottom = min(b[1] for b in boxes), max(b[3] for b in boxes)
-                    at = next((c for c, s in enumerate(row) if s and s not in DASHES and not _cell_figure(s)), None)
+                    row_unit_cell = None
+                    at = None
+                    for c, s in enumerate(row):
+                        s_clean = _clean(s)
+                        if s_clean and s_clean not in DASHES and not _cell_figure(s_clean):
+                            if _is_unit_cell(s_clean):
+                                if row_unit_cell is None:
+                                    row_unit_cell = s_clean
+                                continue
+                            if s_clean.lower() in ("unit", "units", "uom"):
+                                continue
+                            at = c
+                            break
                     label = _clean(row[at]) if at is not None else _row_label(reading, t, cells[r])
                     row_unit = _extract_unit(row[at]) if at is not None else _extract_unit(label)
-                    unit = row_unit or table_default_unit
+                    unit = row_unit_cell or row_unit or table_default_unit
                     for p_idx, pcol in enumerate(parallel_cols):
                         p_box = [pcol["x0"], r_top, pcol["x1"], r_bottom]
                         inside = [w for w in reading["words"] if _centre_in(w, p_box)]

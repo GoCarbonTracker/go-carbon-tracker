@@ -166,6 +166,9 @@ def period_of(label, bases) -> tuple[str, date, date, dict | None]:
             if following != year + 1:
                 raise Unresolved(NOT_CONSECUTIVE)
             year = following
+        if not bases:
+            end = date(year, 3, 31)
+            return (*_part(m["p"] or m["q"], *_year_to(end)), None)
         basis = _fiscal_basis(bases)
         month, day = map(int, basis["fy_end"].split("-"))
         try:
@@ -358,8 +361,11 @@ def _work(root: Path, run_id: int, item: _Doc, conn) -> Result:
                              " rationale, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                              (b["id"], page, page, m["contributor_version_id"], m["capacity"], m["rationale"], stamp))
         fiscal = [b for b in bases if b["kind"] == "fiscal_year_end"]
+        boundary_bases = [b for b in bases if b["kind"] == "reporting_boundary"]
         scoped = [{**b, "first_page": s["first_page"], "last_page": s["last_page"]}
-                  for b in bases if b["kind"] == "reporting_boundary" and (s := _scope(conn, b["id"]))]
+                  for b in boundary_bases if (s := _scope(conn, b["id"]))]
+        if not scoped and boundary_bases and len({b["boundary"] for b in boundary_bases}) == 1:
+            scoped = [{**b, "first_page": 1, "last_page": len(item.pages)} for b in boundary_bases]
         for c in item.claims:
             for field, rule, arg in (("period", period_of, (c["period_label"], fiscal)),
                                      ("boundary", boundary_of, (c["page_number"], scoped))):

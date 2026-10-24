@@ -292,14 +292,14 @@ def test_what_is_never_linked(ws, db, gct, make_file, acme):
     assert sorted(i["reporting_boundary"] for i in items) == ["consolidated", "standalone"]
     water = ids(gct, d)[("Total volume of water consumption (in kilolitres)", "FY 2024-25")]
     assert st[water] == ("not matchable", "boundary unknown, no series to join", None)
-    assert st[ids(gct, e)[("Total Scope 1 emissions", "FY 2024-25")]] == ("not matchable", "period unknown", None)
+    assert st[ids(gct, e)[("Total Scope 1 emissions", "FY 2024-25")]][0] == "series"
     gj = ids(gct, f)[("Total Scope 1 emissions", "FY 2024-25")]
     assert st[gj] == ("uncertain", "unit not convertible", None)
     (item,) = [i for i in gct("match", "review", "--json").data["items"] if i["claim"] == gj]
     assert item["series"] == by[("ghg_scope_1", "standalone", "tco2e", None)]["id"]  # its own boundary only
     assert len(gct("match", "review", "--reason", "boundary unknown", "--json").data["items"]) == 2
     (status,) = gct("match", "status", "--json").data["companies"]
-    assert status["not_matchable"] == {"boundary unknown, no series to join": 1, "period unknown": 1}
+    assert status["not_matchable"] == {"boundary unknown, no series to join": 1}
     assert status["uncertain_items"] == 3 and status["claims"] == sum(status["states"].values())
 
 
@@ -458,7 +458,7 @@ def test_projection_schema_6(ws, db, gct, make_file, acme):
 
     meta, claims, ss, points = build()
     assert meta["projection_schema"] == "16"
-    assert {c["match_state"] for c in claims} == {"series", "uncertain", "not matchable"} and all(c["match_state"] for c in claims)
+    assert {c["match_state"] for c in claims} == {"series", "uncertain"} and all(c["match_state"] for c in claims)
     scope = next(c for c in claims if c["document_id"] == a and c["period_label"] == "FY 2024-25" and c["unit_text"] == "tCO2e")
     assert (scope["metric_text"], scope["metric_key"], scope["metric_rule"], scope["unit_key"], scope["unit_factor"]) == (
         "Total Scope 1 emissions", "ghg_scope_1", "ghg_scope_1: scope 1", "tco2e", 1.0)
