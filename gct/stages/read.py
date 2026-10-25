@@ -10,6 +10,7 @@ from statistics import median
 
 from gct.ladder import quality
 from gct.stages import Result, Stage, run_stage, version_of
+from gct.stages.read_docling import extract_paragraphs_docling, extract_tables_docling, get_docling_document
 from gct.workspace import registry, runs, store
 
 NOT_OPENED = "The PDF could not be opened. It may be damaged or password protected."
@@ -198,10 +199,10 @@ def _words(page) -> list[dict]:
 
 
 class _Page:
-    """A stage item: one page of a document, carrying its open pdfplumber page."""
+    """A stage item: one page of a document, carrying its open pdfplumber page and file path."""
 
-    def __init__(self, doc: dict, page):
-        self.doc, self.page = doc, page
+    def __init__(self, doc: dict, page, doc_path: Path | None = None):
+        self.doc, self.page, self.doc_path = doc, page, doc_path
 
     def __str__(self) -> str:
         return f"{self.doc['id']}:{self.page.page_number}"
@@ -211,9 +212,34 @@ def _r(x) -> float:
     return round(float(x), 2)
 
 
-def read_page(page) -> dict:
+def read_page(page, docling_doc=None) -> dict:
     """The reading of one pdfplumber page: coordinates in PDF points, top-left origin, 2 decimals. Words, lines, cell
     text and `text` follow each character's own direction; `text` is written column by column."""
+    p_num = page.page_number
+    p_h = _r(page.height)
+    if docling_doc is not None:
+        d_tables = extract_tables_docling(docling_doc, p_num, p_h)
+        d_paragraphs = extract_paragraphs_docling(docling_doc, p_num, p_h)
+        if d_tables or d_paragraphs:
+            words = _words(page)
+            _columns(words, [t["bbox"] for t in d_tables])
+            text_lines = [p["text"] for p in d_paragraphs]
+            for t in d_tables:
+                for row in t["rows"]:
+                    row_txt = " | ".join(c for c in row if c)
+                    if row_txt:
+                        text_lines.append(row_txt)
+            page.close()
+            return {
+                "page": p_num,
+                "width": _r(page.width),
+                "height": p_h,
+                "text": "\n".join(text_lines),
+                "words": words,
+                "tables": d_tables,
+                "method": "docling",
+            }
+
     tables = [{"bbox": [_r(v) for v in t.bbox], "cells": [[c and [_r(v) for v in c] for c in row.cells] for row in t.rows]}
               for t in page.find_tables()]
     words = _words(page)
@@ -270,7 +296,14 @@ def _work(root: Path, config: str, item: _Page, conn) -> Result:
         (doc_id, number, config),
     ).fetchone()
     if done is None:  # else an earlier run committed the page but not its attempt
-        reading = read_page(item.page)
+        docling_doc = None
+        use_docling = os.environ.get("GCT_USE_DOCLING") == "1" or os.environ.get("GCT_READ_RUNG") in ("2.6", "docling")
+        if use_docling and getattr(item, "doc_path", None):
+            docling_doc = get_docling_document(item.doc_path)
+        if docling_doc is not None:
+            reading = read_page(item.page, docling_doc=docling_doc)
+        else:
+            reading = read_page(item.page)
         flags = quality.check(reading)
         data = json.dumps(reading, sort_keys=True, ensure_ascii=False).encode("utf-8")
         digest = hashlib.sha256(data).hexdigest()
@@ -282,6 +315,8 @@ def _work(root: Path, config: str, item: _Page, conn) -> Result:
             tmp.write_bytes(data)
             os.replace(tmp, dest)
         stamp = store.now()
+        method_str = reading.get("method", "pdfplumber")
+        rung_val = 2 if method_str == "docling" else 1
         with store.transaction(conn):
             art = conn.execute(
                 "SELECT id FROM artifact WHERE document_id = ? AND sha256 = ? AND kind = ?", (doc_id, digest, KIND)
@@ -292,13 +327,13 @@ def _work(root: Path, config: str, item: _Page, conn) -> Result:
             ).lastrowid
             page_id = conn.execute(
                 "INSERT INTO page (document_id, page_number, rung, method, config_version, width, height, words, tables,"
-                " flags, artifact_id, created_at) VALUES (?, ?, 1, 'pdfplumber', ?, ?, ?, ?, ?, ?, ?, ?)",
-                (doc_id, number, config, reading["width"], reading["height"], len(reading["words"]),
+                " flags, artifact_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (doc_id, number, rung_val, method_str, config, reading["width"], reading["height"], len(reading["words"]),
                  len(reading["tables"]), json.dumps(flags), art_id, stamp),
             ).lastrowid
         done = conn.execute("SELECT p.*, a.sha256 FROM page p JOIN artifact a ON a.id = p.artifact_id WHERE p.id = ?",
                             (page_id,)).fetchone()
-    return Result(output=_summary(done), method="pdfplumber", rung=1)
+    return Result(output=_summary(done), method=done["method"], rung=done["rung"])
 
 
 def _doc(d: dict, action: str, cause=None, next_action=None, **counts) -> dict:
@@ -331,13 +366,14 @@ def _read(conn, root, run_id, docs, wanted=None) -> list[dict]:
             continue
         only = (wanted or {}).get(d["id"])
         with contextlib.ExitStack() as stack:
+            doc_path = registry.stored_path(root, d["sha256"])
             try:
-                pages = stack.enter_context(pdfplumber.open(registry.stored_path(root, d["sha256"]))).pages
+                pages = stack.enter_context(pdfplumber.open(doc_path)).pages
             except Exception:
                 runs.event(conn, run_id, "failure", stage="read", item=str(d["id"]), message=NOT_OPENED)
                 out.append(_doc(d, "failed", NOT_OPENED, NOT_OPENED_NEXT))
                 continue
-            items = [_Page(d, p) for p in pages if only is None or p.page_number in only]
+            items = [_Page(d, p, doc_path) for p in pages if only is None or p.page_number in only]
             # only_failed=False: retry's pages are already the failed set, and a changed config must still read them.
             counts = run_stage(conn, run_id, stage, items)
         rows = conn.execute(NEWEST_SQL, (config, config, d["id"])).fetchall()
