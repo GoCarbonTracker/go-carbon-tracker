@@ -4,6 +4,8 @@ import { availableText, countText, type EvidenceTarget, type Filter, isCell, isS
 import { FilterBar } from "./FilterBar.tsx";
 import { CellView } from "./CellView.tsx";
 import { Tables } from "./Tables.tsx";
+import { RestatementsTab } from "./RestatementsTab.tsx";
+import { CopilotDrawer, type CopilotCandidate } from "./CopilotDrawer.tsx";
 import { ChipLine, Transfer } from "./Transfer.tsx";
 import { type SavedView, SavedViews } from "./SavedViews.tsx";
 import { type Chosen, Questions } from "./Questions.tsx";
@@ -206,10 +208,10 @@ function CorrectionForm({ claimId, onDone }: { claimId: number; onDone: () => Pr
 type Field = { name: string; label: string; kind?: "date" | "number" | "radio" | "select"; options?: [string, string][] };
 type DocOption = { id: number; label: string };
 
-function RecordForm({ title, path, fields, required, numbers, fixed, initial = {}, submitLabel, onClose, onDone }: {
+function RecordForm({ title, path, fields, required, numbers, fixed, initial = {}, transform, submitLabel, onClose, onDone }: {
   title: string; path: string; fields: Field[]; required: string[]; numbers: string[];
-  fixed: Record<string, string | number>; initial?: Record<string, string>; submitLabel: string;
-  onClose: () => void; onDone: (refused: Failure | null) => Promise<void>;
+  fixed: Record<string, string | number>; initial?: Record<string, string>; transform?: (f: Record<string, string>) => Record<string, string>;
+  submitLabel: string; onClose: () => void; onDone: (refused: Failure | null) => Promise<void>;
 }) {
   const [f, setF] = useState<Record<string, string>>(() => ({ ...Object.fromEntries(fields.map((x) => [x.name, ""])), ...initial }));
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -221,7 +223,8 @@ function RecordForm({ title, path, fields, required, numbers, fixed, initial = {
     setBusy(true);
     setFailure(null);
     try {
-      await send(path, { ...recordBody(f, numbers), ...fixed });
+      const data = transform ? transform(f) : f;
+      await send(path, { ...recordBody(data, numbers), ...fixed });
       await onDone(null);
     } catch (err) {
       // 409: the claim or pair changed meanwhile (or the workspace is busy): the panel reloads and shows why.
@@ -368,7 +371,30 @@ function Reviews({ claim, docs, notices, onNotice, onChanged, onJump }: {
     await onChanged();
   };
   const common = { fixed: { version: v.id }, onClose: () => setForm(null), onDone: done };
-  const flagFields: Field[] = [...WHO_FIELDS, { name: "rationale", label: "Rationale" }];
+  const flagRaiseFields: Field[] = [
+    ...WHO_FIELDS,
+    {
+      name: "taxonomy_type",
+      label: "EmeraldMind Greenwashing Taxonomy",
+      kind: "radio",
+      options: [
+        ["Type 1: Unaccredited Label", "Type 1: Factually false or unaccredited label / certification"],
+        ["Type 2: Mandated as Voluntary", "Type 2: Legal or statutory obligation framed as voluntary"],
+        ["Type 3: Scope Mismatch", "Type 3: Boundary mismatch or scope overgeneralization"],
+        ["Type 4: Direct Contradiction", "Type 4: Direct factual contradiction against reported table data"],
+        ["General Concern", "General Auditor Concern / Other"],
+      ],
+    },
+    { name: "rationale", label: "Auditor Rationale & Citation" },
+  ];
+  const flagWithdrawFields: Field[] = [...WHO_FIELDS, { name: "rationale", label: "Rationale" }];
+
+  const formatFlagPayload = (data: Record<string, string>) => {
+    const tax = data.taxonomy_type ? `[${data.taxonomy_type}] ` : "";
+    const { taxonomy_type, ...rest } = data;
+    return { ...rest, rationale: `${tax}${rest.rationale || ""}`.trim() };
+  };
+
   const raised = v.reviewer_flags.some((f) => f.latest && f.decision === "raised");
   return (
     <section className="reviews" aria-label="Reviews">
@@ -441,8 +467,10 @@ function Reviews({ claim, docs, notices, onNotice, onChanged, onJump }: {
         </div>
       )}
       {(form === "raise" || form === "withdraw") && (
-        <RecordForm key={form} title={form === "raise" ? "Flag a potential greenwashing concern" : "Withdraw your flag"}
-          path={`/api/claims/${claim.id}/flags`} fields={flagFields} required={["contributor", "capacity", "rationale"]}
+        <RecordForm key={form} title={form === "raise" ? "Flag a potential greenwashing concern (EmeraldMind)" : "Withdraw your flag"}
+          path={`/api/claims/${claim.id}/flags`} fields={form === "raise" ? flagRaiseFields : flagWithdrawFields}
+          required={form === "raise" ? ["contributor", "capacity", "taxonomy_type", "rationale"] : ["contributor", "capacity", "rationale"]}
+          transform={form === "raise" ? formatFlagPayload : undefined}
           numbers={[]} submitLabel={form === "raise" ? "Raise flag" : "Withdraw flag"} {...common}
           fixed={{ version: v.id, decision: form === "raise" ? "raised" : "withdrawn" }} />
       )}
@@ -604,7 +632,8 @@ export function App() {
   const docRequests = useRef(newestOnly()).current;
   // Tables and Graphs (story 6.1, H): one filter on one pinned data version; a newer version is offered, never mixed in.
   const [section, setSection] = useState<"evidence" | "records">("evidence");
-  const [tab, setTab] = useState<"tables" | "graphs">("tables");
+  const [tab, setTab] = useState<"tables" | "graphs" | "restate">("tables");
+  const [copilotOpen, setCopilotOpen] = useState(false);
   const [filter, setFilter] = useState<Filter>({});
   const [pinned, setPinned] = useState<number | null>(null);
   const [newer, setNewer] = useState<number | null>(null);
@@ -890,7 +919,7 @@ export function App() {
               <button type="button" aria-expanded={panel === "questions"} aria-controls="panel-questions"
                 onClick={() => setPanel(panel === "questions" ? null : "questions")}>Questions</button>
             </div>
-            {panel === "views" && <SavedViews filter={filter} tab={tab} chipShown={chips[tab] !== null}
+            {panel === "views" && <SavedViews filter={filter} tab={tab === "restate" ? "tables" : tab} chipShown={tab !== "restate" && chips[tab] !== null}
               onOpen={(v) => { openView(v).catch((e) => setCountFailure(failureOf(e))); }} onClose={() => setPanel(null)} />}
             {panel === "questions" && <Questions pinned={pinned} onChoose={choose} onClose={() => setPanel(null)}
               onStale={() => { checkVersion().catch(() => undefined); }} />}
@@ -906,18 +935,22 @@ export function App() {
                   {count.deleted_in_filter.map((d) => <p key={d.document_id} className="meta">{d.text}</p>)}
                 </>
               )}
-              {chips[tab] && <ChipLine chip={chips[tab]!} onRemove={removeChip} />}
+              {tab !== "restate" && chips[tab] && <ChipLine chip={chips[tab]!} onRemove={removeChip} />}
             </div>
             {cellAt && <CellView key={JSON.stringify(cellAt)} target={cellAt} pinned={pinned} onClose={() => setCellAt(null)} />}
-            <div className="tabs" role="tablist" aria-label="Tables or Graphs">
+            <div className="tabs" role="tablist" aria-label="Tables, Graphs or Restatements">
               <button role="tab" id="tab-tables" aria-controls="body-tables" aria-selected={tab === "tables"}
                 onClick={() => setTab("tables")}>Tables</button>
               <button role="tab" id="tab-graphs" aria-controls="body-graphs" aria-selected={tab === "graphs"}
                 onClick={() => setTab("graphs")}>Graphs</button>
+              <button role="tab" id="tab-restate" aria-controls="body-restate" aria-selected={tab === "restate"}
+                onClick={() => setTab("restate")}>Restatements</button>
+              <button type="button" className="copilot-toggle-btn" onClick={() => setCopilotOpen(!copilotOpen)}>
+                🛡️ Copilot Proposals
+              </button>
             </div>
-            <Transfer tab={tab} sent={sent[tab]} pinned={pinned} newer={newer} current={checkVersion} onTransfer={transfer} />
-            {/* Story 6.2 renders its table here and 6.3 its graphs, each from its own file with filter, dataVersion and
-                openEvidence (F11 f); a hidden body stays mounted, so returning shows it as it was left. */}
+            {tab !== "restate" && <Transfer tab={tab} sent={sent[tab]} pinned={pinned} newer={newer} current={checkVersion} onTransfer={transfer} />}
+            {/* Story 6.2 renders its table here, 6.3 its graphs, and 6.5 restatements matrix */}
             <div role="tabpanel" id="body-tables" aria-labelledby="tab-tables" hidden={tab !== "tables"}>
               <Tables filter={filter} dataVersion={pinned} openEvidence={openEvidence} onStale={() => { checkVersion().catch(() => undefined); }}
                 selection={chips.tables?.selection ?? null} onSelectionChange={sentByTables} />
@@ -926,6 +959,20 @@ export function App() {
               <Suspense fallback={null}><Graphs filter={filter} dataVersion={pinned} openEvidence={openEvidence} onStale={() => { checkVersion().catch(() => undefined); }}
                 selection={chips.graphs?.selection ?? null} onSelectionChange={sentByGraphs} /></Suspense>
             </div>
+            <div role="tabpanel" id="body-restate" aria-labelledby="tab-restate" hidden={tab !== "restate"}>
+              {tab === "restate" && <RestatementsTab openEvidence={openEvidence} />}
+            </div>
+            <CopilotDrawer
+              open={copilotOpen}
+              onClose={() => setCopilotOpen(false)}
+              onSelectCandidate={(c) => {
+                openEvidence({ document: c.document_id, page: c.page_number, claim_id: c.claim_id });
+              }}
+              onFlagCandidate={(c) => {
+                openEvidence({ document: c.document_id, page: c.page_number, claim_id: c.claim_id });
+                setCopilotOpen(false);
+              }}
+            />
           </>
         )}
       </section>

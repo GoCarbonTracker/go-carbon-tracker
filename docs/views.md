@@ -204,3 +204,16 @@ on the current version, 0 included:
 `metric-over-time` lists its choices, the series with two or more periods (company, label and number of periods), and
 its count is the number of choices. `not-matched-to-source` leaves out claims whose evidence is not checked yet, and
 `ledgers-disagree` counts the current version of each claim only (`gct review list` shows earlier versions).
+
+## Auditor Copilot and Restatement Extensions (Story M1-6.5)
+
+The viewer integrates four forensic assurance capabilities:
+
+1. **EmeraldMind 4-Type Taxonomy**: Reviewer flags recorded on `/api/claims/{id}/flags` provide structured classification:
+   - `Type 1`: Unaccredited or false green labels/certifications
+   - `Type 2`: Mandatory statutory obligations framed as voluntary actions
+   - `Type 3`: Scope overgeneralization / boundary mismatches
+   - `Type 4`: Direct factual contradictions against disclosed tables
+2. **Copilot Proposals Drawer**: `GET /api/copilot/candidates` serves unreviewed candidates surfaced by `gct flag propose` alongside citation page and bounding boxes for auditor review (FR39).
+3. **Rung 1 vs Rung 2 Badges**: Claims in tables distinguish deterministic figures (`[R1 Numeric]`) from qualitative commitments (`[R2 Qualitative]`).
+4. **Interactive Restatement Matrix**: `GET /api/restate/pairs` exposes cross-report comparisons directly in the web UI.

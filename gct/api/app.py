@@ -475,4 +475,30 @@ def create_app(root: Path, token: str) -> FastAPI:
         return _pinned(None if data_version is None else int(data_version),
                        lambda pconn: {"status": "ok", **saved_view.questions(pconn)})
 
+    @app.get("/api/copilot/candidates")
+    async def copilot_candidates(company: str | None = None):
+        def _fetch():
+            from gct.stages import audit
+            conn = store.connect(root / layout.DB_NAME)
+            try:
+                return audit.scan_workspace_candidates(conn, root, company)
+            finally:
+                conn.close()
+
+        candidates = await run_in_threadpool(_fetch)
+        return {"status": "ok", "candidates": candidates, "count": len(candidates)}
+
+    @app.get("/api/restate/pairs")
+    async def restate_pairs(company: str | None = None, state: str | None = None):
+        def _fetch():
+            from gct.stages import restate
+            conn = store.connect(root / layout.DB_NAME)
+            try:
+                return restate.listed(conn, company, state)
+            finally:
+                conn.close()
+
+        shown, hidden = await run_in_threadpool(_fetch)
+        return {"status": "ok", "pairs": shown, "hidden": hidden, "count": len(shown)}
+
     return app

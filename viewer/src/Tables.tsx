@@ -7,6 +7,12 @@ import "./tables.css";
 type Failure = { cause: string; next_action: string };
 type Answer = { data_version: number; matched: number; offset: number; rows: Row[]; sort: Sort };
 
+function isR2(r: Row): boolean {
+  const m = r.claim.metric_text || "";
+  const v = r.claim.value_text || "";
+  return m.length > 50 || m.startsWith("─") || m.includes("aim to") || m.includes("commit to") || m.includes("target for") || v === "";
+}
+
 async function call<T>(path: string, body?: object): Promise<{ status: number; data: T | Failure }> {
   const r = await fetch(path, body === undefined ? { headers: { Accept: "application/json" } } : {
     method: "POST",
@@ -186,7 +192,14 @@ export function Tables({ filter, dataVersion, openEvidence, selection, onSelecti
                     <td>
                       <button type="button" className="link" tabIndex={-1} onClick={() => open(r)}>{locationText(r)}</button>
                     </td>
-                    <td title={metricText(r)}><div className="clamp">{metricText(r)}</div></td>
+                    <td title={metricText(r)}>
+                      <div className="clamp">
+                        <span className={isR2(r) ? "pill-badge r2-pill" : "pill-badge r1-pill"}>
+                          {isR2(r) ? "R2 Qualitative" : "R1 Table"}
+                        </span>
+                        {metricText(r)}
+                      </div>
+                    </td>
                     <td className="num">{valueText(r)}</td>
                     {rest.map((t, j) => <td key={j} title={t}><div className="clamp">{t}</div></td>)}
                   </tr>
