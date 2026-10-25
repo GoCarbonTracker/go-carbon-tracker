@@ -63,6 +63,10 @@ def classify_sentence(text: str, threshold: float = 0.05) -> tuple[bool, float]:
     Returns (verdict, probability). If the model or weights are unavailable,
     returns (False, 0.0) with a warning.
     """
+    import os
+    if os.environ.get("GCT_DISABLE_SEMANTIC") == "1":
+        return False, 0.0
+
     if not text or not text.strip():
         return False, 0.0
 
