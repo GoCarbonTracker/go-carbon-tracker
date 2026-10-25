@@ -3,6 +3,7 @@ import json
 import re
 from pathlib import Path
 
+from gct.models.semantic_filter import classify_sentence
 from gct.stages import Result, Stage, result, run_stage, version_of
 from gct.stages.read import ACTIVE, NEWEST_SQL, NOT_ACTIVE, _centre_in, _cluster, select
 from gct.stages.read import lines as _lines
@@ -341,8 +342,94 @@ def _text_claims(reading: dict):
                          period and period[0], [_union(line[i:i + used])])
 
 
+def _semantic_text_claims(reading: dict, existing_claims: list[dict] | None = None):
+    h = reading.get("height", 792)
+    bboxes = [t["bbox"] for t in reading.get("tables", [])]
+    words = [w for w in reading.get("words", [])
+             if w.get("dir", "ltr") == "ltr"
+             and w["top"] >= 0.05 * h and w["bottom"] <= 0.95 * h
+             and not any(_centre_in(w, b) for b in bboxes)]
+    if not words:
+        return
+
+    # To avoid duplicates: if a sentence already contains a Rung 1 numeric claim, Rung 1 retains priority
+    if existing_claims is None:
+        existing_claims = list(_text_claims(reading))
+    r1_boxes = [b for c in existing_claims for b in (c.get("boxes") or [])]
+
+    body_lines = _lines(words)
+    if not body_lines:
+        return
+
+    paragraphs = []
+    curr_para = []
+    for line in body_lines:
+        if not curr_para:
+            curr_para.append(line)
+            continue
+        prev_line = curr_para[-1]
+        prev_bottom = max(w["bottom"] for w in prev_line)
+        curr_top = min(w["top"] for w in line)
+        prev_h = prev_bottom - min(w["top"] for w in prev_line)
+        gap = curr_top - prev_bottom
+        if gap > max(1.5 * prev_h, 8.0) or gap < -2.0:
+            paragraphs.append(curr_para)
+            curr_para = [line]
+        else:
+            curr_para.append(line)
+    if curr_para:
+        paragraphs.append(curr_para)
+
+    for p_idx, para in enumerate(paragraphs):
+        para_words = [w for line in para for w in line]
+        if not para_words:
+            continue
+
+        sentences = []
+        curr_sent = []
+        for w in para_words:
+            curr_sent.append(w)
+            txt = w["text"]
+            if txt.endswith((".", "!", "?")) and not (
+                txt.lower() in ("e.g.", "i.e.", "vs.", "mr.", "ms.", "dr.", "co.", "ltd.", "inc.", "corp.")
+                or re.match(r"^\d+\.$", txt)
+            ):
+                sentences.append(curr_sent)
+                curr_sent = []
+        if curr_sent:
+            sentences.append(curr_sent)
+
+        for s_idx, sent_words in enumerate(sentences):
+            sent_text = _clean(" ".join(w["text"] for w in sent_words))
+            if not sent_text:
+                continue
+
+            if r1_boxes and any(any(_centre_in(w, b) for b in r1_boxes) for w in sent_words):
+                continue
+
+            verdict, prob = classify_sentence(sent_text, threshold=0.05)
+            if verdict:
+                m_period = PERIOD.search(sent_text)
+                period = m_period.group(0).strip() if m_period else None
+                yield {
+                    "locator": f"p{p_idx}s{s_idx}",
+                    "metric_text": sent_text,
+                    "value_text": None,
+                    "value": None,
+                    "unit_text": None,
+                    "period_label": period,
+                    "boundary_label": None,
+                    "boxes": [_union(sent_words)],
+                    "method": "rung2-climatebert",
+                    "claim_probability": prob,
+                }
+
+
 def rules(reading: dict) -> list[dict]:
-    return [*_table_claims(reading), *_text_claims(reading)]
+    tables = list(_table_claims(reading))
+    texts = list(_text_claims(reading))
+    semantics = list(_semantic_text_claims(reading, existing_claims=texts))
+    return [*tables, *texts, *semantics]
 
 
 class _Page:
@@ -407,7 +494,7 @@ def _claim_for(conn, doc_id, page, f, stamp):
 
 def _changed(old, f) -> bool:
     boxes = old["boxes"] and json.loads(old["boxes"])
-    return any(old[k] != f.get(k) for k in VERSION_FIELDS) or (boxes or None) != (f["boxes"] or None)
+    return any((old[k] or None) != (f.get(k) or None) for k in VERSION_FIELDS) or (boxes or None) != (f["boxes"] or None)
 
 
 def page_key(item: _Page) -> str:
@@ -433,7 +520,7 @@ def _work(root: Path, config: str, run_id: int, item: _Page, conn) -> Result:
                 version_id = conn.execute(
                     "INSERT INTO claim_version (claim_id, run_id, method, config_version, metric_text, value_text, value,"
                     " unit_text, period_label, boundary_label, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (claim_id, run_id, METHOD, config, f["metric_text"], f["value_text"], f["value"], f["unit_text"],
+                    (claim_id, run_id, f.get("method") or METHOD, config, f["metric_text"], f["value_text"] or "", f["value"], f["unit_text"],
                      f["period_label"], f.get("boundary_label"), stamp),
                 ).lastrowid
                 ref_id = conn.execute(
