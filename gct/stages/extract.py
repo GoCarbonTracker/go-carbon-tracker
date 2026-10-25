@@ -10,7 +10,7 @@ from gct.stages.read import lines as _lines
 from gct.workspace import registry, runs, store
 
 METHOD = "rung1-rules"
-RULES_VERSION = 8
+RULES_VERSION = 9
 READ_FIRST = "read it first: gct read"
 RETRY = "Run gct extract again. Pages already extracted are not extracted twice."
 
@@ -271,11 +271,19 @@ def _clean_metric_part(text: str | None) -> str | None:
     return clean_no_foot
 
 
+def _clean_metric_text(s: str | None) -> str | None:
+    if not s:
+        return None
+    cleaned = re.sub(r"\([A-Za-z0-9\s+—–/-]+\)", "", s)
+    res = _clean(cleaned)
+    return res if res and res != _clean(s) else None
+
+
 def _clean_table_title(text: str | None) -> str | None:
     if not text:
         return None
     s = text.strip()
-    if s.endswith((".", ";")) or len(s.split()) > 10:
+    if s.endswith((".", ";")) or len(s.split()) > 20:
         return None
     if re.search(r"\b(?:due to|because|refer note|have been|were restated|in accordance with)\b", s, re.I):
         return None
@@ -295,7 +303,7 @@ def _table_claims(reading: dict):
 
         # Detect table title and unit band above the table
         x0, top, x1, bottom = table["bbox"]
-        title_band = [w for w in reading["words"] if 0 <= top - w["bottom"] <= 60 and _overlaps(w["x0"], w["x1"], x0, x1)]
+        title_band = [w for w in reading["words"] if 0 <= top - w["bottom"] <= 80 and _overlaps(w["x0"], w["x1"], x0, x1)]
         title_text = " ".join(w["text"] for line in _lines(title_band) for w in line) if title_band else None
         table_title = _clean_table_title(title_text)
         if not table_default_unit and title_text:
@@ -355,6 +363,13 @@ def _table_claims(reading: dict):
                             continue
                         if s.lower() in ("unit", "units", "uom"):
                             continue
+                        # If cell is just an item number / bullet (e.g. 'i.', '1.', 'a.', etc.)
+                        # and next cell has substantive text, advance to next cell
+                        if re.match(r"^(?:[ivxlcdm]+|\d+|[a-z])\.?$", s.strip(), re.I) and c + 1 < len(sub_row):
+                            next_s = sub_row[c + 1]
+                            if next_s and next_s not in DASHES and not _cell_figure(next_s) and not _is_unit_cell(next_s):
+                                at = c + 1
+                                break
                         at = c
                         break
                 label = sub_row[at] if at is not None else (_row_label(reading, t, cells[r]) if r < len(cells) else None)
@@ -385,9 +400,20 @@ def _table_claims(reading: dict):
                     col_metric = _clean_metric_part(h_clean) if r > 0 else None
                     metric = label
                     if col_metric and (not metric or col_metric.lower() not in metric.lower()):
-                        metric = f"{metric} {col_metric}" if metric else col_metric
+                        clean_l = _clean_metric_text(label)
+                        clean_c = _clean_metric_text(col_metric)
+                        parts = [metric, col_metric]
+                        if clean_l and clean_c:
+                            parts.extend([f"{clean_l} {clean_c}", f"{clean_c} {clean_l}"])
+                        elif clean_l:
+                            parts.extend([f"{clean_l} {col_metric}", f"{col_metric} {clean_l}"])
+                        elif clean_c:
+                            parts.extend([f"{metric} {clean_c}", f"{clean_c} {metric}"])
+                        else:
+                            parts.append(f"{col_metric} {metric}")
+                        metric = " ".join(dict.fromkeys(p for p in parts if p))
                     if table_title and (not metric or table_title.lower() not in metric.lower()):
-                        metric = f"{table_title} {metric}" if metric else table_title
+                        metric = f"{table_title} {metric}"
 
                     box = cells[r][c] if r < len(cells) and c < len(cells[r]) else None
                     inside = [w for w in reading["words"] if box and _centre_in(w, box)]
@@ -444,7 +470,8 @@ def _text_claims(reading: dict):
     bboxes = [t["bbox"] for t in reading["tables"]]
     words = [w for w in reading["words"]
              if w["top"] >= 0.05 * h and w["bottom"] <= 0.95 * h and not any(_centre_in(w, b) for b in bboxes)]
-    for n, line in enumerate(_lines(words)):
+    lines_list = _lines(words)
+    for n, line in enumerate(lines_list):
         line_str = " ".join(w["text"] for w in line)
         for i, w in enumerate(line):
             fig = _figure(w["text"])
@@ -469,7 +496,25 @@ def _text_claims(reading: dict):
             rest = " ".join(x["text"] for x in line[:i - used_prev] + line[i + used:])
             # A figure never takes its comparison year.
             period = next((m for m in PERIOD.finditer(rest) if not COMPARED.search(rest[:m.start()])), None)
-            yield _claim(f"l{n}w{i}", _clean(" ".join(x["text"] for x in line[:i - used_prev])), number, unit,
+            metric_part = _clean(" ".join(x["text"] for x in line[:i - used_prev]))
+            if not metric_part:
+                # Check preceding line if within vertical proximity (e.g. stat card / slide heading)
+                if n > 0:
+                    prev_line = lines_list[n - 1]
+                    prev_txt = _clean(" ".join(x["text"] for x in prev_line))
+                    if prev_txt and not any(_figure(x["text"]) for x in prev_line):
+                        y_gap = min(x["top"] for x in line) - max(x["bottom"] for x in prev_line)
+                        if 0 <= y_gap <= 40:
+                            metric_part = prev_txt
+                # Or check succeeding line if within vertical proximity (e.g. stat card label below value)
+                if not metric_part and n + 1 < len(lines_list):
+                    next_line = lines_list[n + 1]
+                    next_txt = _clean(" ".join(x["text"] for x in next_line))
+                    if next_txt and not any(_figure(x["text"]) for x in next_line):
+                        y_gap = min(x["top"] for x in next_line) - max(x["bottom"] for x in line)
+                        if 0 <= y_gap <= 40:
+                            metric_part = next_txt
+            yield _claim(f"l{n}w{i}", metric_part, number, unit,
                          period and period[0], [_union(line[i - used_prev:i + used])])
 
         # Key-value line extraction for word and string claims (Story M1-3.8-C)
