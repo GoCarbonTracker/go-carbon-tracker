@@ -10,7 +10,7 @@ from gct.stages.read import lines as _lines
 from gct.workspace import registry, runs, store
 
 METHOD = "rung1-rules"
-RULES_VERSION = 7
+RULES_VERSION = 8
 READ_FIRST = "read it first: gct read"
 RETRY = "Run gct extract again. Pages already extracted are not extracted twice."
 
@@ -128,6 +128,33 @@ def _cell_figure(text: str):
     if not fig or not rest:
         return fig
     return (fig[0], _unit(rest)) if fig[1] is None and _unit(rest) else None
+
+
+def _cell_string(text: str) -> str | None:
+    """A table cell holding a word or string answer (Story M1-3.8-C)."""
+    if not text:
+        return None
+    s = _clean(text)
+    if not s or s in DASHES or _is_unit_cell(s):
+        return None
+    if s.lower() in ("unit", "units", "uom", "particulars", "description", "parameter", "sr. no.", "sl. no.", "sn", "s.no.", "metric", "attribute"):
+        return None
+    words = s.split()
+    if len(words) > 15:
+        return None
+    if re.fullmatch(r"(?i)yes|no|applicable|not applicable|n/?a|nil|none|voluntary|mandatory|limited|reasonable|comprehensive", s):
+        return s
+    if re.search(r"\b(?:\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}|\d{4}-\d{2}-\d{2})\b", s, re.I):
+        return s
+    if re.search(r"\b\d{1,2}\s+[A-Za-z]+\s+\d{4}\s+to\s+\d{1,2}\s+[A-Za-z]+\s+\d{4}\b", s, re.I):
+        return s
+    if re.search(r"\b(?:ISO\s*\d+|ISAE\s*\d+|GRI|RE100|CIN|[A-Z][0-9]{5}[A-Z0-9]{10,})\b", s, re.I):
+        return s
+    if re.search(r"\b(?:year|years|month|months|week|weeks|annual|annually|quarterly|half[- ]yearly)\b", s, re.I):
+        return s
+    if re.search(r"[a-zA-Z]", s) and len(words) <= 8 and not s.endswith((".", ";", ":")):
+        return s
+    return None
 
 
 def _value(number: str) -> float | None:
@@ -333,8 +360,13 @@ def _table_claims(reading: dict):
                 label = sub_row[at] if at is not None else (_row_label(reading, t, cells[r]) if r < len(cells) else None)
                 row_unit = _extract_unit(raw_sub_row[at]) if at is not None else _extract_unit(label)
                 for c in range(len(sub_row)):
-                    fig = None if c == at or c in unit_cols else _cell_figure(sub_row[c])
-                    if not fig:
+                    if c == at or c in unit_cols:
+                        continue
+                    fig = _cell_figure(sub_row[c])
+                    val_str = None
+                    if r > 0 and not fig:
+                        val_str = _cell_string(sub_row[c])
+                    if not fig and not val_str:
                         continue
                     head = heads.get(c, {})
                     h_clean = re.sub(r"(?:[\*#†\^]|\([a-g]\))+$", "", header[c]).strip() if c < len(header) and header[c] else ""
@@ -347,7 +379,7 @@ def _table_claims(reading: dict):
                     col_header_unit = _extract_unit(raw_header[c]) if c < len(raw_header) else None
                     if not col_header_unit and c < len(raw_header):
                         col_header_unit = _unit(raw_header[c])
-                    unit = fig[1] or (sub_row[unit_cols[0]] if unit_cols else None) or col_header_unit or row_unit_cell or row_unit or table_default_unit
+                    unit = (fig[1] if fig else None) or (sub_row[unit_cols[0]] if unit_cols else None) or col_header_unit or row_unit_cell or row_unit or table_default_unit
 
                     # R-2, R-4: Table column header joins metric text
                     col_metric = _clean_metric_part(h_clean) if r > 0 else None
@@ -368,7 +400,8 @@ def _table_claims(reading: dict):
                         exact = inside and " ".join(w["text"] for line in _lines(inside) for w in line) == sub_row[c]
                         box_to_use = [_union(inside)] if exact else None
                     loc = f"t{t}r{r}c{c}" if max_l == 1 else f"t{t}r{r}l{l_idx}c{c}"
-                    yield _claim(loc, metric, fig[0], unit or None, period, box_to_use, head.get("boundary"))
+                    claim_val = fig[0] if fig else val_str
+                    yield _claim(loc, metric, claim_val, unit or None, period, box_to_use, head.get("boundary"))
 
             # Parallel numeric columns to the right of t["bbox"]
             if parallel_cols and r > 0 and r < len(cells):
@@ -412,6 +445,7 @@ def _text_claims(reading: dict):
     words = [w for w in reading["words"]
              if w["top"] >= 0.05 * h and w["bottom"] <= 0.95 * h and not any(_centre_in(w, b) for b in bboxes)]
     for n, line in enumerate(_lines(words)):
+        line_str = " ".join(w["text"] for w in line)
         for i, w in enumerate(line):
             fig = _figure(w["text"])
             if not fig:
@@ -437,6 +471,19 @@ def _text_claims(reading: dict):
             period = next((m for m in PERIOD.finditer(rest) if not COMPARED.search(rest[:m.start()])), None)
             yield _claim(f"l{n}w{i}", _clean(" ".join(x["text"] for x in line[:i - used_prev])), number, unit,
                          period and period[0], [_union(line[i - used_prev:i + used])])
+
+        # Key-value line extraction for word and string claims (Story M1-3.8-C)
+        m_kv = re.match(r"^(?:(?:\d+\.|\([a-z0-9]+\))\s*)?([A-Za-z][^:\-—–]{2,60}?)\s*[:\-—–]\s*([^:\-—–\n]{1,100})$", line_str)
+        if m_kv:
+            k_txt, v_txt = _clean(m_kv.group(1)), _clean(m_kv.group(2))
+            is_caption = bool(re.match(r"(?i)^(?:table|figure|box|chart|annexure|schedule|exhibit)\s+\d+", k_txt))
+            if not is_caption and k_txt and v_txt and v_txt not in DASHES and not _is_unit_cell(v_txt):
+                if re.search(r"[a-zA-Z0-9]", v_txt) and len(v_txt.split()) <= 15:
+                    period = next((m for m in PERIOD.finditer(line_str) if not COMPARED.search(line_str[:m.start()])), None)
+                    v_fig = _figure(v_txt)
+                    val_num = v_fig[0] if v_fig else v_txt
+                    val_u = v_fig[1] if v_fig else _extract_unit(v_txt)
+                    yield _claim(f"l{n}kv", k_txt, val_num, val_u, period and period[0], [_union(line)])
 
 
 def _semantic_text_claims(reading: dict, existing_claims: list[dict] | None = None):
