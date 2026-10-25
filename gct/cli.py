@@ -1008,6 +1008,29 @@ def cmd_flag_list(args) -> None:
            "\n".join([*map(_flag_text, fs), review.SELF_DECLARED] if fs else ["No reviewer flags.", review.SELF_DECLARED]))
 
 
+def cmd_flag_propose(args) -> None:
+    from gct.stages import audit
+    root = layout.locate(args.workspace)
+    conn = _open(args, write=False)
+    candidates = audit.scan_workspace_candidates(conn, root, company=args.company, claim_id=args.claim)
+    if args.json:
+        _print(args, {"status": "ok", "candidates": candidates, "total": len(candidates)})
+        return
+    if not candidates:
+        print("No potential greenwashing candidates found.")
+        return
+    lines = [f"\n⚠️  Proposed Greenwashing Candidates ({len(candidates)} found for auditor review):\n"]
+    for i, c in enumerate(candidates, 1):
+        lines.append(f"{i}. [{c['company']}] Claim #{c['claim_id']} (v{c['version_id']}) in {c['document_name']} (p. {c['page_number']})")
+        lines.append(f"   Category: {c['greenwashing_type']}")
+        lines.append(f"   Claim: \"{c['claim_text']}\"")
+        lines.append(f"   Audit Justification: {c['justification']}")
+        if c.get("boxes"):
+            lines.append(f"   Visual Evidence BBox: {c['boxes']}")
+        lines.append(f"   To accept as reviewer flag: gct flag raise {c['claim_id']} --version {c['version_id']} --rationale \"{c['justification']}\"\n")
+    print("\n".join(lines))
+
+
 def _highlight_text(h: dict) -> str:
     """One highlight, the contributor's words quoted and attributed (C5); it is never a review outcome."""
     return (f"highlight #{h['id']} on version {h['claim_version']} by {_who_text(h)} (self-declared), capacity"
@@ -1970,6 +1993,12 @@ def build_parser() -> argparse.ArgumentParser:
     which.add_argument("--company")
     which.add_argument("--claim", type=int, metavar="CLAIM")
     lst.set_defaults(func=cmd_flag_list)
+
+    prop = flag.add_parser("propose", parents=[common], help="scan claims against evidence and propose greenwashing candidates for auditor review")
+    which_p = prop.add_mutually_exclusive_group()
+    which_p.add_argument("--company", help="scan only this company")
+    which_p.add_argument("--claim", type=int, metavar="CLAIM", help="scan only this specific claim")
+    prop.set_defaults(func=cmd_flag_propose)
 
     hl = group("highlight", "highlights: a contributor's note on a claim version (never a confirmation or review outcome)")
     add = hl.add_parser("add", parents=[common], help="highlight a current claim's newest version with a short note")
