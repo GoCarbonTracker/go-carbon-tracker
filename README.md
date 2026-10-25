@@ -12,7 +12,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT" /></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-%3E%3D%203.11-blue.svg" alt="Python >= 3.11" /></a>
   <img src="https://img.shields.io/badge/tests-1467%20passed-brightgreen.svg" alt="1467 Tests Passed" />
-  <img src="https://img.shields.io/badge/release-v0.1.2--alpha-orange.svg" alt="Release: v0.1.2-alpha" />
+  <img src="https://img.shields.io/badge/release-v0.1.3--alpha-orange.svg" alt="Release: v0.1.3-alpha" />
   <img src="https://img.shields.io/badge/architecture-local--first-purple.svg" alt="Local First" />
 </p>
 
@@ -268,8 +268,8 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 ## Status & Operational Notice
 
-This is **`v0.1.2-alpha` (Developer Preview)** experimental software. Please note the following verified acceptance boundaries:
-* **Deterministic Rung-1 Baseline**: Extraction is strictly rule-based (`pdfplumber`). The baseline does not yet include OCR for scanned pages or generative model-based extraction rungs.
+This is **`v0.1.3-alpha` (Developer Preview)** experimental software. Please note the following verified acceptance boundaries:
+* **Rung 1 & Rung 2 Extraction**: Extraction combines rule-based parsing (`pdfplumber`) for structured numeric figures with local semantic filtering (`climatebert/environmental-claims` on Apple Silicon MPS / CUDA / CPU) for qualitative environmental commitments. Optional model dependencies are installed via `pip install "gct[models]"`.
 * **Privacy Limits in Sharing Features**: While sanitized packages exclude private documents and contributor names by default, note that PDF metadata, annotations, or fullwidth characters in database files are subject to limits documented in [docs/privacy.md](docs/privacy.md). Always review packages prior to sharing.
 
 ---
