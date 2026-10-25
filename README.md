@@ -14,6 +14,16 @@
   <img src="https://img.shields.io/badge/tests-1467%20passed-brightgreen.svg" alt="1467 Tests Passed" />
   <img src="https://img.shields.io/badge/release-v0.2.0--alpha-orange.svg" alt="Release: v0.2.0-alpha" />
   <img src="https://img.shields.io/badge/architecture-local--first-purple.svg" alt="Local First" />
+  <a href="https://gocarbontracker.net/paper"><img src="https://img.shields.io/badge/Paper-Claims%20as%20Hyperedges%20(v5.0)-10b981.svg" alt="Research Paper: Claims as Hyperedges" /></a>
+  <a href="https://gocarbontracker.net/paper.pdf"><img src="https://img.shields.io/badge/PDF-20%20Pages-ef4444.svg" alt="Download Paper PDF" /></a>
+</p>
+
+<p align="center">
+  <a href="https://gocarbontracker.net">Website</a> •
+  <a href="https://gocarbontracker.net/paper">Research Paper</a> •
+  <a href="https://gocarbontracker.net/paper.pdf">PDF</a> •
+  <a href="https://hypergraph.gocarbontracker.net">Interactive Hypergraph</a> •
+  <a href="https://dashboard.gocarbontracker.net">Dashboard</a>
 </p>
 
 ---
@@ -279,6 +289,7 @@ Milestone 2 (M2) expands GoCarbonTracker from single-document extraction into an
 ## Theoretical Foundations & Framework Alignment
 
 ### Research Foundations
+* **Claims as Hyperedges (HyperGraphRAG)** ([Paper](https://gocarbontracker.net/paper) · [PDF](https://gocarbontracker.net/paper.pdf)): *Claims as Hyperedges: Auditable Multi-Hop Retrieval and Discourse Reasoning over Enterprise Disclosures* (Varun Moka, 2026) — Formalizes the 5-pillar architecture combining hypergraph structural modeling, discourse claim-evidence graphs, multi-signal hybrid retrieval, cross-document contradiction detection, and deterministic bounding-box provenance.
 * **Discourse Knowledge Graphs** ([Chan et al.](https://arxiv.org/abs/2105.00843)): Adapts discourse schemas to represent climate disclosures as structured networks of **Questions**, **Claims**, **Evidence**, and dialectical relations (*corroborates*, *restates*, *contradicts*).
 * **Hypergraph Knowledge Networks** ([Gao et al.](https://arxiv.org/abs/2003.01853), [Sun et al.](https://arxiv.org/abs/2401.05489)): Represents disclosures as high-order hyperedges that simultaneously connect claims across document pages, reporting perimeters, multi-year time series, and supply-chain counterparties.
 
@@ -314,6 +325,23 @@ This is **`v0.2.0-alpha` (Story M1 Feature Release)** experimental software. Ple
 * **Auditor Greenwashing Copilot**: Scans narrative and quantitative claims against report evidence using the EmeraldMind 4-type taxonomy (`gct flag propose`) with strict responsible abstention. Automated candidates are surfaced with visual bounding boxes for human auditor review; GCT never assigns public greenwashing flags autonomously (FR39).
 * **Rung 1 & Rung 2 Extraction**: Extraction combines rule-based parsing (`pdfplumber`, `Docling`) for structured numeric figures with local semantic filtering (`climatebert/environmental-claims` on Apple Silicon MPS / CUDA / CPU) for qualitative environmental commitments. Optional model dependencies are installed via `pip install "gct[models]"`.
 * **Privacy Limits in Sharing Features**: While sanitized packages exclude private documents and contributor names by default, note that PDF metadata, annotations, or fullwidth characters in database files are subject to limits documented in [docs/privacy.md](docs/privacy.md). Always review packages prior to sharing.
+
+---
+
+## Citation
+
+If you use GoCarbonTracker or the HyperGraphRAG architecture in your research or audit workflows, please cite our paper ([Read Online](https://gocarbontracker.net/paper) · [Download PDF](https://gocarbontracker.net/paper.pdf)):
+
+```bibtex
+@article{moka2026hypergraphrag,
+  title   = {Claims as Hyperedges: Auditable Multi-Hop Retrieval and Discourse Reasoning over Enterprise Disclosures},
+  author  = {Moka, Varun},
+  year    = {2026},
+  journal = {GoCarbonTracker Research Preprint (arXiv v5.0)},
+  url     = {https://gocarbontracker.net/paper},
+  note    = {PDF available at https://gocarbontracker.net/paper.pdf}
+}
+```
 
 ---
 
