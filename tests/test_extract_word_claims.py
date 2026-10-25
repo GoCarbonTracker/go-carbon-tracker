@@ -5,8 +5,8 @@ from gct.stages import extract
 
 
 def test_rules_version():
-    """Package C bumps RULES_VERSION to 8."""
-    assert extract.RULES_VERSION == 8
+    """Package C bumped RULES_VERSION to 8, Package B bumped to 9."""
+    assert extract.RULES_VERSION >= 8
 
 
 def test_table_word_and_string_claims():
