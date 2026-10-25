@@ -60,6 +60,10 @@ FY_WORD = r"(?:(?:financial|fiscal|reporting)\s+(?:year|period)|\bFY\b)"
 FY_ENDED = re.compile(rf"{FY_WORD}[^.]{{0,40}}?\b(?:ended|ending)(?:\s+on)?\s+({DATE})", re.I)
 FY_RANGE = re.compile(rf"{FY_WORD}[^.]{{0,80}}?({DATE})\s+to\s+({DATE})|({DATE})\s+to\s+({DATE})[^.]{{0,80}}?{FY_WORD}", re.I)
 FY_SHARED = re.compile(rf"{FY_WORD}[^.]{{0,60}}?\(?(\d{{1,2}}{ORD}\s+{MON}|{MON}\s+\d{{1,2}}{ORD})\s+to\s+({DATE})\)?", re.I)
+FY_LABEL_STMT = re.compile(
+    rf"(?:(?:financial|fiscal|reporting)\s+(?:year|period)|reporting\s+cycle)[^.]{{0,80}}?"
+    r"(?:is\s+being\s+done\s*:\s*|:\s*|for\s+)(?:FY\s*)?(\d{4}[-–/]\d{2,4})", re.I
+)
 # Boundary statements (B1). The BRSR item-13 question names both bases, so it is removed before anything is read.
 QUESTION = re.compile(r"are\s+the\s+disclosures\s+under\s+this\s+report\s+made\s+on\s+a\s+standalone\s+basis.{0,400}?"
                       r"consolidated\s+basis(?:\s*\([^)]*\))?\.?", re.I | re.S)
@@ -151,6 +155,14 @@ def period_of(label, bases) -> tuple[str, date, date, dict | None]:
     P2c). bases are the document's fiscal-year-end statements (P2, P2b). Raises Unresolved with the reason (P3)."""
     text = _clean(label)
     if not text:
+        if bases:
+            valid_bases = [b for b in bases if b.get("period_start") and b.get("period_end")]
+            if valid_bases:
+                unique_starts = {b["period_start"] for b in valid_bases}
+                unique_ends = {b["period_end"] for b in valid_bases}
+                if len(unique_starts) == 1 and len(unique_ends) == 1:
+                    b = valid_bases[0]
+                    return ("fiscal_year", date.fromisoformat(b["period_start"]), date.fromisoformat(b["period_end"]), b)
         raise Unresolved(NO_LABEL)
     if m := RANGE.search(text):
         return (*_span(_date(m[1]), _date(m[2])), None)
@@ -285,6 +297,18 @@ def bases_of(reading: dict) -> tuple[list[dict], bool]:
         if kind in ("fiscal_year", "calendar_year"):
             found.append({"kind": "fiscal_year_end", "wording": _clean(m[0]), "fy_end": f"{end:%m-%d}",
                           "period_start": start.isoformat(), "period_end": end.isoformat()})
+    for m in FY_LABEL_STMT.finditer(text):
+        raw_fy = m[1].replace("/", "-").replace("–", "-")
+        parts = raw_fy.split("-")
+        try:
+            start_year = int(parts[0])
+            end_year = int(parts[1]) if len(parts[1]) == 4 else start_year + 1
+            start = date(start_year, 4, 1)
+            end = date(end_year, 3, 31)
+            found.append({"kind": "fiscal_year_end", "wording": _clean(m[0]), "fy_end": "03-31",
+                          "period_start": start.isoformat(), "period_end": end.isoformat()})
+        except (ValueError, IndexError):
+            continue
     answers = QUESTION.sub(" ", text)
     for m in B1.finditer(answers):
         if re.search(r"\bare\s+the\s+disclosures\s+under\s+this\s*$", answers[max(0, m.start() - 40):m.start()], re.I):

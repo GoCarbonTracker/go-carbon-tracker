@@ -66,7 +66,8 @@ BLOCK_GAP = 5
 
 def read_config() -> str:
     """Called once per command, so a changed threshold or pdfplumber version is never served a stale reading."""
-    return version_of("read", 5, "pdfplumber", version("pdfplumber"), quality.thresholds(),
+    method_name = "docling" if (os.environ.get("GCT_USE_DOCLING") == "1" or os.environ.get("GCT_READ_RUNG") in ("2.6", "docling")) else "pdfplumber"
+    return version_of("read", 5, method_name, version("pdfplumber"), quality.thresholds(),
                       DIRS, LINE_TOL, ROW_TOL, GUTTER, GUTTER_LINES, OVER_SPACE, BLOCK_GAP)
 
 

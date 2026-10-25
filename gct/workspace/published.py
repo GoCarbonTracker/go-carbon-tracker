@@ -365,15 +365,22 @@ def _with_inference(conn: sqlite3.Connection, claims, matched: dict) -> list[tup
         row[18] = m["metric_key"]
         extra += (m["rule"], m["unit_key"], m["unit_factor"], m["series_id"], m["state"], m["reason"])
         p, b = e["period"], e["boundary"]
-        if p["state"] in ("resolved", "accepted", "machine-inferred", "proposed"):
+        p_state, b_state = p["state"], b["state"]
+        # Package D / E: deterministic period or boundary with stored basis publishes as machine-inferred
+        if p_state == "proposed" and p.get("basis") and p["basis"].get("page") and p["basis"].get("wording"):
+            p_state = "machine-inferred"
+        if b_state == "proposed" and b.get("basis") and b["basis"].get("page") and b["basis"].get("wording"):
+            b_state = "machine-inferred"
+
+        if p_state in ("resolved", "accepted", "machine-inferred", "proposed"):
             row[15:18] = p["kind"], p["start"], p["end"]
-        if b["state"] in ("resolved", "accepted", "machine-inferred", "proposed"):
+        if b_state in ("resolved", "accepted", "machine-inferred", "proposed"):
             row[19:21] = b["boundary"], b["detail"]
         basis = [json.dumps({"page": x["basis"]["page"], "wording": x["basis"]["wording"]}, ensure_ascii=False)
                  if x["basis"] else None for x in (p, b)]
-        proposed = ([p["kind"], p["start"], p["end"]] if p["state"] == "proposed" else [None] * 3) + (
-            [b["boundary"], b["detail"]] if b["state"] == "proposed" else [None] * 2)
-        out.append((*row, p["state"], b["state"], *basis, *proposed, *extra, notes.get(row[7])))
+        proposed = ([p["kind"], p["start"], p["end"]] if p_state == "proposed" else [None] * 3) + (
+            [b["boundary"], b["detail"]] if b_state == "proposed" else [None] * 2)
+        out.append((*row, p_state, b_state, *basis, *proposed, *extra, notes.get(row[7])))
     return out
 
 

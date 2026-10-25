@@ -427,11 +427,9 @@ def test_projection_carries_only_accepted_or_resolved_values_in_the_main_fields(
     r = rows[fy]
     assert (r["period_kind"], r["period_start"], r["reporting_boundary"], r["boundary_detail"]) == (
         "fiscal_year", "2023-04-01", "standalone", "Tata Motors Limited (‘TML’ or ‘the Company’)")
-    assert (r["period_state"], r["boundary_state"]) == ("proposed", "proposed")
-    assert (r["proposed_period_kind"], r["proposed_period_start"], r["proposed_period_end"]) == (
-        "fiscal_year", "2023-04-01", "2024-03-31")
-    assert (r["proposed_reporting_boundary"], r["proposed_boundary_detail"]) == (
-        "standalone", "Tata Motors Limited (‘TML’ or ‘the Company’)")
+    assert (r["period_state"], r["boundary_state"]) == ("machine-inferred", "machine-inferred")
+    assert r["proposed_period_kind"] is None
+    assert r["proposed_reporting_boundary"] is None
     assert json.loads(r["period_basis"])["page"] == 1
     for c in listed(gct, doc).values():
         if c["id"] == fy:
@@ -445,7 +443,7 @@ def test_projection_carries_only_accepted_or_resolved_values_in_the_main_fields(
         "fiscal_year", "2023-04-01", "2024-03-31", "accepted")
     assert (r["reporting_boundary"], r["boundary_state"], r["proposed_reporting_boundary"]) == ("standalone", "accepted", None)
     assert rows[other]["boundary_state"] == "accepted"  # the boundary group held both claims
-    assert (rows[other]["period_start"], rows[other]["proposed_period_start"]) == ("2022-04-01", "2022-04-01")
+    assert (rows[other]["period_start"], rows[other]["proposed_period_start"]) == ("2022-04-01", None)
     assert after["history_mark"] != before["history_mark"]
 
 
@@ -479,11 +477,11 @@ def test_api_claims_show_only_accepted_values(ws, db, gct, make_file, acme):
     assert status == 200
     rows = {c["id"]: c for c in json.loads(body)["claims"]}
     assert rows[claim]["reporting_boundary"] == "standalone" and rows[other]["reporting_boundary"] == "unknown"
-    assert (rows[other]["boundary_state"], rows[accepted]["boundary_state"]) == ("unresolved", "proposed")
+    assert (rows[other]["boundary_state"], rows[accepted]["boundary_state"]) == ("unresolved", "machine-inferred")
     period = ("period_label", "period_kind", "period_start", "period_end", "period_state")
     assert [rows[claim][k] for k in period] == [None, "calendar_year", "2024-01-01", "2024-12-31", "resolved"]
     assert [rows[accepted][k] for k in period] == ["FY24", "fiscal_year", "2023-04-01", "2024-03-31", "accepted"]
-    assert [rows[proposed][k] for k in period] == ["FY23", "fiscal_year", "2022-04-01", "2023-03-31", "proposed"]
+    assert [rows[proposed][k] for k in period] == ["FY23", "fiscal_year", "2022-04-01", "2023-03-31", "machine-inferred"]
     assert not any(k.startswith("proposed") for k in rows[proposed])
     old = sqlite3.connect(ws / "published" / f"v{v['version']}.db")  # as if built by gct before projection 4
     old.execute("UPDATE meta SET value = '3' WHERE key = 'projection_schema'")
