@@ -10,7 +10,7 @@ from gct.stages.read import lines as _lines
 from gct.workspace import registry, runs, store
 
 METHOD = "rung1-rules"
-RULES_VERSION = 9
+RULES_VERSION = 10
 READ_FIRST = "read it first: gct read"
 RETRY = "Run gct extract again. Pages already extracted are not extracted twice."
 
@@ -506,6 +506,14 @@ def _text_claims(reading: dict):
                         y_gap = min(x["top"] for x in line) - max(x["bottom"] for x in prev_line)
                         if 0 <= y_gap <= 40:
                             metric_part = prev_txt
+                            # Stack with line n-2 if also short text header (e.g. segment / category heading)
+                            if n > 1:
+                                prev2_line = lines_list[n - 2]
+                                prev2_txt = _clean(" ".join(x["text"] for x in prev2_line))
+                                if prev2_txt and not any(_figure(x["text"]) for x in prev2_line) and len(prev2_txt.split()) <= 4:
+                                    y2_gap = min(x["top"] for x in prev_line) - max(x["bottom"] for x in prev2_line)
+                                    if 0 <= y2_gap <= 25:
+                                        metric_part = f"{prev2_txt} {prev_txt}"
                 # Or check succeeding line if within vertical proximity (e.g. stat card label below value)
                 if not metric_part and n + 1 < len(lines_list):
                     next_line = lines_list[n + 1]

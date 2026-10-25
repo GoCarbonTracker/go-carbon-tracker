@@ -18,7 +18,7 @@ from gct.workspace import registry, runs, store
 from gct.workspace.layout import NOT_FOUND, REFUSED, USAGE, GctError
 
 METHOD = "infer-rules"
-RULES_VERSION = 5
+RULES_VERSION = 6
 CONFIG = version_of("infer", 1, RULES_VERSION)
 KINDS = ("fiscal_year", "calendar_year", "half", "quarter", "as_at")
 BOUNDARIES = ("standalone", "subsidiary_set", "consolidated", "segment")
@@ -225,7 +225,7 @@ def _fiscal_basis(bases) -> dict:
     return min(bases, key=lambda b: b["id"])
 
 
-def boundary_of(claim_or_page: int | dict | sqlite3.Row, scoped, segment_bases=None) -> tuple:
+def boundary_of(claim_or_page: int | dict | sqlite3.Row, scoped, segment_bases=None, normal_bases=None) -> tuple:
     """(boundary, detail, basis) or (boundary, detail, basis, state) for a claim from segment match or boundary statements."""
     c = dict(claim_or_page) if isinstance(claim_or_page, (dict, sqlite3.Row)) else {}
     page = c.get("page_number", claim_or_page)
@@ -250,6 +250,20 @@ def boundary_of(claim_or_page: int | dict | sqlite3.Row, scoped, segment_bases=N
                 raise Unresolved("differing segment statements")
             seg, b = next(iter(unique.items()))
             return "segment", seg, b, "machine-inferred"
+
+    # Explicit standalone or listed entity match
+    if normal_bases:
+        label = (c.get("boundary_label") or "").strip().lower()
+        metric = (c.get("metric_text") or "").strip().lower()
+        if re.search(r"\b(?:standalone|tml|listed\s+entity)\b", label) or re.search(r"\b(?:standalone|tml|listed\s+entity)\b", metric):
+            b_stand = next((b for b in normal_bases if b.get("boundary") == "standalone"), None)
+            if b_stand:
+                return "standalone", b_stand.get("boundary_detail"), b_stand, "machine-inferred"
+        for b in normal_bases:
+            if b.get("boundary") == "standalone" and b.get("boundary_detail"):
+                det = b["boundary_detail"].strip().lower()
+                if det and len(det) >= 4 and re.search(rf"\b{re.escape(det)}\b", metric):
+                    return "standalone", b.get("boundary_detail"), b, "machine-inferred"
 
     covering = sorted((b for b in scoped if b["first_page"] <= page <= b["last_page"]), key=lambda b: b["id"])
     if not covering:
@@ -344,6 +358,22 @@ def bases_of(reading: dict) -> tuple[list[dict], bool]:
         if detail:
             found.append({"kind": "reporting_boundary", "wording": _clean(m[0]), "boundary": "segment",
                           "boundary_detail": detail})
+    for m in re.finditer(r'(?:\([a-z0-9]+\)|\b[A-Z]\.|\b\d+\.)\s*([A-Za-z\s&/-]{2,40}?)\s*:\s*This\s+segment\s+comprises', answers, re.I):
+        seg_name = _clean(m.group(1))
+        if seg_name:
+            found.append({"kind": "reporting_boundary", "wording": _clean(m.group(0)), "boundary": "segment", "boundary_detail": seg_name})
+    for m in re.finditer(r'[\'‘"“]([A-Za-z0-9\s/&-]{2,30})[\'’"”]\s+segment\b', answers, re.I):
+        seg_name = _clean(m.group(1))
+        if seg_name:
+            found.append({"kind": "reporting_boundary", "wording": _clean(m.group(0)), "boundary": "segment", "boundary_detail": seg_name})
+    for m in re.finditer(r'\b(?:in\s+(?:the\s+)?|compact\s+|mid-size\s+|passenger\s+|commercial\s+)?([A-Z0-9]{2,10})\s+segment\b', answers):
+        seg_name = _clean(m.group(1))
+        if seg_name and seg_name.isupper() and len(seg_name) <= 6:
+            found.append({"kind": "reporting_boundary", "wording": _clean(m.group(0)), "boundary": "segment", "boundary_detail": seg_name})
+    for m in re.finditer(r'\bdetails\s+of\s+the\s+listed\s+entity\s+i\.?e\.?\s*([A-Za-z\s]+?)(?:\s*\([^)]+\))?(?:\n|$|\.)', answers, re.I):
+        found.append({"kind": "reporting_boundary", "wording": _clean(m.group(0)), "boundary": "standalone", "boundary_detail": _clean(m.group(1))})
+    for m in re.finditer(r'\breporting\s+boundary\s*:\s*[^.]{0,120}?\bcombining\s+(?:the\s+)?information\s+of\s+([^.]+)', answers, re.I):
+        found.append({"kind": "reporting_boundary", "wording": _clean(m.group(0)), "boundary": "subsidiary_set", "boundary_detail": _clean(m.group(1))})
     heading = bool(HEADING.search(answers)) and not any(f["kind"] == "reporting_boundary" for f in found)
     return found, heading
 
@@ -454,7 +484,7 @@ def _work(root: Path, run_id: int, item: _Doc, conn) -> Result:
             scoped = [{**b, "first_page": 1, "last_page": len(item.pages)} for b in normal_bases]
         for c in item.claims:
             for field, rule, arg in (("period", period_of, (c["period_label"], fiscal)),
-                                     ("boundary", boundary_of, (c, scoped, segment_bases))):
+                                     ("boundary", boundary_of, (c, scoped, segment_bases, normal_bases))):
                 rows += _record(conn, c["claim_version_id"], field, _inference(doc_id, field, rule, *arg), run_id, stamp)
     return Result(output={"claims": len(item.claims), "bases": [b["id"] for b in bases], "headings": headings,
                           "rows": rows}, method=METHOD)
