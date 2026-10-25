@@ -12,7 +12,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT" /></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-%3E%3D%203.11-blue.svg" alt="Python >= 3.11" /></a>
   <img src="https://img.shields.io/badge/tests-1467%20passed-brightgreen.svg" alt="1467 Tests Passed" />
-  <img src="https://img.shields.io/badge/release-v0.1.4--alpha-orange.svg" alt="Release: v0.1.4-alpha" />
+  <img src="https://img.shields.io/badge/release-v0.1.5--alpha-orange.svg" alt="Release: v0.1.5-alpha" />
   <img src="https://img.shields.io/badge/architecture-local--first-purple.svg" alt="Local First" />
 </p>
 
@@ -303,7 +303,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 ## Status & Operational Notice
 
-This is **`v0.1.4-alpha` (Developer Preview)** experimental software. Please note the following verified acceptance boundaries:
+This is **`v0.1.5-alpha` (Developer Preview)** experimental software. Please note the following verified acceptance boundaries:
 * **Auditor Greenwashing Copilot**: Scans narrative and quantitative claims against report evidence using the EmeraldMind 4-type taxonomy (`gct flag propose`) with strict responsible abstention. Automated candidates are surfaced with visual bounding boxes for human auditor review; GCT never assigns public greenwashing flags autonomously (FR39).
 * **Rung 1 & Rung 2 Extraction**: Extraction combines rule-based parsing (`pdfplumber`) for structured numeric figures with local semantic filtering (`climatebert/environmental-claims` on Apple Silicon MPS / CUDA / CPU) for qualitative environmental commitments. Optional model dependencies are installed via `pip install "gct[models]"`.
 * **Privacy Limits in Sharing Features**: While sanitized packages exclude private documents and contributor names by default, note that PDF metadata, annotations, or fullwidth characters in database files are subject to limits documented in [docs/privacy.md](docs/privacy.md). Always review packages prior to sharing.
