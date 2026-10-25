@@ -10,13 +10,36 @@ from gct.stages.read import lines as _lines
 from gct.workspace import registry, runs, store
 
 METHOD = "rung1-rules"
-RULES_VERSION = 6
+RULES_VERSION = 7
 READ_FIRST = "read it first: gct read"
 RETRY = "Run gct extract again. Pages already extracted are not extracted twice."
 
 # Detects units; never converts them. A space or a slash inside the unit as printed is allowed ("t CO2e").
-UNITS = {"tCO2e", "tCO2", "tonnes", "t", "kt", "Mt", "MWh", "GWh", "kWh", "GJ", "TJ", "kL", "ML", "m3", "%", "million tonnes CO2e", "ktCO2e", "kt CO2e"}
+UNITS = {
+    # Environmental / GHG emissions
+    "tCO2e", "t CO2e", "tCO2", "t CO2", "tonnes", "t", "kt", "Mt",
+    "MWh", "GWh", "kWh", "GJ", "TJ", "PJ", "MJ",
+    "kL", "ML", "m3", "%", "million tonnes CO2e", "ktCO2e", "kt CO2e", "million tonnes",
+    # Volume / Mass
+    "kg", "litres", "kilolitres", "cubic metres",
+    # Currency and scale (R-1)
+    "INR", "₹", "Rs", "Rs.", "inr", "rs",
+    "crore", "crores", "lakh", "lakhs",
+    "INR crore", "INR Crore", "INR crores",
+    "₹ crore", "₹ Crore", "₹ crores",
+    "Rs crore", "Rs Crore", "Rs crores", "Rs. crore", "Rs. Crore", "Rs. crores",
+    "INR lakh", "INR Lakh", "INR lakhs",
+    "₹ lakh", "₹ Lakh", "₹ lakhs",
+    "Rs lakh", "Rs Lakh", "Rs lakhs", "Rs. lakh", "Rs. Lakh",
+    "USD", "EUR", "GBP", "million", "billion",
+    # Additional units (R-1)
+    "year", "years", "hours/week", "hours per week", "hours",
+    "number", "numbers", "nos", "nos.", "Nos", "Nos.",
+    "km", "sqm", "sqft", "sq.m", "sq.ft"
+}
+NORM_UNITS = {u.replace(" ", "").replace("/", "").replace(".", "").lower() for u in UNITS}
 NUMBER = re.compile(r"(\(?-?\d(?:[\d,.]*\d)?\)?)(\S*)")
+PREFIX_CURRENCY = re.compile(r"^(₹|Rs\.?|INR)\s*(\(?-?\d(?:[\d,.]*\d)?\)?)(\S*)", re.I)
 WESTERN = re.compile(r"-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?")
 INDIAN = re.compile(r"-?\d{1,2}(?:,\d{2})*,\d{3}(?:\.\d+)?")
 YEAR = re.compile(r"199\d|20\d\d|2100")
@@ -57,7 +80,11 @@ def _clean(s) -> str:
 
 
 def _unit(text: str) -> str | None:
-    return text if text.replace(" ", "").replace("/", "") in UNITS else None
+    if not text:
+        return None
+    cleaned = text.strip().rstrip(".,;:")
+    compressed = cleaned.replace(" ", "").replace("/", "").replace(".", "").lower()
+    return cleaned if compressed in NORM_UNITS else None
 
 
 def _is_unit_cell(text: str) -> bool:
@@ -72,6 +99,14 @@ def _is_unit_cell(text: str) -> bool:
 def _figure(token: str):
     """(number as printed, attached unit or None) when the token is a figure, else None. Years are not figures."""
     clean = token.rstrip(".,;:")
+    pm = PREFIX_CURRENCY.fullmatch(clean)
+    if pm:
+        cur, number, rest = pm.groups()
+        is_footnote = bool(rest and FOOTNOTE_RE.fullmatch(rest))
+        if is_footnote or not rest:
+            return (clean if is_footnote else number), cur
+        if rest and _unit(rest):
+            return number, f"{cur} {rest}"
     m = NUMBER.fullmatch(clean)
     if not m:
         return None
@@ -114,10 +149,10 @@ def _extract_unit(text: str) -> str | None:
             continue
         if re.search(r"market-based|location-based|standalone|consolidated", g_clean, re.I):
             continue
-        cand = re.sub(r"^(?:in\s+)", "", g_clean, flags=re.I).strip()
-        cand_norm = cand.lower().replace(" ", "").replace("/", "").replace("-", "")
-        if _unit(cand) or cand in UNITS or cand_norm in {u.lower().replace(" ", "").replace("/", "").replace("-", "") for u in UNITS}:
-            return g_clean
+        cand = re.sub(r"\b(?:in)\s+", "", g_clean, flags=re.I).strip()
+        cand_norm = cand.lower().replace(" ", "").replace("/", "").replace("-", "").replace(".", "")
+        if _unit(cand) or cand in UNITS or cand_norm in NORM_UNITS:
+            return cand
         from gct.stages.match import UNITS as MATCH_UNITS
         if cand_norm in MATCH_UNITS or any(cand_norm.endswith(k) for k in MATCH_UNITS) or "co2" in cand_norm or "joule" in cand_norm or "tonne" in cand_norm:
             return g_clean
@@ -191,6 +226,35 @@ def _row_label(reading: dict, t: int, cells_row: list) -> str | None:
     return _clean(" ".join(w["text"] for line in _lines(left) for w in line)) or None
 
 
+def _clean_metric_part(text: str | None) -> str | None:
+    if not text:
+        return None
+    clean = _clean(text)
+    clean_no_foot = re.sub(r"(?:[\*#†\^]|\([a-g]\))+$", "", clean).strip()
+    if not clean_no_foot:
+        return None
+    if BOUNDARY.fullmatch(clean_no_foot):
+        return None
+    no_paren = re.sub(r"\([^()]*\)", "", clean_no_foot).strip()
+    no_period = PERIOD.sub("", no_paren)
+    words = re.findall(r"[a-zA-Z]{2,}", no_period)
+    substantive = [w for w in words if w.lower() not in ("fy", "as", "at", "ended", "year", "date", "unit", "units", "uom")]
+    if not substantive:
+        return None
+    return clean_no_foot
+
+
+def _clean_table_title(text: str | None) -> str | None:
+    if not text:
+        return None
+    s = text.strip()
+    if s.endswith((".", ";")) or len(s.split()) > 10:
+        return None
+    if re.search(r"\b(?:due to|because|refer note|have been|were restated|in accordance with)\b", s, re.I):
+        return None
+    return _clean_metric_part(s)
+
+
 def _table_claims(reading: dict):
     for t, table in enumerate(reading["tables"]):
         raw_rows = table["rows"]
@@ -202,8 +266,15 @@ def _table_claims(reading: dict):
         spans = [next((row[c] for row in cells if c < len(row) and row[c]), None) for c in range(len(header))]
         heads = _headers(reading, t, spans) if cells else {}
 
-        # Detect parallel numeric columns to the right of t["bbox"]
+        # Detect table title and unit band above the table
         x0, top, x1, bottom = table["bbox"]
+        title_band = [w for w in reading["words"] if 0 <= top - w["bottom"] <= 60 and _overlaps(w["x0"], w["x1"], x0, x1)]
+        title_text = " ".join(w["text"] for line in _lines(title_band) for w in line) if title_band else None
+        table_title = _clean_table_title(title_text)
+        if not table_default_unit and title_text:
+            table_default_unit = _extract_unit(title_text)
+
+        # Detect parallel numeric columns to the right of t["bbox"]
         band_right = [w for w in reading["words"] if -4 <= top - w["bottom"] <= HEADER_BAND
                       and (w["top"] + w["bottom"]) / 2 <= top + 2 and w["x0"] >= x1 - 5]
         parallel_cols = []
@@ -266,9 +337,26 @@ def _table_claims(reading: dict):
                     if not fig:
                         continue
                     head = heads.get(c, {})
-                    h_clean = re.sub(r"(?:[\*#†\^]|\([a-g]\))+$", "", header[c]).strip() if header[c] else ""
-                    period = (h_clean if r and (PERIOD.search(h_clean) or "as at" in h_clean.lower()) else None) or head.get("period")
-                    unit = (sub_row[unit_cols[0]] if unit_cols else None) or fig[1] or row_unit_cell or row_unit or table_default_unit
+                    h_clean = re.sub(r"(?:[\*#†\^]|\([a-g]\))+$", "", header[c]).strip() if c < len(header) and header[c] else ""
+                    p_clean = re.sub(r"\([^()]*\)", "", h_clean).strip()
+                    period = (p_clean if r and (PERIOD.search(p_clean) or "as at" in p_clean.lower()) else None) or head.get("period")
+                    if not period and at is not None and PERIOD.search(sub_row[at]):
+                        period = PERIOD.search(sub_row[at]).group(0)
+
+                    # R-3: Unit printed in column header attached to claim
+                    col_header_unit = _extract_unit(raw_header[c]) if c < len(raw_header) else None
+                    if not col_header_unit and c < len(raw_header):
+                        col_header_unit = _unit(raw_header[c])
+                    unit = fig[1] or (sub_row[unit_cols[0]] if unit_cols else None) or col_header_unit or row_unit_cell or row_unit or table_default_unit
+
+                    # R-2, R-4: Table column header joins metric text
+                    col_metric = _clean_metric_part(h_clean) if r > 0 else None
+                    metric = label
+                    if col_metric and (not metric or col_metric.lower() not in metric.lower()):
+                        metric = f"{metric} {col_metric}" if metric else col_metric
+                    if table_title and (not metric or table_title.lower() not in metric.lower()):
+                        metric = f"{table_title} {metric}" if metric else table_title
+
                     box = cells[r][c] if r < len(cells) and c < len(cells[r]) else None
                     inside = [w for w in reading["words"] if box and _centre_in(w, box)]
                     if max_l > 1:
@@ -280,7 +368,7 @@ def _table_claims(reading: dict):
                         exact = inside and " ".join(w["text"] for line in _lines(inside) for w in line) == sub_row[c]
                         box_to_use = [_union(inside)] if exact else None
                     loc = f"t{t}r{r}c{c}" if max_l == 1 else f"t{t}r{r}l{l_idx}c{c}"
-                    yield _claim(loc, label, fig[0], unit or None, period, box_to_use, head.get("boundary"))
+                    yield _claim(loc, metric, fig[0], unit or None, period, box_to_use, head.get("boundary"))
 
             # Parallel numeric columns to the right of t["bbox"]
             if parallel_cols and r > 0 and r < len(cells):
@@ -303,6 +391,9 @@ def _table_claims(reading: dict):
                     label = _clean(row[at]) if at is not None else _row_label(reading, t, cells[r])
                     row_unit = _extract_unit(row[at]) if at is not None else _extract_unit(label)
                     unit = row_unit_cell or row_unit or table_default_unit
+                    metric = label
+                    if table_title and (not metric or table_title.lower() not in metric.lower()):
+                        metric = f"{table_title} {metric}" if metric else table_title
                     for p_idx, pcol in enumerate(parallel_cols):
                         p_box = [pcol["x0"], r_top, pcol["x1"], r_bottom]
                         inside = [w for w in reading["words"] if _centre_in(w, p_box)]
@@ -312,7 +403,7 @@ def _table_claims(reading: dict):
                             if fig:
                                 exact = " ".join(w["text"] for line in _lines(inside) for w in line) == txt
                                 loc = f"t{t}r{r}c{len(row) + p_idx}"
-                                yield _claim(loc, label, fig[0], unit or None, pcol["period"], [_union(inside)] if exact else None, None)
+                                yield _claim(loc, metric, fig[0], unit or None, pcol["period"], [_union(inside)] if exact else None, None)
 
 
 def _text_claims(reading: dict):
@@ -327,19 +418,25 @@ def _text_claims(reading: dict):
                 continue
             number, unit = fig
             used = 1
+            used_prev = 0
             if unit is None:
-                for k in (2, 1):  # a unit of two words ("t CO2e") or one
+                for k in (2, 1):  # a unit of two words ("t CO2e", "INR crore") or one
                     nxt = line[i + 1:i + 1 + k]
                     if len(nxt) == k and (unit := _unit(" ".join(x["text"] for x in nxt).rstrip(".,;:"))):
                         used += k
                         break
+            if unit is None and i > 0:
+                prev_text = line[i - 1]["text"].rstrip(".,;:")
+                if prev_text in ("₹", "Rs", "Rs.", "INR", "USD", "EUR", "GBP") or _unit(prev_text):
+                    unit = prev_text
+                    used_prev = 1
             if unit is None:
                 continue
-            rest = " ".join(x["text"] for x in line[:i] + line[i + used:])
+            rest = " ".join(x["text"] for x in line[:i - used_prev] + line[i + used:])
             # A figure never takes its comparison year.
             period = next((m for m in PERIOD.finditer(rest) if not COMPARED.search(rest[:m.start()])), None)
-            yield _claim(f"l{n}w{i}", _clean(" ".join(x["text"] for x in line[:i])), number, unit,
-                         period and period[0], [_union(line[i:i + used])])
+            yield _claim(f"l{n}w{i}", _clean(" ".join(x["text"] for x in line[:i - used_prev])), number, unit,
+                         period and period[0], [_union(line[i - used_prev:i + used])])
 
 
 def _semantic_text_claims(reading: dict, existing_claims: list[dict] | None = None):
