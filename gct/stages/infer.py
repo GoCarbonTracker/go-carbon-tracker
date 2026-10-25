@@ -244,8 +244,13 @@ def boundary_of(claim_or_page: int | dict | sqlite3.Row, scoped, segment_bases=N
                (metric and re.search(rf"\b{re.escape(seg_low)}\b", metric.lower())):
                 matched_segs.append((seg, b))
         if matched_segs:
-            # deduplicate by segment name
+            # deduplicate by segment name; prefer the more specific (longer) segment name when one contains another
             unique = {s: b for s, b in matched_segs}
+            if len(unique) > 1:
+                names = list(unique.keys())
+                maximal = {s: b for s, b in unique.items() if not any(s.lower() != other.lower() and s.lower() in other.lower() for other in names)}
+                if len(maximal) == 1:
+                    unique = maximal
             if len(unique) > 1:
                 raise Unresolved("differing segment statements")
             seg, b = next(iter(unique.items()))
