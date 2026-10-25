@@ -19,7 +19,7 @@ REVIEWS = ("company-confirmation", "auditor-review", "disagreement", "flag-raise
 # F1: {field: allowed values}; None for the fields that take ids or free text.
 CHOICES = {
     "company": None, "document": None, "metric": (*(k for k, _, _ in match.METRICS), "unmapped"), "text": None,
-    "period": None, "boundary": ("standalone", "subsidiary_set", "consolidated", "unknown"),
+    "period": None, "boundary": ("standalone", "subsidiary_set", "consolidated", "segment", "unknown"),
     "claim_state": tuple(correct.STATES), "evidence": ("matched", "cited", "unresolved", "not-checked"),
     "match": ("series", "reviewed", "uncertain", "not-matchable"), "series": None, "comparison": tuple(restate.FILTERS),
     "review": REVIEWS, "source_kind": ("table", "text"),
@@ -30,8 +30,8 @@ SORTS = ("company", "document", "page", "metric", "value", "period", "boundary",
 REQUEST = ("filter", "data_version", "shape", "offset", "limit", "sort", "claim_ids")
 NOT_CHECKED = "not checked: run gct link"
 
-PERIOD_KNOWN = "(c.period_state IN ('resolved', 'accepted') AND c.period_start IS NOT NULL)"
-BOUNDARY_KNOWN = "(c.boundary_state IN ('resolved', 'accepted') AND c.reporting_boundary != 'unknown')"
+PERIOD_KNOWN = "(c.period_state IN ('resolved', 'accepted', 'machine-inferred') AND c.period_start IS NOT NULL)"
+BOUNDARY_KNOWN = "(c.boundary_state IN ('resolved', 'accepted', 'machine-inferred') AND c.reporting_boundary != 'unknown')"
 # ponytail: one evidence ref per claim version (M1 stages write one), as CLAIMS_SQL in api/app.py.
 REF = "LEFT JOIN evidence_ref e ON e.id = (SELECT MIN(x.id) FROM evidence_ref x WHERE x.claim_version_id = c.claim_version_id)"
 IN = "(SELECT value FROM json_each(?))"

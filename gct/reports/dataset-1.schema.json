@@ -4229,6 +4229,7 @@
        "standalone",
        "subsidiary_set",
        "consolidated",
+       "segment",
        "unknown"
       ]
      }
@@ -4397,6 +4398,7 @@
        "standalone",
        "subsidiary_set",
        "consolidated",
+       "segment",
        "unknown"
       ]
      }

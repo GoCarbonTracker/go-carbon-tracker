@@ -298,7 +298,7 @@ NOT_CONVERTIBLE = "unit not convertible"
 NO_SERIES = ", no series to join"
 NOT_LINKED = "not linked by review"
 AS_PRINTED = "unit as printed"
-KNOWN = ("resolved", "accepted", "proposed")
+KNOWN = ("resolved", "accepted", "machine-inferred", "proposed")
 # The conversion families each metric key accepts; an unmapped doc: label takes any family.
 ACCEPTS = {**dict.fromkeys(("ghg_scope_1", "ghg_scope_2", "ghg_scope_2_location", "ghg_scope_2_market", "ghg_scope_1_2", "ghg_scope_3"), ("tco2e", "tco2")),
            **dict.fromkeys(("energy_total", "energy_renewable", "energy_non_renewable"), ("gj",)),

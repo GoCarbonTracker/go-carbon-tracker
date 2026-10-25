@@ -59,7 +59,7 @@ export const LEGEND = "Shapes: a claim is a circle; a page or cell a square; a p
 export const SERIES_SOURCE = "A series groups claims; open one of its claims to see its source.";
 
 const BOUNDARIES: Record<string, string> = { standalone: "standalone", subsidiary_set: "subsidiary set",
-  consolidated: "consolidated" };
+  consolidated: "consolidated", segment: "segment" };
 
 function unit(r: Row): string {
   return r.claim.unit_text ? `${r.claim.value_text} ${r.claim.unit_text}` : r.claim.value_text;

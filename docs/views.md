@@ -18,7 +18,7 @@ refused (HTTP 400, exit 2) with the field named; an id need not exist.
 | `metric` | metric keys (`ghg_scope_1`, `ghg_scope_2`, `ghg_scope_1_2`, `ghg_scope_3`, `energy_total`, `energy_renewable`, `energy_non_renewable`, `water_withdrawal_total`, `water_consumption_total`, `water_discharge_total`, `waste_total`) and `unmapped` for a claim with no key |
 | `text` | 1 to 200 characters, found in the metric wording, case not minded |
 | `period` | `{"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}`, either end optional: the claim's known period lies inside, ends included |
-| `boundary` | `standalone`, `subsidiary_set`, `consolidated`, `unknown` (a boundary not resolved or accepted is unknown) |
+| `boundary` | `standalone`, `subsidiary_set`, `consolidated`, `segment`, `unknown` (a boundary not resolved, accepted or machine-inferred is unknown) |
 | `claim_state` | `current`, `not-found`, `not-extracted` |
 | `evidence` | `matched`, `cited`, `unresolved`, `not-checked` (no `gct link` result) |
 | `match` | `series`, `reviewed`, `uncertain`, `not-matchable` |
@@ -26,7 +26,7 @@ refused (HTTP 400, exit 2) with the field named; an id need not exist.
 | `comparison` | `same`, `restatement`, `unresolved`, `not-compared`: the claim is in a comparison in that state |
 | `review` | `company-confirmation`, `auditor-review`, `disagreement`, `flag-raised`, `highlight`, `needs-re-review`, `corrected`, `adjudicated` |
 
-A period is known when its state is resolved or accepted. A claim whose period is not known never matches a `period`
+A period is known when its state is resolved, accepted or machine-inferred. A claim whose period is not known never matches a `period`
 condition; `excluded.period_unknown` counts the claims every other condition matches that the period left out for that
 reason. Reviews count on the claim's current version only: records on an older version show as `needs_re_review`.
 

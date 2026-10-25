@@ -105,7 +105,7 @@ def test_migration_15_applies_to_a_version_12_workspace(tmp_path, gct):
     c.close()
     assert gct("contributor", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")] == [*range(1, 22)]
+    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")] == [*range(1, 23)]
     c.close()
 
 
@@ -305,7 +305,7 @@ def test_the_upload_confirms_nothing_and_declarations_are_proposals(acme, gct, d
     gct("extract", doc)
     gct("infer")
     eff = gct("claims", "list", "--doc", doc, "--json").data["claims"][0]
-    assert eff["period"]["state"] == "unresolved" and eff["period"]["reason"] == "no fiscal year statement in this document"
+    assert eff["period"]["state"] == "proposed" and eff["period"]["kind"] == "fiscal_year"
     assert eff["boundary"]["state"] == "unresolved"
     gct("sheet", "map", doc, "--sheet", "m", *MAP, "--year-end", "03-31", "--boundary-is", "standalone", *WHO)
     gct("extract", doc)

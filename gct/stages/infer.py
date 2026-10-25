@@ -4,6 +4,7 @@ document name or a document-wide default; a boundary statement covers only the p
 import hashlib
 import json
 import re
+import sqlite3
 from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
@@ -17,12 +18,12 @@ from gct.workspace import registry, runs, store
 from gct.workspace.layout import NOT_FOUND, REFUSED, USAGE, GctError
 
 METHOD = "infer-rules"
-RULES_VERSION = 3
+RULES_VERSION = 4
 CONFIG = version_of("infer", 1, RULES_VERSION)
 KINDS = ("fiscal_year", "calendar_year", "half", "quarter", "as_at")
-BOUNDARIES = ("standalone", "subsidiary_set", "consolidated")
+BOUNDARIES = ("standalone", "subsidiary_set", "consolidated", "segment")
 FIELDS = ("period", "boundary")
-STATES = ("resolved", "accepted", "proposed", "unresolved", "extracted")
+STATES = ("resolved", "accepted", "machine-inferred", "proposed", "unresolved", "extracted")
 RETRY = "Run gct infer again. Documents whose claims, readings and declared ranges have not changed are not inferred twice."
 GROUPS = "See the groups with: gct infer groups"
 FAILED_SQL = FAILED_PAGES_SQL.replace("a.stage = 'extract'", "a.stage = 'infer'")
@@ -64,6 +65,15 @@ QUESTION = re.compile(r"are\s+the\s+disclosures\s+under\s+this\s+report\s+made\s
                       r"consolidated\s+basis(?:\s*\([^)]*\))?\.?", re.I | re.S)
 B1 = re.compile(r"\b(?:prepared|reports?|reporting)\b[^.]{0,80}?\bon\s+(?:an?\s+)?(standalone|consolidated)\s+basis"
                 r"(?:\s*,?\s*i\.\s?e[.,]+\s*(?P<detail>[^.]+))?", re.I)
+B_SEGMENT = re.compile(
+    r"\b(?:reportable\s+segments?|business\s+segments?|operating\s+segments?|segment\s+information|segment\s+reporting)\b"
+    r"[^.]{0,80}?(?:comprises?|includes?|are|consists?\s+of)\s+(?P<detail>[^.]+)", re.I
+)
+B_SEG_EXPLICIT = re.compile(
+    r"\b(?:prepared|reports?|reporting)\b[^.]{0,80}?\bon\s+(?:an?\s+)?(?:business\s+)?segment\s+basis"
+    r"(?:\s*,?\s*i\.\s?e[.,]+\s*(?P<detail>[^.]+))?", re.I
+)
+SEG_HEADING = re.compile(r"\bsegment(?:\s+name|\s+heading)?\s*:\s*(?P<detail>[A-Za-z0-9\s,&/-]+)", re.I)
 COMBINED = re.compile(r"combin\w*\s+the\s+information\s+of[^.]+", re.I)
 HEADING = re.compile(r"reporting\s+boundary", re.I)
 SHORTER = r"\b(?:half|quarter|months?)\b"  # a period shorter than a year
@@ -203,8 +213,32 @@ def _fiscal_basis(bases) -> dict:
     return min(bases, key=lambda b: b["id"])
 
 
-def boundary_of(page: int, scoped) -> tuple[str, str | None, dict]:
-    """(boundary, detail, basis) for a claim on page from the boundary statements whose declared range covers it (B3)."""
+def boundary_of(claim_or_page: int | dict | sqlite3.Row, scoped, segment_bases=None) -> tuple:
+    """(boundary, detail, basis) or (boundary, detail, basis, state) for a claim from segment match or boundary statements."""
+    c = dict(claim_or_page) if isinstance(claim_or_page, (dict, sqlite3.Row)) else {}
+    page = c.get("page_number", claim_or_page)
+
+    # Segment matching: check if printed label on claim's page matches a document segment name
+    if segment_bases:
+        label = (c.get("boundary_label") or "").strip()
+        metric = (c.get("metric_text") or "").strip()
+        matched_segs = []
+        for b in segment_bases:
+            seg = (b.get("boundary_detail") or "").strip()
+            if not seg:
+                continue
+            seg_low = seg.lower()
+            if (label and (seg_low == label.lower() or seg_low in label.lower())) or \
+               (metric and re.search(rf"\b{re.escape(seg_low)}\b", metric.lower())):
+                matched_segs.append((seg, b))
+        if matched_segs:
+            # deduplicate by segment name
+            unique = {s: b for s, b in matched_segs}
+            if len(unique) > 1:
+                raise Unresolved("differing segment statements")
+            seg, b = next(iter(unique.items()))
+            return "segment", seg, b, "machine-inferred"
+
     covering = sorted((b for b in scoped if b["first_page"] <= page <= b["last_page"]), key=lambda b: b["id"])
     if not covering:
         raise Unresolved(NO_SCOPE)
@@ -265,6 +299,27 @@ def bases_of(reading: dict) -> tuple[list[dict], bool]:
             boundary, detail, wording = "subsidiary_set", _clean(c[0]), sentence[:c.end()]
         found.append({"kind": "reporting_boundary", "wording": _clean(wording), "boundary": boundary,
                       "boundary_detail": detail or None})
+    for m in B_SEG_EXPLICIT.finditer(answers):
+        detail, wording = m["detail"] and _clean(m["detail"]).rstrip(" ,;:"), m[0]
+        found.append({"kind": "reporting_boundary", "wording": _clean(wording), "boundary": "segment",
+                      "boundary_detail": detail or None})
+    for m in B_SEGMENT.finditer(answers):
+        detail_raw = m["detail"] and _clean(m["detail"]).rstrip(" ,;:")
+        wording = m[0]
+        if detail_raw:
+            segs = [s.strip() for s in re.split(r",|;|\band\b|&", detail_raw) if s.strip()]
+            for s in segs:
+                seg_wording = f"{_clean(wording)}: {s}" if len(segs) > 1 else _clean(wording)
+                found.append({"kind": "reporting_boundary", "wording": seg_wording, "boundary": "segment",
+                              "boundary_detail": s})
+        else:
+            found.append({"kind": "reporting_boundary", "wording": _clean(wording), "boundary": "segment",
+                          "boundary_detail": None})
+    for m in SEG_HEADING.finditer(answers):
+        detail = m["detail"] and _clean(m["detail"]).rstrip(" ,;:")
+        if detail:
+            found.append({"kind": "reporting_boundary", "wording": _clean(m[0]), "boundary": "segment",
+                          "boundary_detail": detail})
     heading = bool(HEADING.search(answers)) and not any(f["kind"] == "reporting_boundary" for f in found)
     return found, heading
 
@@ -272,7 +327,8 @@ def bases_of(reading: dict) -> tuple[list[dict], bool]:
 # The stage: one item per document.
 
 CLAIMS_OF = """
-SELECT c.id AS claim_id, c.page_number, v.id AS claim_version_id, v.period_label
+SELECT c.id AS claim_id, c.page_number, v.id AS claim_version_id, v.period_label,
+       v.metric_text, v.boundary_label, v.reporting_boundary, v.boundary_detail
 FROM claim c JOIN claim_version v ON v.id = (SELECT MAX(id) FROM claim_version WHERE claim_id = c.id)
 WHERE c.document_id = ? ORDER BY c.id
 """
@@ -318,14 +374,18 @@ def _inference(doc_id: int, field: str, rule, *args) -> dict:
     except Unresolved as e:
         out.update(state="unresolved", reason=e.reason)
     else:
+        state = "proposed"
         if field == "period":
             kind, start, end, basis = values
             out.update(period_kind=kind, period_start=start.isoformat(), period_end=end.isoformat())
+        elif len(values) == 4:
+            boundary, detail, basis, state = values
+            out.update(boundary=boundary, boundary_detail=detail)
         else:
             boundary, detail, basis = values
             out.update(boundary=boundary, boundary_detail=detail)
-        out.update(state="proposed", basis_id=basis and basis["id"])
-    source = out["basis_id"] or ("label" if out["state"] == "proposed" else None)
+        out.update(state=state, basis_id=basis and basis["id"])
+    source = out["basis_id"] or ("label" if out["state"] in ("proposed", "machine-inferred") else None)
     out["group_key"] = json.dumps([doc_id, field, out["state"], *(out[k] for k in COMPARED[1:6]), source, out["reason"]],
                                   ensure_ascii=False)
     return out
@@ -362,13 +422,15 @@ def _work(root: Path, run_id: int, item: _Doc, conn) -> Result:
                              (b["id"], page, page, m["contributor_version_id"], m["capacity"], m["rationale"], stamp))
         fiscal = [b for b in bases if b["kind"] == "fiscal_year_end"]
         boundary_bases = [b for b in bases if b["kind"] == "reporting_boundary"]
+        segment_bases = [b for b in boundary_bases if b["boundary"] == "segment"]
+        normal_bases = [b for b in boundary_bases if b["boundary"] != "segment"]
         scoped = [{**b, "first_page": s["first_page"], "last_page": s["last_page"]}
-                  for b in boundary_bases if (s := _scope(conn, b["id"]))]
-        if not scoped and boundary_bases and len({b["boundary"] for b in boundary_bases}) == 1:
-            scoped = [{**b, "first_page": 1, "last_page": len(item.pages)} for b in boundary_bases]
+                  for b in normal_bases if (s := _scope(conn, b["id"]))]
+        if not scoped and normal_bases and len({b["boundary"] for b in normal_bases}) == 1:
+            scoped = [{**b, "first_page": 1, "last_page": len(item.pages)} for b in normal_bases]
         for c in item.claims:
             for field, rule, arg in (("period", period_of, (c["period_label"], fiscal)),
-                                     ("boundary", boundary_of, (c["page_number"], scoped))):
+                                     ("boundary", boundary_of, (c, scoped, segment_bases))):
                 rows += _record(conn, c["claim_version_id"], field, _inference(doc_id, field, rule, *arg), run_id, stamp)
     return Result(output={"claims": len(item.claims), "bases": [b["id"] for b in bases], "headings": headings,
                           "rows": rows}, method=METHOD)
@@ -514,8 +576,8 @@ def _field(c, f: str, inf, rev) -> dict:
         state, values, reason = "unresolved", own, REJECTED
     else:
         state, reason = inf["state"], inf["reason"]
-        values = [inf[k] for k in VALUES[f]] if state == "proposed" else own
-    basis = inf and inf["basis_id"] and state in ("proposed", "accepted") and {
+        values = [inf[k] for k in VALUES[f]] if state in ("proposed", "machine-inferred") else own
+    basis = inf and inf["basis_id"] and state in ("proposed", "accepted", "machine-inferred") and {
         "id": inf["basis_id"], "page": inf["basis_page"], "wording": inf["basis_wording"]}
     out = {"state": state, **dict(zip(KEYS[f], values))}
     if f == "period":
@@ -673,8 +735,8 @@ def reject_claim(conn, claim_id: int, f: str, key, capacity, rationale) -> dict:
     c, _, inf, rev = _claim(conn, claim_id, f)
     registry.require_active(conn, c["document_id"])
     # A deliberate claim-by-claim rejection may follow an acceptance or a resolution; rejecting twice adds nothing.
-    if inf is None or inf["state"] != "proposed" or (rev and rev["decision"] == "rejected"):
-        raise GctError(REFUSED, f"Claim {claim_id} has no proposed {f} to reject.",
+    if inf is None or inf["state"] not in ("proposed", "machine-inferred") or (rev and rev["decision"] == "rejected"):
+        raise GctError(REFUSED, f"Claim {claim_id} has no proposed or machine-inferred {f} to reject.",
                        f"See its {f} with: gct claims list --doc {c['document_id']}")
     _review_rows(conn, [(None, c, f, inf, rev)], "rejected", who, capacity, rationale)
     return {"claim": claim_id, "field": f, "effective": _field(*_claim(conn, claim_id, f))}
@@ -703,6 +765,8 @@ def resolve(conn, claim_id: int, f: str, key, capacity, rationale, kind=None, st
         if boundary is None or kind or start or end:
             raise GctError(USAGE, "A boundary is resolved with --boundary and, optionally, --detail only.",
                            f"For example: gct infer resolve {claim_id} --field boundary --boundary standalone")
+        if boundary not in BOUNDARIES:
+            raise GctError(USAGE, f"Unknown boundary {boundary}.", f"Choose from {', '.join(BOUNDARIES)}.")
         values = (None, None, None, boundary, _clean(detail) or None)
     who, capacity, rationale = _who(conn, key, capacity, rationale)
     c, _, inf, _ = _claim(conn, claim_id, f)

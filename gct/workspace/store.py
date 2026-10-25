@@ -71,11 +71,14 @@ def migrate(conn: sqlite3.Connection, up_to: int | None = None) -> list[int]:
             + f"\nINSERT INTO schema_version (version, applied_at) VALUES ({version}, '{now()}');\n"
             + "COMMIT;"
         )
+        conn.execute("PRAGMA foreign_keys = OFF")
         try:
             conn.executescript(script)
         except BaseException:
             if conn.in_transaction:
                 conn.execute("ROLLBACK")
             raise
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON")
         applied.append(version)
     return applied

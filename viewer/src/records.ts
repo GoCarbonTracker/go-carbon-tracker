@@ -24,7 +24,7 @@ export const CHOICES: Record<string, [string, string][]> = {
   ],
   source_kind: [["table", "table KPIs"], ["text", "narrative text"]],
   boundary: [["standalone", "standalone"], ["subsidiary_set", "subsidiary set"], ["consolidated", "consolidated"],
-    ["unknown", "unknown"]],
+    ["segment", "segment"], ["unknown", "unknown"]],
   claim_state: [["current", "current"], ["not-found", "not found in the newest reading"],
     ["not-extracted", "page read again, not yet extracted"]],
   evidence: [["matched", "matched"], ["cited", "cited"], ["unresolved", "unresolved"], ["not-checked", "not checked"]],

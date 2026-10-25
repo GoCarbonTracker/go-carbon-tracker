@@ -63,12 +63,13 @@ def test_migrations_13_14_then_15_apply_to_a_version_12_workspace(tmp_path, gct)
     c.close()
     assert gct("doc", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-10:] == [12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
+    assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-11:] == [
+        12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
     (run,) = runs.list_runs(c)
     assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == [
         "applied migration 13", "applied migration 14", "applied migration 15", "applied migration 16",
         "applied migration 17", "applied migration 18", "applied migration 19", "applied migration 20",
-        "applied migration 21"]
+        "applied migration 21", "applied migration 22"]
     assert {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} >= {
         "restatement", "document_state_change", "sheet_mapping", "claim_note"}
     c.close()
