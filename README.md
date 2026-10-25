@@ -58,8 +58,9 @@ flowchart LR
 flowchart LR
     A["1. Init Workspace"] --> B["2. Ingest Filings"]
     B --> C["3. Extract & Link Boxes"]
-    C --> D["4. Freeze Snapshot"]
-    D --> E["5. Explore in Viewer"]
+    C --> D["4. Restate & Audit Flags"]
+    D --> E["5. Freeze Snapshot"]
+    E --> F["6. Explore in Viewer"]
 ```
 
 ---
@@ -132,7 +133,7 @@ gct doc add examples/sample_sustainability_report.pdf --company "Acme Global" --
 # 1. Deterministic text and table parsing
 gct read --workspace company-audit
 
-# 2. Extract quantitative emissions metrics and reduction targets
+# 2. Extract quantitative emissions metrics and qualitative climate commitments (Rung 1 & 2)
 gct extract --workspace company-audit
 
 # 3. Anchor claims to physical bounding boxes on the document page
@@ -145,13 +146,26 @@ gct infer --workspace company-audit
 gct match --workspace company-audit
 ```
 
-### 5. Freeze Published Version Snapshot
+### 5. Audit Restatements & Propose Greenwashing Candidates
+```bash
+# Detect multi-year restatements and baseline discrepancies
+gct restate --workspace company-audit
+
+# Scan narrative & quantitative claims against evidence with EmeraldMind 4-type taxonomy (Auditor Copilot)
+gct flag propose --company "Acme Global" --workspace company-audit
+
+# Inspect proposed greenwashing candidate flags
+gct flag list --workspace company-audit
+```
+*Note: Under FR39 responsible governance, candidate flags are proposals for human auditor review and must be confirmed (`gct flag raise`) by an auditor before becoming part of an official published record.*
+
+### 6. Freeze Published Version Snapshot
 ```bash
 gct publish build --workspace company-audit
 ```
 *Freezes read-only data version `v1.db`. Any subsequent audit annotations or revisions generate `v2.db`.*
 
-### 6. Launch the Local Interactive Evidence Viewer
+### 7. Launch the Local Interactive Evidence Viewer
 ```bash
 gct serve --workspace company-audit
 ```
@@ -215,10 +229,15 @@ Every claim stores coordinates in standard PDF points (`[x0, y0, x1, y1]`). Clai
 | | `gct doc list` | List active documents with SHA-256 hashes and quality flags. |
 | | `gct doc delete <ID>` | Archive or permanently delete a document and purge derived data. |
 | **Extraction** | `gct read` | Extract words, text layout, and ruled tables locally via `pdfplumber`. |
-| | `gct extract` | Extract quantitative emissions and target claims. |
+| | `gct extract` | Extract quantitative emissions and qualitative climate commitments (Rung 1 & 2). |
 | | `gct link` | Map extracted claims to physical bounding boxes on document pages. |
 | | `gct infer` | Propose and resolve reporting periods and organizational boundaries. |
 | | `gct match` | Harmonize claims into canonical metric keys and cross-report series. |
+| **Restatement** | `gct restate` | Detect pairs of figures across reports: same value, restatement or conflict. |
+| **Auditing & Flags** | `gct flag propose [--company NAME]` | Scan narrative and quantitative claims against evidence and propose greenwashing candidates. |
+| | `gct flag raise <CLAIM_ID> --version <V> --rationale <TEXT>` | Confirm and raise an auditor concern on a claim version. |
+| | `gct flag withdraw <CLAIM_ID> --version <V>` | Withdraw an auditor flag on a claim version. |
+| | `gct flag list` | List all reviewer and proposed flags, oldest first. |
 | **Versioning** | `gct publish build` | Freeze current state into an immutable published snapshot (`vN.db`). |
 | | `gct publish restore` | Roll back to the previous published snapshot. |
 | **Viewer** | `gct serve [--port N]` | Launch the local authenticated web viewer. |
