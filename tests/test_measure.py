@@ -174,7 +174,7 @@ def test_first_line_names_version_commit_and_scorer_and_report_sits_beside_the_w
     r = gct("measure", "g2", "--gold", scored, "--seed", 1)
     assert r.code == 0, r.err
     first, *rest = r.out.splitlines()
-    assert re.fullmatch(r"published version 1, gct commit ([0-9a-f]{40}(-dirty)?|unknown), scorer version 1", first)
+    assert re.fullmatch(r"published version 1, gct commit ([0-9a-f]{40}(-dirty)?|unknown), scorer version [12]", first)
     assert any(line.startswith("Acme Limited text: Found 1/8 (12.5%), Partial 3, Missed 4") and line.endswith("; fail")
                for line in rest)
     data = gct("measure", "g2", "--gold", scored, "--seed", 1, "--json").data
@@ -189,13 +189,13 @@ def test_first_line_names_version_commit_and_scorer_and_report_sits_beside_the_w
 def test_delta_is_attributed_to_the_scorer_or_the_extraction_never_both(ws, gct, scored, monkeypatch):
     first = gct("measure", "g2", "--gold", scored, "--seed", 1, "--json").data
     assert first["delta"] is None
-    monkeypatch.setattr(g2, "SCORER_VERSION", "2")
+    monkeypatch.setattr(g2, "SCORER_VERSION", "3")
     r = gct("measure", "g2", "--gold", scored, "--seed", 1, "--against", first["report_path"])
     assert r.code == 0, r.err
     line = r.out.splitlines()[1]
-    assert line.startswith(f"Scorer delta from run {first['run_id']} (scorer version 1, published version 1): ")
+    assert line.startswith(f"Scorer delta from run {first['run_id']} (scorer version 2, published version 1): ")
     assert "Acme Limited text Found 1/8 (12.5%) -> 1/8 (12.5%) (+0)" in line
-    monkeypatch.setattr(g2, "SCORER_VERSION", "1")
+    monkeypatch.setattr(g2, "SCORER_VERSION", "2")
     scope = next(c["id"] for c in gct("claims", "list", "--doc", 1, "--json").data["claims"] if c["value_text"] == "1,234")
     gct("infer", "resolve", scope, "--field", "period", "--kind", "fiscal_year", "--start", "2023-04-01",
         "--end", "2024-03-31", *WHO)
@@ -204,7 +204,7 @@ def test_delta_is_attributed_to_the_scorer_or_the_extraction_never_both(ws, gct,
     text = next(t for t in d["types"] if (t["company"], t["kind"]) == ("Acme Limited", "text"))
     assert (d["attributed_to"], text["after"], text["found_change"], text["partial_change"]) == (
         "extraction", "2/8 (25.0%)", 1, -1)
-    monkeypatch.setattr(g2, "SCORER_VERSION", "2")
+    monkeypatch.setattr(g2, "SCORER_VERSION", "3")
     before = set(ws.parent.glob("g2-report-*"))
     r = gct("measure", "g2", "--gold", scored, "--against", first["report_path"], "--json")
     assert r.code == 4 and "both changed" in r.data["cause"] and set(ws.parent.glob("g2-report-*")) == before
@@ -221,7 +221,7 @@ def test_against_compares_the_version_identity_not_its_number(ws, gct, make_file
     assert gct("workspace", "init", other).code == 0
     monkeypatch.setenv("GCT_WORKSPACE", str(other))
     build(gct, make_file)  # the same documents, published as its own version 1
-    monkeypatch.setattr(g2, "SCORER_VERSION", "2")
+    monkeypatch.setattr(g2, "SCORER_VERSION", "3")
     r = gct("measure", "g2", "--gold", scored, "--against", first["report_path"], "--json")
     assert r.code == 4 and "both changed" in r.data["cause"] and len(list(tmp_path.glob("g2-report-*"))) == 1
 

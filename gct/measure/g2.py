@@ -22,7 +22,7 @@ import gct
 from gct.workspace import layout, published
 from gct.workspace.layout import NOT_FOUND, REFUSED, GctError
 
-SCORER_VERSION = "1"
+SCORER_VERSION = "2"
 KINDS = ("text", "table", "figure")
 GOLD_FILES = {"text": "text.jsonl", "table": "tables.jsonl", "figure": "figures.jsonl"}
 TARGET = 0.9
@@ -40,6 +40,34 @@ MEASURE_WORDS = CURRENCY | {
 
 # normalize and number_tokens: copied verbatim from services/hypergraph-rag/scripts/core/score_ground_truth.py 1.1.0.
 _NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+# The 15 Rung-1 extractor units (from gct.stages.extract.UNITS)
+EXTRACTOR_UNITS = {
+    "tco2e", "tco2", "tonnes", "t", "kt", "mt", "mwh", "gwh", "kwh",
+    "gj", "tj", "kl", "ml", "m3", "%", "million tonnes co2e", "ktco2e"
+}
+
+RECOGNISED_ORIGINS = {"machine-inferred", "accepted", "resolved"}
+REVIEWED_ORIGINS = {"accepted", "resolved"}
+UNRESOLVED_STATES = {"unresolved", "proposed", "unknown", "rejected"}
+
+
+def classify_state(state: str | None) -> tuple[str, str | None]:
+    """Classify state into (origin_kind, unrecognised_name).
+    origin_kind is one of: 'machine-inferred', 'reviewed', 'unresolved'.
+    """
+    if state == "machine-inferred":
+        return "machine-inferred", None
+    if state in REVIEWED_ORIGINS:
+        return "reviewed", None
+    if state in UNRESOLVED_STATES or state is None:
+        return "unresolved", None
+    return "unresolved", str(state)
+
+
+def is_string_answer(expected: str) -> bool:
+    """True when expected answer has letters/words, meaning it's a string/word answer, not a pure numeric figure."""
+    return bool(re.search(r"[a-zA-Z]", str(expected)))
 
 
 def normalize(text: str) -> str:
@@ -61,7 +89,7 @@ def number_tokens(text: str) -> set[str]:
 def unit_key(unit: str) -> str:
     """normalize plus the listed table: ₹, rs, inr to inr; tco2e, tco2 e, tonnes co2e to tco2e; m³ to m3; percent to %."""
     words = ["inr" if w == "rs" else "%" if w == "percent" else w for w in normalize(unit.replace("₹", " inr ")).split()]
-    return re.sub(r"\b(?:tco2 e|tonnes co2e)\b", "tco2e", " ".join(words))
+    return re.sub(r"\b(?:t co2e|tco2 e|tonnes co2e)\b", "tco2e", " ".join(words))
 
 
 def is_measure(unit: str) -> bool:
@@ -70,18 +98,35 @@ def is_measure(unit: str) -> bool:
 
 
 def value_match(value_text: str, expected: str) -> bool:
-    gold = number_tokens(expected)
+    expected_str = str(expected)
+    if is_string_answer(expected_str):
+        # S-4: whole normalised string matching for word or string answers.
+        # Digit-bearing strings are never compared by numeric equality.
+        norm_expected = normalize(expected_str)
+        return bool(norm_expected) and normalize(value_text) == norm_expected
+    gold = number_tokens(expected_str)
     if not gold:
-        word = normalize(expected)
+        word = normalize(expected_str)
         return bool(word) and normalize(value_text) == word
     return number_tokens(value_text) == gold
 
 
-def unit_match(claim_unit: str | None, gold_unit: str | None) -> bool:
+def unit_match(claim_unit: str | None, gold_unit: str | None, metric_text: str | None = None) -> bool:
     if gold_unit is None:
         return claim_unit is None
     if claim_unit is None:
         return not is_measure(gold_unit)
+    # S-2: gold unit "% of <group>" matches claim unit "%" only when the group
+    # words appear as a whole phrase, in order, in the claim's metric text.
+    gold_norm = normalize(gold_unit)
+    if gold_norm.startswith("% of "):
+        group = gold_norm[5:].strip()  # everything after "% of "
+        if unit_key(claim_unit) != "%":
+            return False
+        if not group or metric_text is None:
+            return False
+        metric_norm = f" {normalize(metric_text)} "
+        return f" {group} " in metric_norm
     return unit_key(claim_unit) == unit_key(gold_unit)
 
 
@@ -161,6 +206,15 @@ def ceiling(row: dict) -> list[str]:
         out.append("gold currency unit")
     if not number_tokens(str(row["expected_answer"])):
         out.append("gold value is not a figure")
+    # S-6: Two new named ceiling reasons:
+    # 1. "unit not in the extractor's vocabulary"
+    if row.get("unit") and is_measure(row["unit"]):
+        uk = unit_key(row["unit"])
+        if not (set(uk.split()) & CURRENCY) and uk not in EXTRACTOR_UNITS:
+            out.append("unit not in the extractor's vocabulary")
+    # 2. "string answer"
+    if number_tokens(str(row["expected_answer"])) and is_string_answer(str(row["expected_answer"])):
+        out.append("string answer")
     return out
 
 
@@ -174,22 +228,65 @@ def _evidence_box(refs: list[dict], page: int):
 
 def _judge(c: dict, row: dict, company: str, refs: list[dict]) -> dict:
     value = value_match(c["value_text"], str(row["expected_answer"]))
-    unit = unit_match(c["unit_text"], row["unit"])
+    unit = unit_match(c["unit_text"], row["unit"], c.get("metric_text"))
     p = row["period"] or {}
+
+    # S-5: origin classification
+    period_origin, unrec_p = (
+        classify_state(c["period_state"]) if "period_state" in c else ("machine-inferred", None)
+    )
+    boundary_origin, unrec_b = (
+        classify_state(c["boundary_state"]) if "boundary_state" in c else ("machine-inferred", None)
+    )
+
+    # S-1: segment is an accepted gold boundary when the claim carries a printed segment name.
+    boundary_ok = False
+    if row["boundary"] == "unstated":
+        boundary_ok = True
+    elif row["boundary"] in ("standalone", "consolidated"):
+        boundary_ok = (c["reporting_boundary"] == row["boundary"]
+                       and boundary_origin in ("machine-inferred", "reviewed"))
+    elif row["boundary"] == "segment":
+        boundary_ok = (c["reporting_boundary"] == "segment"
+                       and bool(c.get("boundary_detail"))
+                       and boundary_origin in ("machine-inferred", "reviewed"))
+
+    period_ok = (period_origin in ("machine-inferred", "reviewed")
+                 and c["period_start"] is not None and c["period_end"] is not None
+                 and (c["period_start"], c["period_end"]) == (p.get("start"), p.get("end")))
+
     ok = {
         "metric": metric_match(c["metric_text"], row),
         "entity": c["company"] == company,
-        "boundary": row["boundary"] == "unstated" or (
-            row["boundary"] in ("standalone", "consolidated") and c["reporting_boundary"] == row["boundary"]),
-        "period": c["period_start"] is not None and c["period_end"] is not None
-        and (c["period_start"], c["period_end"]) == (p.get("start"), p.get("end")),
+        "boundary": boundary_ok,
+        "period": period_ok,
     }
     failing = [f for f in FIELDS if not ok[f]]
     verdict = "Missed" if not (value and unit) else "Partial" if failing else "Found"
     box = _evidence_box(refs, row["page"])
     overlap = iou(box, row["bbox"]) if box and row.get("bbox") else 0.0
-    return {"claim": c, "verdict": verdict, "failing": failing if verdict == "Partial" else [], "value": value,
-            "iou": overlap}
+
+    # S-5: record origin of dependent fields for Found rows.
+    # Dependent fields: period is always dependent; boundary is dependent when gold states one.
+    row_origin = None
+    if verdict == "Found":
+        dependent_origins = [period_origin]
+        if row["boundary"] != "unstated":
+            dependent_origins.append(boundary_origin)
+        if all(o == "machine-inferred" for o in dependent_origins):
+            row_origin = "machine-inferred"
+        elif any(o == "reviewed" for o in dependent_origins):
+            row_origin = "review-assisted"
+        else:
+            row_origin = "unresolved"
+
+    return {
+        "claim": c, "verdict": verdict, "failing": failing if verdict == "Partial" else [],
+        "value": value, "iou": overlap,
+        "period_origin": period_origin, "boundary_origin": boundary_origin,
+        "origin": row_origin,
+        "unrecognised_states": [s for s in (unrec_p, unrec_b) if s is not None],
+    }
 
 
 RANK = {"Found": 0, "Partial": 1, "Missed": 2}
@@ -220,6 +317,10 @@ def score_row(row: dict, doc: dict, ws_doc: dict, claims: list[dict], refs: dict
         "metric_text": c and c["metric_text"], "iou": chosen and round(chosen["iou"], 4),
         "evidence_found": bool(chosen) and chosen["iou"] >= 0.5,
         "value_elsewhere_in_document": elsewhere, "ceiling": ceiling(row),
+        "period_origin": chosen and chosen.get("period_origin"),
+        "boundary_origin": chosen and chosen.get("boundary_origin"),
+        "origin": chosen and chosen.get("origin"),
+        "boundary_detail": c and c.get("boundary_detail"),
     }
 
 
@@ -227,21 +328,31 @@ def _pct(k: int, n: int) -> str:
     return f"{k}/{n} ({100 * k / n:.1f}%)" if n else f"{k}/0"
 
 
-def summarise(rows: list[dict]) -> dict:
+def summarise(rows: list[dict], review_assisted: bool = False) -> dict:
     """Counts with every percentage beside its count. Found never includes Partial."""
     n = len(rows)
     v = Counter(r["verdict"] for r in rows)
-    found, partial = v["Found"], v["Partial"]
-    share = found / n if n else None
+    found_total = v["Found"]
+    partial = v["Partial"]
+    found_auto = sum(1 for r in rows if r["verdict"] == "Found" and r.get("origin") == "machine-inferred")
+    found_reviewed = sum(1 for r in rows if r["verdict"] == "Found" and r.get("origin") == "review-assisted")
+
+    # Gate calculation: in automatic runs, gate counts only all-machine-inferred Found;
+    # in review-assisted runs, it counts all Found rows.
+    gate_found = found_total if review_assisted else found_auto
+    share = gate_found / n if n else None
     verdict = ("UNMEASURED" if not n else "fail" if share < TARGET
                else "at or above 90% before adjudication")
     stuck = [r for r in rows if r["ceiling"]]
     return {
-        "n": n, "found": found, "partial": partial, "missed": v["Missed"], "found_text": _pct(found, n),
+        "n": n, "found": found_total, "partial": partial, "missed": v["Missed"], "found_text": _pct(found_total, n),
         "verdict": verdict, "re_adjudicate": share is not None and share > 0.95,
-        "evidence_found_among_found": _pct(sum(r["evidence_found"] for r in rows if r["verdict"] == "Found"), found),
+        "found_automatic": found_auto, "found_automatic_text": _pct(found_auto, n),
+        "found_review_assisted": found_reviewed, "found_review_assisted_text": _pct(found_reviewed, n),
+        "found_total": found_total,
+        "evidence_found_among_found": _pct(sum(r["evidence_found"] for r in rows if r["verdict"] == "Found"), found_total),
         "evidence_found_among_partial": _pct(sum(r["evidence_found"] for r in rows if r["verdict"] == "Partial"), partial),
-        "value_and_unit_on_gold_page": _pct(found + partial, n),
+        "value_and_unit_on_gold_page": _pct(found_total + partial, n),
         "partial_failing": dict(Counter(f for r in rows if r["verdict"] == "Partial" for f in r["failing"])),
         "missed_reasons": dict(Counter(r["reason"] for r in rows if r["verdict"] == "Missed")),
         "value_elsewhere_in_document": sum(bool(r["value_elsewhere_in_document"]) for r in rows),
@@ -312,6 +423,67 @@ def delta(prev: dict, identity: dict, types: list[dict]) -> dict:
     }
 
 
+def build_change_ledger(prev: dict | None, rows: list[dict], report_path: Path) -> list[dict]:
+    """Every row whose verdict, failing list or ceiling differs between v1 and v2 appears in the change ledger."""
+    if not prev or "rows" not in prev:
+        return []
+    prev_rows = {r["id"]: r for r in prev["rows"]}
+    ledger = []
+    for curr in rows:
+        p = prev_rows.get(curr["id"])
+        if not p:
+            continue
+        v_diff = p.get("verdict") != curr.get("verdict")
+        f_diff = p.get("failing") != curr.get("failing")
+        c_diff = p.get("ceiling") != curr.get("ceiling")
+        if not (v_diff or f_diff or c_diff):
+            continue
+
+        # S-6: Attribute change to scorer:S-1 through scorer:S-6, or none
+        rule = "none"
+        if not v_diff and not f_diff and c_diff:
+            rule = "scorer:S-6"
+        elif curr.get("boundary") == "segment" or "segment" in str(curr.get("ceiling", [])):
+            rule = "scorer:S-1"
+        elif "% of" in str(curr.get("unit_text") or "") or "% of" in str(curr.get("metric_text") or ""):
+            rule = "scorer:S-2"
+        elif "tco2e" in str(curr.get("unit_text") or "").lower():
+            rule = "scorer:S-3"
+        elif is_string_answer(curr.get("value_text") or ""):
+            rule = "scorer:S-4"
+        elif curr.get("origin") != p.get("origin") or curr.get("period_origin") or curr.get("boundary_origin"):
+            rule = "scorer:S-5"
+        else:
+            rule = "scorer:S-6"
+
+        entry = {
+            "id": curr["id"],
+            "v1_verdict": p.get("verdict"),
+            "v1_failing": p.get("failing", []),
+            "v1_ceiling": p.get("ceiling", []),
+            "v2_verdict": curr.get("verdict"),
+            "v2_failing": curr.get("failing", []),
+            "v2_ceiling": curr.get("ceiling", []),
+            "attributed_to": rule,
+            "claim_id": curr.get("claim"),
+            "value_text": curr.get("value_text"),
+            "unit_text": curr.get("unit_text"),
+            "page": curr.get("page"),
+            "doc": curr.get("doc"),
+            "company": curr.get("company"),
+        }
+        if rule == "scorer:S-1":
+            entry["segment_name"] = curr.get("boundary_detail") or curr.get("boundary_origin")
+        ledger.append(entry)
+
+    if ledger:
+        ledger_path = report_path.with_name(
+            report_path.name.replace("g2-report-", "g2-ledger-").replace(".json", ".jsonl")
+        )
+        ledger_path.write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in ledger), encoding="utf-8")
+    return ledger
+
+
 def measure(workspace: str | None, gold: str, seed: int | None = None, against: str | None = None) -> dict:
     """Score the current published version. Refuses (nothing written) before any result exists."""
     root = layout.locate(workspace)
@@ -338,7 +510,8 @@ def measure(workspace: str | None, gold: str, seed: int | None = None, against: 
             ws_docs = {r["sha256"]: dict(r) for r in proj.execute("SELECT id, company_id, logical_name, sha256 FROM document")}
             claims = [{**dict(r), "company": names[r["company_id"]]} for r in proj.execute(
                 "SELECT id, company_id, document_id, page_number, claim_version_id, metric_text, value_text, unit_text,"
-                " period_start, period_end, reporting_boundary FROM claim WHERE claim_state = 'current' ORDER BY id")]
+                " period_start, period_end, reporting_boundary, boundary_detail, period_state, boundary_state"
+                " FROM claim WHERE claim_state = 'current' ORDER BY id")]
             refs = {}
             for r in proj.execute("SELECT claim_version_id, document_id, page_number, boxes FROM evidence_ref ORDER BY id"):
                 refs.setdefault(r["claim_version_id"], []).append(dict(r))
@@ -362,12 +535,13 @@ def measure(workspace: str | None, gold: str, seed: int | None = None, against: 
         rows = [score_row(r, docs[r["doc"]], joined[r["doc"]], claims, refs)
                 for r in sorted(gold_rows, key=lambda r: r["id"])]
         seed = secrets.randbelow(2 ** 31) if seed is None else seed
+        is_review_assisted = "review-assisted" in str(root)
         documents = []
         for name, d in docs.items():
             mine = [r for r in rows if r["doc"] == name]
             mix = _method_mix(work, joined[name]["id"])
             documents.append({"doc": name, "company": d["company"], "document_type": d["document_type"],
-                              "document_id": joined[name]["id"], **summarise(mine),
+                              "document_id": joined[name]["id"], **summarise(mine, review_assisted=is_review_assisted),
                               "method_mix": mix, "cost": _cost(work, joined[name]["id"])})
         above = sum(m["pages"] for d in documents for m in d["method_mix"] if m["rung"] > 1)
     finally:
@@ -378,14 +552,18 @@ def measure(workspace: str | None, gold: str, seed: int | None = None, against: 
         for k in sorted({tuple(r[x] for x in keys) for r in rows}, key=lambda k: tuple(
                 companies.index(v) if x == "company" else KINDS.index(v) if x == "kind" else v
                 for x, v in zip(keys, k))):
-            out.append({**dict(zip(keys, k)), **summarise([r for r in rows if tuple(r[x] for x in keys) == k])})
+            out.append({**dict(zip(keys, k)), **summarise([r for r in rows if tuple(r[x] for x in keys) == k], review_assisted=is_review_assisted)})
         return out
 
-    types = [{"company": c, "kind": k, **summarise([r for r in rows if r["company"] == c and r["kind"] == k])}
+    types = [{"company": c, "kind": k, **summarise([r for r in rows if r["company"] == c and r["kind"] == k], review_assisted=is_review_assisted)}
              for c in companies for k in KINDS]
     change = prev and delta(prev, identity, types)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     report_path = root.parent / f"g2-report-v{version}-{run_id}.json"
+    ledger = build_change_ledger(prev, rows, report_path)
+    if change and ledger:
+        change["ledger"] = ledger
+        change["ledger_file"] = str(report_path.with_name(report_path.name.replace("g2-report-", "g2-ledger-").replace(".json", ".jsonl")))
     report = {
         "published_version": version, "gct_commit": _git_head(Path(gct.__file__).parent),
         "scorer_version": SCORER_VERSION, "status": "ok", "run_id": run_id, "report_path": str(report_path),
@@ -401,8 +579,8 @@ def measure(workspace: str | None, gold: str, seed: int | None = None, against: 
                   "state": "not run" if not above else f"{above} pages read above rung 1, not scored separately"}],
         "adjudication": {"seed": seed, "missed": [r["id"] for r in rows if r["verdict"] == "Missed"],
                          "found_sample": _sample(rows, companies, seed)},
-        "aggregate": [*({"kind": k, **summarise([r for r in rows if r["kind"] == k])} for k in KINDS),
-                      {"kind": "all", **summarise(rows)}],
+        "aggregate": [*({"kind": k, **summarise([r for r in rows if r["kind"] == k], review_assisted=is_review_assisted)} for k in KINDS),
+                      {"kind": "all", **summarise(rows, review_assisted=is_review_assisted)}],
     }
     report_path.write_text(json.dumps(report, indent=1, ensure_ascii=False), encoding="utf-8")
     return report
