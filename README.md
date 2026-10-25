@@ -12,7 +12,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT" /></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-%3E%3D%203.11-blue.svg" alt="Python >= 3.11" /></a>
   <img src="https://img.shields.io/badge/tests-1467%20passed-brightgreen.svg" alt="1467 Tests Passed" />
-  <img src="https://img.shields.io/badge/release-v0.1.5--alpha-orange.svg" alt="Release: v0.1.5-alpha" />
+  <img src="https://img.shields.io/badge/release-v0.2.0--alpha-orange.svg" alt="Release: v0.2.0-alpha" />
   <img src="https://img.shields.io/badge/architecture-local--first-purple.svg" alt="Local First" />
 </p>
 
@@ -45,7 +45,7 @@ GoCarbonTracker is built as a **local-first, deterministic evidence pipeline**. 
 
 ```mermaid
 flowchart LR
-    A["Source Filings<br/>(PDF, CSV, XLSX)"] --> B["Rung-1 Parser<br/>(Text, Tables, Boxes)"]
+    A["Source Filings<br/>(PDF, CSV, XLSX)"] --> B["Dual-Rung Reader<br/>(Docling + pdfplumber)"]
     B --> C["Append-Only Store<br/>(SQLite / Snapshots)"]
     C --> D["Evidence Viewer<br/>(Highlights & Graphs)"]
 ```
@@ -130,7 +130,7 @@ gct doc add examples/sample_sustainability_report.pdf --company "Acme Global" --
 
 ### 4. Read Layout & Extract Claims
 ```bash
-# 1. Deterministic text and table parsing
+# 1. Deterministic text, table, and deep layout parsing (pdfplumber + Docling)
 gct read --workspace company-audit
 
 # 2. Extract quantitative emissions metrics and qualitative climate commitments (Rung 1 & 2)
@@ -179,10 +179,13 @@ gct serve --workspace company-audit
 
 ## Core Capabilities & Features
 
-### 1. Zero-Model Layout Analysis (Rung 1)
-* Operates locally using `pdfplumber`—no cloud API calls, zero token spend, and zero generative hallucination.
-* Extracts numbers verbatim as printed (`1,234.5`, Indian numeric grouping, parenthetical negative accounting figures).
-* Automatically audits page quality: flags scanned pictures (0 extractable text characters), fragmented text, or empty table matrices.
+### 1. Zero-Model & Deep Layout Reading (Rung 1 & Rung 2)
+* **Tiered Reading Architecture**: Operates locally with a dual-rung reading pipeline.
+  * **Rung 1 (Fast Deterministic)**: Uses `pdfplumber` for ruled tables, standard typography, and Indian numeric grouping with zero token spend.
+  * **Rung 2 (Deep Layout & Reading Order)**: Integrates IBM `Docling` (`docling>=2.54.0`) to parse complex corporate report layouts, multi-column reading orders, borderless tables, and rotated headers into structured markup.
+* **Automatic Fallback**: If Docling is not installed or encounters an unsupported structure, `gct` seamlessly falls back to Rung 1 without failing execution.
+* **Environment Control**: Activate Docling across reading runs via `GCT_USE_DOCLING=1` or run document-specific escalation (`gct read <DOC_IDS...>`).
+* **Page Quality Auditing**: Automatically identifies scanned bitmap pages (0 extractable text characters), fragmented text runs, or empty table matrices.
 
 ### 2. Physical Evidence Anchoring
 Every claim stores coordinates in standard PDF points (`[x0, y0, x1, y1]`). Claims receive an unambiguous status:
@@ -244,7 +247,7 @@ To address the assurance deficit without unfair automated allegations, `gct flag
 | **Documents** | `gct doc add <SOURCE...>` | Ingest PDF, CSV, or XLSX files (files, folders, or URLs). |
 | | `gct doc list` | List active documents with SHA-256 hashes and quality flags. |
 | | `gct doc delete <ID>` | Archive or permanently delete a document and purge derived data. |
-| **Extraction** | `gct read` | Extract words, text layout, and ruled tables locally via `pdfplumber`. |
+| **Extraction** | `gct read` | Extract words, reading order, and tables locally via `pdfplumber` and `Docling`. |
 | | `gct extract` | Extract quantitative emissions and qualitative climate commitments (Rung 1 & 2). |
 | | `gct link` | Map extracted claims to physical bounding boxes on document pages. |
 | | `gct infer` | Propose and resolve reporting periods and organizational boundaries. |
@@ -303,9 +306,13 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 ## Status & Operational Notice
 
-This is **`v0.1.5-alpha` (Developer Preview)** experimental software. Please note the following verified acceptance boundaries:
+This is **`v0.2.0-alpha` (Story M1 Feature Release)** experimental software. Please note the following verified acceptance boundaries:
+* **Docling Reading Layer**: Deep layout and reading order recovery integrated into `gct read` (Rung 2) alongside deterministic `pdfplumber` (Rung 1).
+* **G2 Scorer v2 Ruler**: Frozen gold benchmark evaluation measuring machine-inferred and human-adjudicated claims with bounding box IoU >= 0.50.
+* **Multi-line Figure Header Stacking**: Automated vertical grouping for category and metric titles in figure stat cards.
+* **Boundary Precision & Segment Matching**: Standalone listed-entity scoping and maximal substring conflict resolution across corporate disclosure boundaries.
 * **Auditor Greenwashing Copilot**: Scans narrative and quantitative claims against report evidence using the EmeraldMind 4-type taxonomy (`gct flag propose`) with strict responsible abstention. Automated candidates are surfaced with visual bounding boxes for human auditor review; GCT never assigns public greenwashing flags autonomously (FR39).
-* **Rung 1 & Rung 2 Extraction**: Extraction combines rule-based parsing (`pdfplumber`) for structured numeric figures with local semantic filtering (`climatebert/environmental-claims` on Apple Silicon MPS / CUDA / CPU) for qualitative environmental commitments. Optional model dependencies are installed via `pip install "gct[models]"`.
+* **Rung 1 & Rung 2 Extraction**: Extraction combines rule-based parsing (`pdfplumber`, `Docling`) for structured numeric figures with local semantic filtering (`climatebert/environmental-claims` on Apple Silicon MPS / CUDA / CPU) for qualitative environmental commitments. Optional model dependencies are installed via `pip install "gct[models]"`.
 * **Privacy Limits in Sharing Features**: While sanitized packages exclude private documents and contributor names by default, note that PDF metadata, annotations, or fullwidth characters in database files are subject to limits documented in [docs/privacy.md](docs/privacy.md). Always review packages prior to sharing.
 
 ---
