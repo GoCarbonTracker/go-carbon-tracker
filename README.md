@@ -215,6 +215,22 @@ Every claim stores coordinates in standard PDF points (`[x0, y0, x1, y1]`). Clai
 * **PDF with Evidence Crops**: `gct report all --format pdf` generates executive reports containing 150 DPI page crops of the exact source evidence.
 * **Air-Gapped Privacy**: Sensitive documents default to `private`. Sanitized export packages strip out user identities, private files, and internal notes.
 
+### 8. Auditor Greenwashing Copilot & EmeraldMind Taxonomy
+To address the assurance deficit without unfair automated allegations, `gct flag propose` scans extracted narrative claims and quantitative targets against source document context using the **EmeraldMind 4-Type Taxonomy**:
+
+* **Type 1 (Factually False / Unaccredited Labels)**: Unverified certifications, unaccredited green labels, or misrepresented ESG compliance standards.
+* **Type 2 (Legal Mandates Framed as Voluntary)**: Framing mandatory statutory obligations (e.g. CSRD, EU ETS compliance) as voluntary corporate climate leadership.
+* **Type 3 (Boundary Mismatch / Scope Overgeneralization)**: Claims asserting whole-company or fleet-wide decarbonization (e.g. "100% zero emissions operations") when supporting evidence reveals it applies only to HQ buildings, a pilot facility, or excludes core subsidiaries.
+* **Type 4 (Direct Factual Contradiction)**: Narrative claims stating progress or emission reductions that are directly contradicted by numbers reported in the disclosure tables (e.g., claiming "reduced carbon footprint" alongside an increase in Scope 1 emissions).
+* **Strict Responsible Abstention**: Missing evidence, vague marketing language, or high ambition without contradictory proof strictly triggers an **Abstain** verdict. Tone-based accusations are strictly forbidden.
+
+#### Interactive Web UI Implementation:
+* **One-Click Flagging**: Select any claim in the evidence viewer and click **"Flag a potential greenwashing concern"** in the sidebar to record your rationale and audit capacity.
+* **Side-by-Side Proof**: Clicking any flagged or candidate claim immediately jumps the PDF viewer to the exact page with physical bounding-box highlighting, allowing instant side-by-side verification of narrative claims against reported table figures.
+* **Filter Bar**: Filter the claims table by review status, including `flag-raised` to review all flagged claims in a portfolio.
+* **Cytoscape Graph Explorer**: Flags render as linked triangular review nodes in both the **Neighbourhood** and **Hypergraph** views.
+* **FR39 Human-in-the-Loop Governance**: Automated scanning proposes unreviewed candidates. Only an auditor or practitioner can confirm (`gct flag raise` or web UI form) and commit a flag to the permanent audit trail.
+
 ---
 
 ## CLI Command Summary
