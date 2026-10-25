@@ -1723,6 +1723,28 @@ def cmd_troubleshoot_export(args) -> None:
                                           " you send them to anyone; they hold no document, company or contributor name.")
 
 
+def cmd_update(args) -> int:
+    """Run incremental link, infer, match, and publish build on a workspace in one step."""
+    conn = _open(args)
+    root = args.root
+    _, link_docs = link.link(conn, root, [], None)
+    _, infer_docs = infer.infer(conn, root, [], None)
+    _, match_docs = match.match(conn, root, [], None)
+    v = published.build(conn, root)
+    _print(args, {
+        "status": "ok",
+        "linked_documents": len(link_docs),
+        "inferred_documents": len(infer_docs),
+        "matched_documents": len(match_docs),
+        "version": v,
+    }, f"Updated workspace {root}:\n"
+       f"  - Link: {len(link_docs)} documents checked\n"
+       f"  - Infer: {len(infer_docs)} documents processed\n"
+       f"  - Match: {len(match_docs)} documents matched\n"
+       f"  - Published: {_version_line(v)} is now current.")
+    return 0
+
+
 def cmd_serve(args) -> None:
     from gct.api import server  # FastAPI and uvicorn add about 30 MB to every other command's memory (AC 17)
 
@@ -2185,6 +2207,9 @@ def build_parser() -> argparse.ArgumentParser:
     troubleshoot = group("troubleshoot", "help for a failed command (see docs/troubleshooting.md)")
     troubleshoot.add_parser("export", parents=[common], help="write a sanitised troubleshooting folder under exports/"
                             ).set_defaults(func=cmd_troubleshoot_export)
+
+    upd = top.add_parser("update", parents=[common], help="link, infer, match and build the published version in one step")
+    upd.set_defaults(func=cmd_update)
 
     serve = top.add_parser("serve", parents=[common], help="start the local service and open it in the browser")
     serve.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (default: 8765)")
