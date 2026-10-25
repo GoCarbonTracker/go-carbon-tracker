@@ -370,9 +370,9 @@ def bases_of(reading: dict) -> tuple[list[dict], bool]:
         seg_name = _clean(m.group(1))
         if seg_name and seg_name.isupper() and len(seg_name) <= 6:
             found.append({"kind": "reporting_boundary", "wording": _clean(m.group(0)), "boundary": "segment", "boundary_detail": seg_name})
-    for m in re.finditer(r'\bdetails\s+of\s+the\s+listed\s+entity\s+i\.?e\.?\s*([A-Za-z\s]+?)(?:\s*\([^)]+\))?(?:\n|$|\.)', answers, re.I):
+    for m in re.finditer(r'\bdetails\s+of\s+the\s+listed\s+entity\s+i\.?e\.?\s*([A-Za-z\s]+?)(?=\s+\d+\.|\s*\.|\n|$)', answers, re.I):
         found.append({"kind": "reporting_boundary", "wording": _clean(m.group(0)), "boundary": "standalone", "boundary_detail": _clean(m.group(1))})
-    for m in re.finditer(r'\breporting\s+boundary\s*:\s*[^.]{0,120}?\bcombining\s+(?:the\s+)?information\s+of\s+([^.]+)', answers, re.I):
+    for m in re.finditer(r'\bcombin\w*\s+the\s+information\s+of\s+([^.]+)', answers, re.I):
         found.append({"kind": "reporting_boundary", "wording": _clean(m.group(0)), "boundary": "subsidiary_set", "boundary_detail": _clean(m.group(1))})
     heading = bool(HEADING.search(answers)) and not any(f["kind"] == "reporting_boundary" for f in found)
     return found, heading
