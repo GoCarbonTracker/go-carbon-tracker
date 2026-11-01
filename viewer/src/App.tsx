@@ -946,7 +946,7 @@ export function App() {
               <button role="tab" id="tab-restate" aria-controls="body-restate" aria-selected={tab === "restate"}
                 onClick={() => setTab("restate")}>Restatements</button>
               <button type="button" className="copilot-toggle-btn" onClick={() => setCopilotOpen(!copilotOpen)}>
-                🛡️ Copilot Proposals
+                Copilot proposals
               </button>
             </div>
             {tab !== "restate" && <Transfer tab={tab} sent={sent[tab]} pinned={pinned} newer={newer} current={checkVersion} onTransfer={transfer} />}

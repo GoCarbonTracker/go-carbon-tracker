@@ -66,24 +66,15 @@ export function CopilotDrawer({
 
   const activeCandidates = candidates.filter((c) => !dismissed.has(c.claim_id));
 
-  const typeColor = (type: string) => {
-    if (type.includes("Type 1")) return "#d97706"; // Amber
-    if (type.includes("Type 2")) return "#2563eb"; // Blue
-    if (type.includes("Type 3")) return "#7c3aed"; // Purple
-    if (type.includes("Type 4")) return "#dc2626"; // Rose / Red
-    return "#4b5563";
-  };
-
   return (
     <aside className="copilot-drawer" aria-label="Auditor Copilot Proposals">
       <div className="copilot-header">
         <div className="copilot-title">
-          <span className="copilot-icon">🛡️</span>
           <h3>Auditor Copilot Proposals</h3>
           <span className="copilot-badge">{activeCandidates.length} unreviewed</span>
         </div>
         <button type="button" className="close-btn" onClick={onClose} aria-label="Close copilot drawer">
-          ✕
+          Close
         </button>
       </div>
 
@@ -97,7 +88,7 @@ export function CopilotDrawer({
 
       {!loading && activeCandidates.length === 0 && (
         <div className="empty-state">
-          <p>✓ No greenwashing candidates surfaced.</p>
+          <p>No greenwashing candidates surfaced.</p>
           <span className="meta">
             Strict Responsible Abstention: Available disclosures contain no unverified assertions or contradictions.
           </span>
@@ -114,7 +105,7 @@ export function CopilotDrawer({
               </span>
             </div>
 
-            <div className="taxonomy-pill" style={{ borderColor: typeColor(c.greenwashing_type), color: typeColor(c.greenwashing_type) }}>
+            <div className="taxonomy-pill">
               {c.greenwashing_type}
             </div>
 
