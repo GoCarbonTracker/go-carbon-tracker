@@ -192,7 +192,7 @@ export function Tables({ filter, dataVersion, openEvidence, selection, onSelecti
                     <td>
                       <button type="button" className="link" tabIndex={-1} onClick={() => open(r)}>{locationText(r)}</button>
                     </td>
-                    <td title={metricText(r)}>
+                    <td className="wording" title={metricText(r)}>
                       <div className="clamp">
                         <span className={isR2(r) ? "pill-badge r2-pill" : "pill-badge r1-pill"}>
                           {isR2(r) ? "R2 Qualitative" : "R1 Table"}

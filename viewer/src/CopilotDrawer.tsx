@@ -62,11 +62,20 @@ export function CopilotDrawer({
       });
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   const activeCandidates = candidates.filter((c) => !dismissed.has(c.claim_id));
 
   return (
+    <>
+    <div className="copilot-backdrop" onClick={onClose} aria-hidden="true" />
     <aside className="copilot-drawer" aria-label="Auditor Copilot Proposals">
       <div className="copilot-header">
         <div className="copilot-title">
@@ -79,18 +88,18 @@ export function CopilotDrawer({
       </div>
 
       <p className="copilot-notice">
-        <strong>FR39 Responsible AI Guardrail:</strong> These candidates are algorithmic proposals surfaced by the EmeraldMind
-        taxonomy. They require verification by a human auditor before being recorded on the immutable ledger.
+        <strong>Proposals, not findings.</strong> These candidates come from the EmeraldMind taxonomy. A human auditor has to verify
+        each one before it is recorded on the ledger.
       </p>
 
-      {loading && <p className="hint">Scanning workspace claims against evidence...</p>}
+      {loading && <p className="hint">Scanning the claims against their evidence.</p>}
       {error && <p className="problem">{error}</p>}
 
       {!loading && activeCandidates.length === 0 && (
         <div className="empty-state">
           <p>No greenwashing candidates surfaced.</p>
           <span className="meta">
-            Strict Responsible Abstention: Available disclosures contain no unverified assertions or contradictions.
+            None of the available disclosures has a claim the taxonomy flags.
           </span>
         </div>
       )}
@@ -142,5 +151,6 @@ export function CopilotDrawer({
         ))}
       </ul>
     </aside>
+    </>
   );
 }

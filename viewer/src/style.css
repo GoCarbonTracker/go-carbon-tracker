@@ -714,6 +714,13 @@ code {
   background: #f3f4f6;
 }
 
+.copilot-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.2);
+  z-index: 999;
+}
+
 .copilot-drawer {
   position: fixed;
   top: 0;

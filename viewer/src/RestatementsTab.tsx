@@ -35,6 +35,9 @@ export type RestatementPair = {
   };
 };
 
+// A metric key such as ghg_scope_1 is an identifier; show it as words.
+const readable = (key: string | null) => (key ? key.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()) : "");
+
 type RestateResponse = {
   status: string;
   pairs: RestatementPair[];
@@ -126,13 +129,13 @@ export function RestatementsTab({
         <input
           type="search"
           className="restate-search"
-          placeholder="Filter metrics (e.g. scope 1, china)..."
+          placeholder="Filter metrics, for example scope 1"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
 
-      {loading && <p className="hint">Comparing cross-report figures across disclosure cycles...</p>}
+      {loading && <p className="hint">Comparing figures across reports.</p>}
       {error && <p className="problem">{error}</p>}
 
       {!loading && filtered.length === 0 && (
@@ -141,7 +144,7 @@ export function RestatementsTab({
 
       {!loading && filtered.length > 0 && (
         <table className="restate-table">
-          <caption>Cross-Report Harmonization & Restatement Reconciliation ({filtered.length} pairs)</caption>
+          <caption>Same figure in two reports ({filtered.length} pairs)</caption>
           <thead>
             <tr>
               <th scope="col">Company</th>
@@ -157,9 +160,8 @@ export function RestatementsTab({
             {filtered.slice(0, 250).map((p, idx) => (
               <tr key={idx} className="restate-row">
                 <td className="company-col">{p.company}</td>
-                <td className="metric-col" title={p.label}>
-                  <div className="clamp">{p.label}</div>
-                  {p.metric_key && <span className="meta">{p.metric_key}</span>}
+                <td className="metric-col" title={p.label || p.metric_key || undefined}>
+                  <div className="clamp">{p.label || readable(p.metric_key)}</div>
                 </td>
                 <td className="period-col">
                   {p.period_start} · {p.period_end}

@@ -64,7 +64,11 @@
 .claims-table .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  min-width: 6rem;
+}
+
+.claims-table td.wording {
+  min-width: 14rem;
 }
 
 .claims-table .select {
