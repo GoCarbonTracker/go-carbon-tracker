@@ -19,6 +19,8 @@ from test_api import OPENER, call, cookie
 from gct.api import app as app_module
 from gct.api import server
 
+# Claims in the gate fixture: 14 numeric rows plus the "Reporting boundary" text claims added by M1-3.8-C (checked 2026-11-01).
+GATE_CLAIMS = 18
 ROOT = Path(__file__).resolve().parent.parent
 VIEWER = ROOT / "viewer"
 DIST = ROOT / "gct" / "viewer_dist"
@@ -380,16 +382,16 @@ def test_the_shell_counts_on_its_pinned_version_and_offers_a_newer_one(tmp_path,
         out = browse(s, tmp_path, "shell")
     finally:
         s.stop()
-    assert out["all"] == "14 claims match in data version 1."
-    assert out["acme"] == "9 claims match in data version 1."
+    assert out["all"] == f"{GATE_CLAIMS} claims match in data version 1."
+    assert out["acme"] == "11 claims match in data version 1."
     assert out["evidenceHidden"] is True
     assert out["openPanels"] == 1  # review F4
     assert out["covering"] == {"1280": [], "900": []}  # review F4: no open choice panel lies over the count line
-    assert "2 claims of 1 archived document are not in this or any view." in out["lines"]
+    assert "3 claims of 1 archived document are not in this or any view." in out["lines"]
     assert out["series"] == 5
     assert out["second_writer"] == 200
     assert out["notice"] == "Data version 2 is available. Reload"
-    assert out["reloaded"] == "14 claims match in data version 2."
+    assert out["reloaded"] == f"{GATE_CLAIMS} claims match in data version 2."
 
 
 # Story 6.1 review F1: a wording set from outside the filter bar (a saved view, story 6.4) stays in the filter after the
@@ -426,7 +428,7 @@ def test_transfer_between_tables_and_graphs(tmp_path):
     assert g["companies"] == ["Beta", "Acme"] and g["cells"] == 1  # two companies; the sheet row with its cell node
     assert g["nodes"] == [f"claim:{i}" for i in g["picked"]]
     assert g["chip"] == {"text": "2 claims from Tables", "label": "Remove the selection: 2 claims from Tables"}
-    assert g["line"] == "14 claims match in data version 1." and g["graph"] == "2 claims match in data version 1."
+    assert g["line"] == f"{GATE_CLAIMS} claims match in data version 1." and g["graph"] == "2 claims match in data version 1."
     b = out["back"]  # G3: the same ids, the same filter (count line) and version
     assert b["bar"]["buttons"] == ["Show 2 claims in Tables", "Show this series in Tables (disabled)"]
     assert b["ids"] == g["picked"] and b["line"] == g["line"]
@@ -460,7 +462,7 @@ def test_transfer_between_tables_and_graphs(tmp_path):
     assert out["stale"]["reason"] == ("Data version 1 is no longer the current one; the current version is 2. Reload to see"
                                       " version 2.")
     assert out["stale"]["tab"] == "Tables" and out["stale"]["notice"] == "Data version 2 is available. Reload"
-    assert out["reloaded"]["reason"] == none and out["reloaded"]["line"] == "14 claims match in data version 2."
+    assert out["reloaded"]["reason"] == none and out["reloaded"]["line"] == f"{GATE_CLAIMS} claims match in data version 2."
     assert not re.search(r"verified|assured|certified|compliant", json.dumps(out), re.I)
 
 
@@ -475,8 +477,8 @@ def test_transfer_across_pages_and_the_graph_limit(tmp_path):
         s.stop()
     assert out["across"]["chip"]["text"] == "405 claims from Tables" and out["across"]["nodes"] == 405
     assert out["across"]["graph"] == "405 claims match in data version 1."
-    assert out["over"] == {"buttons": ["Show 501 rows in Graphs (disabled)", "Show as a time series"],
-                           "reason": "501 rows selected; a graph draws at most 500. Select fewer.", "tab": "Tables"}
+    assert out["over"] == {"buttons": ["Show 512 rows in Graphs (disabled)", "Show as a time series"],
+                           "reason": "512 rows selected; a graph draws at most 500. Select fewer.", "tab": "Tables"}
 
 
 
@@ -557,7 +559,7 @@ def test_saved_views_in_a_headless_browser(tmp_path):
         s.stop()
     assert out["line"] == f"{len(v4)} claims match in data version 4."
     assert sorted(out["ids"]) == sorted(v4) and set(v4) == set(v3) & set(v1)  # the later report's claims are gone
-    assert ("4 claims of 2 archived documents are not in this or any view. Restore a document to include its claims."
+    assert ("6 claims of 2 archived documents are not in this or any view. Restore a document to include its claims."
             in out["count"])  # F7 (Q21, E6-D5): the gate fixture's own archived document and this one
 
 

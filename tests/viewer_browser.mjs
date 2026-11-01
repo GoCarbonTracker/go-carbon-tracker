@@ -344,7 +344,7 @@ const tablesGate = async () => {
   out.afterEscape = await step(() => ({ open: !!document.querySelector(".cell-view"), active: T.active() }));
   out.cleared = await step(async () => {
     T.tick("Company", "Acme");
-    await T.wait(() => T.cleared() && T.settled() && T.ids().length < 14, "the Acme rows");
+    await T.wait(() => T.cleared() && T.settled() && T.ids().length < 18, "the Acme rows");
     return { cleared: T.cleared(), count: T.count(), sorts: T.sorts(), companies: [...new Set(T.rows().map((tr) => tr.cells[1].innerText))] };
   });
   out.requests = await step(() => performance.getEntriesByType("resource").map((e) => e.name));
@@ -577,18 +577,18 @@ const transferGate = async () => {
   await step(() => document.querySelector(".count .chip button").focus());
   await press("Enter");
   out.removed = await step(async () => {
-    await T.wait(() => !P.chip() && T.settled() && T.ids().length === 14, "every row again");
+    await T.wait(() => !P.chip() && T.settled() && T.ids().length === 18, "every row again");
     const active = P.active();
     P.by(".tabs button", "Graphs").click();
     await T.wait(() => P.chip(), "the Graphs chip");
     const graphsChip = P.chip();
     document.querySelector(".count .chip button").click();
-    await T.wait(() => !P.chip() && P.claimNodes().length === 14, "the whole graph");
+    await T.wait(() => !P.chip() && P.claimNodes().length === 18, "the whole graph");
     P.by(".tabs button", "Tables").click();
     return { active, graphsChip, line: P.line() };
   });
   const seriesAsk = async (pick) => {
-    await T.wait(() => T.settled() && T.ids().length === 14 && T.checked().length === 0, "the rows, none checked");
+    await T.wait(() => T.settled() && T.ids().length === 18 && T.checked().length === 0, "the rows, none checked");
     pick().forEach((tr) => tr.querySelector("input.select-row").click());
     await T.wait(() => P.bar().buttons[1] === "Show as a time series", "the time-series button");
     P.press(1);
@@ -612,19 +612,19 @@ const transferGate = async () => {
   });
   out.seriesBack = await step(async () => {
     document.querySelector(".count .chip button").click();
-    await T.wait(() => P.claimNodes().length === 14, "the whole graph");
+    await T.wait(() => P.claimNodes().length === 18, "the whole graph");
     const node = P.cy().nodes(".series")[0];
     P.pick([node.id()]);
     await T.wait(() => P.bar().buttons[1] === "Show this series in Tables", "the series button");
     const bar = P.bar();
     P.press(1);
-    await T.wait(() => P.tab() === "Tables" && P.chip() && T.settled() && T.ids().length < 14, "the series rows");
+    await T.wait(() => P.tab() === "Tables" && P.chip() && T.settled() && T.ids().length < 18, "the series rows");
     return { node: node.id(), bar, chip: P.chip(), ids: T.ids().sort((a, b) => a - b) };
   });
   out.kinds = await step(async () => {
     document.querySelector(".count .chip button").click();
     P.by(".tabs button", "Graphs").click();
-    await T.wait(() => P.claimNodes().length === 14, "the whole graph");
+    await T.wait(() => P.claimNodes().length === 18, "the whole graph");
     const c = P.cy();
     const firsts = new Map();
     c.nodes().forEach((n) => {
@@ -648,7 +648,7 @@ const transferGate = async () => {
   // A series node with a claim node, and two series nodes: one series or claims only.
   out.mixed = await step(async () => {
     P.by(".tabs button", "Graphs").click();
-    await T.wait(() => P.claimNodes().length === 14, "the whole graph");
+    await T.wait(() => P.claimNodes().length === 18, "the whole graph");
     const c = P.cy();
     const [one, two] = c.nodes(".series").map((n) => n.id());
     const seen = [];
@@ -690,8 +690,8 @@ const transferLimit = async () => {
   await tablesReady();
   const across = await step(async () => {
     T.section("Tables and Graphs");
-    await T.wait(() => T.settled() && T.paging() === "Rows 1 to 200 of 501", "page 1");
-    for (const paging of ["Rows 201 to 400 of 501", "Rows 401 to 501 of 501"]) {
+    await T.wait(() => T.settled() && T.paging() === "Rows 1 to 200 of 512", "page 1");
+    for (const paging of ["Rows 201 to 400 of 512", "Rows 401 to 512 of 512"]) {
       T.table().querySelector("input.select-page").click();
       T.button("Next").click();
       await T.wait(() => T.settled() && T.paging() === paging, paging);
@@ -705,9 +705,9 @@ const transferLimit = async () => {
   });
   const over = await step(async () => {
     P.by(".tabs button", "Tables").click();
-    await T.wait(() => T.settled() && T.paging() === "Rows 401 to 501 of 501", "page 3 again");
+    await T.wait(() => T.settled() && T.paging() === "Rows 401 to 512 of 512", "page 3 again");
     T.table().querySelector("input.select-page").click();
-    await T.wait(() => T.count() === "501 selected" && P.bar().reason, "501 selected");
+    await T.wait(() => T.count() === "512 selected" && P.bar().reason, "512 selected");
     P.press(0);
     await P.sleep(200);
     return { ...P.bar(), tab: P.tab() };
@@ -778,7 +778,7 @@ const viewsSave = async () => {
     await T.wait(() => [...document.querySelectorAll(".choices label")].some((l) => l.textContent.trim() === "Acme"), "the companies");
     T.tick("Company", "Acme");
     T.tick("Metric", "Scope 1 emissions");
-    await T.wait(() => V.chosen("Metric") === "1" && parseInt(V.line()) < 14 && T.settled() && T.ids().length === parseInt(V.line()),
+    await T.wait(() => V.chosen("Metric") === "1" && parseInt(V.line()) < 18 && T.settled() && T.ids().length === parseInt(V.line()),
       "Acme's Scope 1 rows");
     return { line: V.line(), ids: T.ids() };
   });
@@ -1040,10 +1040,10 @@ if (mode === "stale") {
       };
       const tablesAll = await tables("");
       g.tick("Company", "Acme");
-      await g.wait(() => g.shell().includes("9 claims") && g.drawn(9), "Acme's graph");
+      await g.wait(() => g.shell().includes("11 claims") && g.drawn(11), "Acme's graph");
       const acme = { shell: g.shell(), graph: g.graph(), tables: await tables(tablesAll.rows) };
       g.tick("Company", "Acme");
-      await g.wait(() => g.shell().includes("14 claims") && g.drawn(14), "every claim again");
+      await g.wait(() => g.shell().includes(`18 claims`) && g.drawn(18), "every claim again");
       const text = document.querySelector(".graphs").innerText;
       return { before, after: g.loaded(/cytoscape/).length, shell: g.shell(), graph: g.graph(), tablesAll, acme,
         role: canvas.getAttribute("role"), label: canvas.getAttribute("aria-label"),
@@ -1206,7 +1206,7 @@ if (mode === "stale") {
       await new Promise((r) => setTimeout(r, 300));
       // F11 i1: the drawing on screen stays, labelled with its own version; nothing of the new version is drawn. Review
       // 6.3 P2: the pressed view is the one drawn.
-      const kept = { drawn: g.drawn(14), graph: g.graph(), hint: document.querySelector(".graphs .hint")?.innerText ?? null,
+      const kept = { drawn: g.drawn(18), graph: g.graph(), hint: document.querySelector(".graphs .hint")?.innerText ?? null,
         pressed: document.querySelector(".graph-views [aria-pressed=true]")?.textContent ?? null };
       g.view("Neighbourhood");
       document.querySelector(".notice button").click();
