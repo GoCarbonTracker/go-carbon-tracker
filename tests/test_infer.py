@@ -562,3 +562,13 @@ def test_group_decisions_never_override_a_claim_by_claim_decision(ws, db, gct, m
     assert gct("infer", "resolve", refused, "--field", "period", "--kind", "fiscal_year", "--start", "2023-04-01",
                "--end", "2024-03-31", *WHO).code == 0
     assert period(listed(gct, doc)[refused])[0] == "resolved"
+
+
+def test_a_combined_boundary_sentence_is_read_once():
+    # c969a9a widened the combined-boundary rule, so one sentence gave two details and a boundary conflict.
+    def details(text):
+        found, _ = infer.bases_of({"text": text, "words": [], "pages": 1})
+        return [f["boundary_detail"] for f in found if f["kind"] == "reporting_boundary"]
+    assert len(details("Report is prepared on a consolidated basis combining the information of Beta Power.")) == 1
+    # a sentence without the consolidated-basis wording is still read by the wider rule
+    assert details("The data combines the information of three entities: TML, TMPVL and TPEML.") == ["three entities: TML, TMPVL and TPEML"]

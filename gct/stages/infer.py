@@ -378,6 +378,8 @@ def bases_of(reading: dict) -> tuple[list[dict], bool]:
     for m in re.finditer(r'\bdetails\s+of\s+the\s+listed\s+entity\s+i\.?e\.?\s*([A-Za-z\s]+?)(?=\s+\d+\.|\s*\.|\n|$)', answers, re.I):
         found.append({"kind": "reporting_boundary", "wording": _clean(m.group(0)), "boundary": "standalone", "boundary_detail": _clean(m.group(1))})
     for m in re.finditer(r'\bcombin\w*\s+the\s+information\s+of\s+([^.]+)', answers, re.I):
+        if any(f.get("boundary") == "subsidiary_set" and _clean(m.group(1)) in (f.get("boundary_detail") or "") for f in found):
+            continue  # the sentence rule above already read this one; a second detail string would conflict with it
         found.append({"kind": "reporting_boundary", "wording": _clean(m.group(0)), "boundary": "subsidiary_set", "boundary_detail": _clean(m.group(1))})
     heading = bool(HEADING.search(answers)) and not any(f["kind"] == "reporting_boundary" for f in found)
     return found, heading
