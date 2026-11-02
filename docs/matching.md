@@ -166,8 +166,9 @@ set. The printed value and unit are never rewritten.
 
 ## Reserved keys
 
-These 19 keys are in the list of accepted families and have no phrase, so the matcher never assigns them. A later list
-version adds the phrase when a page or a form gives one.
+These 19 keys have an entry in the table of accepted families but no phrase in the metric list, so the matcher never
+assigns them. A later list version adds the phrase when a page or a form gives one. Nine are count keys and ten are
+currency keys.
 
 - `employees_other`: the BRSR employee table has no "other" column.
 - `board_meetings_held`: sentences only; a sentence gets no family.
