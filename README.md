@@ -12,7 +12,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT" /></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-%3E%3D%203.11-blue.svg" alt="Python >= 3.11" /></a>
   <img src="https://img.shields.io/badge/tests-1467%20passed-brightgreen.svg" alt="1467 Tests Passed" />
-  <img src="https://img.shields.io/badge/release-v0.2.0--alpha-orange.svg" alt="Release: v0.2.0-alpha" />
+  <img src="https://img.shields.io/badge/release-v0.2.1--alpha-orange.svg" alt="Release: v0.2.1-alpha" />
   <img src="https://img.shields.io/badge/architecture-local--first-purple.svg" alt="Local First" />
   <a href="https://gocarbontracker.net/paper"><img src="https://img.shields.io/badge/Paper-Claims%20as%20Hyperedges%20(v5.0)-10b981.svg" alt="Research Paper: Claims as Hyperedges" /></a>
   <a href="https://gocarbontracker.net/paper.pdf"><img src="https://img.shields.io/badge/PDF-20%20Pages-ef4444.svg" alt="Download Paper PDF" /></a>
@@ -317,7 +317,8 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 ## Status & Operational Notice
 
-This is **`v0.2.0-alpha` (Story M1 Feature Release)** experimental software. Please note the following verified acceptance boundaries:
+This is **`v0.2.1-alpha` (Story M1 Feature Release)** experimental software. Please note the following verified acceptance boundaries:
+* **Metric list v3 (M1-4.6)**: 43 canonical metric keys with count and currency unit families, so headcount, board, safety, spend and financial totals form series next to emissions, energy, water and waste (`docs/matching.md`). Workspaces upgrade through migration 0023.
 * **Docling Reading Layer**: Deep layout and reading order recovery integrated into `gct read` (Rung 2) alongside deterministic `pdfplumber` (Rung 1).
 * **G2 Scorer v2 Ruler**: Frozen gold benchmark evaluation measuring machine-inferred and human-adjudicated claims with bounding box IoU >= 0.50.
 * **Multi-line Figure Header Stacking**: Automated vertical grouping for category and metric titles in figure stat cards.
