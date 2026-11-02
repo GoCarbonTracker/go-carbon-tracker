@@ -137,12 +137,12 @@ As `infer accept`, for a rejection: it acts on members still proposed and on mem
 `status` is `ok` when no document failed (exit 0), else `partial` (exit 4), which adds `cause` and `next_action` at the top. `action` is `matched` or `skipped` (no claims yet; then `next_action` is `extract it first: gct extract`; for `run retry`, also a document no longer active). `matched` is 1 when the document's claims were given a metric key and unit by this command, `cached` 1 when its newest claim versions had not changed since. `mapped` and `unmapped` count the newest claim versions by whether a metric key was assigned, `unit_unknown` those without a known unit. Nothing to match gives `{"status": "ok", "documents": []}`. See `docs/matching.md` for the rules.
 
 ## match metrics
-- top: status, rules_version, metrics_version, units_version, excluded, metrics, units, prefixes
+- top: status, rules_version, metrics_version, units_version, excluded, metrics, units, prefixes, count_units, count_keys, reserved_keys
 - metrics: key, must, never
 - units: text, base, factor
 - prefixes: text, factor
 
-The built-in metric list and unit table. `excluded` lists the wording that leaves a label unmapped for every key. Each metric has the phrases one of which the label must contain (`must`) and the phrases it may not contain (`never`). Each unit is the text as looked up (lowercased, the word `in`, brackets and spaces removed), its base unit (the conversion family) and the factor to it. `prefixes` are the magnitude words multiplied in.
+`count_units` (the printed words that make a bare count a `count`), `count_keys` (the keys that rule applies to) and `reserved_keys` (keys with no phrase yet, never assigned) are lists of strings. The built-in metric list and unit table, with the currency words in `units`. `excluded` lists the wording that leaves a label unmapped for every key. Each metric has the phrases one of which the label must contain (`must`) and the phrases it may not contain (`never`). Each unit is the text as looked up (lowercased, the word `in`, brackets and spaces removed), its base unit (the conversion family) and the factor to it. `prefixes` are the magnitude words multiplied in.
 
 ## match review
 - top: status, items

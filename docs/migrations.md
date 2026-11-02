@@ -9,8 +9,10 @@ up-to-date workspace applies nothing and records nothing.
 A workspace made by a newer gct than the one installed is refused (exit code 4) and nothing is written.
 Install the newer gct to open it.
 
-No migration edits or removes existing rows. Each one only adds tables and the triggers that keep them
-append-only, or (11) a column that is empty on existing rows.
+No migration edits or removes existing rows. Most only add tables and the triggers that keep them append-only, or (11)
+a column that is empty on existing rows. Two rebuild tables to widen a CHECK: 22 (`claim_version`, `basis`,
+`inference`, `inference_review`, `sheet_mapping`) and 23 (`metric_assignment`). A rebuild copies every row, drops the old
+table, renames the new one and creates the indexes and append-only triggers again under the same names.
 
 | Version | Story | Adds |
 |---|---|---|
@@ -35,3 +37,5 @@ append-only, or (11) a column that is empty on existing rows.
 | 19 | M1-5.4 | `highlight` (a contributor's highlight of one claim version: capacity and a short note as typed; a later highlight is a new row, and which one is a contributor's latest and whether it binds are computed on read; it confirms, corrects and decides nothing); see "Highlights" in `docs/reviews.md` |
 | 20 | M1-6.4 | `saved_view` (a saved view of the Tables and Graphs section: its name as typed, `save` or `remove`, the normalised filter and the section it opens on a save, and who saved or removed it; the newest row per name decides, saving under an existing name keeps the earlier row, and a removal is a row too; a view stores no claims and no data version and is never published); see "Saved views and guided questions" in `docs/views.md` |
 | 21 | M1-7.1 | `document_label` (a document's privacy label, `private` or `shareable`, and its availability, `public`, `internal` or `unknown`: one row when it is registered, with no contributor, and one row per `gct doc label` change with the contributor, capacity and rationale; the newest row is the document's label). The upgrade writes no row: an existing document keeps its `privacy` with availability `unknown` until it is relabelled; see "Privacy labels" in `README.md` |
+| 22 | M1-C4 | The reporting boundary `segment`: `claim_version`, `basis`, `inference`, `inference_review` and `sheet_mapping` are rebuilt with a CHECK that allows it. Every row is copied; no row changes |
+| 23 | M1-4.6 | `metric_assignment` is rebuilt with `unit_source` allowed to be `key` as well as `unit` and `label` (a count taken from the metric key, see "Unit table" in `docs/matching.md`). Every row is copied; the index and the two append-only triggers are created again under the same names, which `gct doc delete` relies on |

@@ -209,7 +209,7 @@ Every claim stores coordinates in standard PDF points (`[x0, y0, x1, y1]`). Clai
 * Stores explanatory footnotes and captures contributor rationales.
 
 ### 4. Automated Time-Series & Cross-Company Comparison
-* Automated matching groups figures by company, canonical metric key, reporting boundary, and unit family.
+* Automated matching groups figures by company, canonical metric key, reporting boundary, and unit family. Besides emissions, energy, water and waste, it links headcount, board, safety, spend and financial totals: counts as counts, and each currency on its own with no exchange rate (see `docs/matching.md`).
 * Proposed periods (including Indian fiscal years ending March 31) and default boundary scopes project directly into queryable time series.
 * Supports dual-track Scope 2 emissions reporting (`ghg_scope_2_location` and `ghg_scope_2_market`).
 

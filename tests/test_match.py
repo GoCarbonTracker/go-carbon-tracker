@@ -1,12 +1,14 @@
 """Story 4.1: metric keys, units, series across periods and reports, the review queue. No real report is used."""
 import json
+import re
 import sqlite3
+from pathlib import Path
 
 import pytest
 
 from conftest import grid, make_pdf
 from test_extract import count, newest_run
-from gct.stages import match
+from gct.stages import extract, match
 from gct.workspace import layout, published, store
 
 WHO = ("--as", "ana", "--capacity", "analyst", "--rationale", "checked on the page")
@@ -16,11 +18,11 @@ ENERGY = ["Total energy consumed (A+B+C) (in GJ)", "", "5,000", "4,800"]
 WASTE = ["Total waste generated (A+B+C)", "A+B+C", "300", "250"]
 
 
-def report(rows, periods=BOTH, boundary="standalone", fy=True) -> bytes:
+def report(rows, periods=BOTH, boundary="standalone", fy=True, lines=()) -> bytes:
     """A BRSR-shaped page: the fiscal-year statement, the item-13 boundary answer and a ruled table with a unit column
-    and one column per period, as rung 1 reads it."""
+    and one column per period, as rung 1 reads it. `lines` are extra text lines (x, y, text)."""
     t = grid(40, 200, [250, 60] + [80] * len(periods), [20] * (len(rows) + 1), [["Parameter", "Unit", *periods], *rows])
-    text = [(40, 80, "The financial year ended March 31, 2025.")] if fy else []
+    text = [(40, 80, "The financial year ended March 31, 2025."), *lines] if fy else list(lines)
     if boundary:
         text.append((40, 100, f"Reporting boundary: Report is prepared on a {boundary} basis."))
     return make_pdf([{"text": t["text"] + text, "lines": t["lines"]}])
@@ -83,7 +85,7 @@ def test_migration_12_applies_to_a_version_11_workspace(tmp_path, gct):
     c.close()
     assert gct("contributor", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
-    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 22
+    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 23
     c.close()
 
 
@@ -479,3 +481,313 @@ def test_projection_schema_6(ws, db, gct, make_file, acme):
     assert (linked["link"], linked["comparable"], linked["reason"], linked["value_base"]) == ("reviewed", 0, "boundary unknown", None)
     assert next(c for c in claims if c["id"] == uncertain["id"])["match_state"] == "reviewed"
     assert gct("publish", "restore").code == 0
+
+
+# Story 4.6, metric list v3. A document phrase names the report and page it was read from (labels file of 2026-11-02:
+# Tata Motors BRSR FY2024-25 = doc 1, Annual Report 2023-24 = 6, BRSR FY2023-24 = 7, Mahindra IAR 2024-25 = 8).
+V3_LABELS = [
+    ("permanent employees (d)", "employees_total"),  # doc 1 p3
+    ("total employees (d+ e)", "employees_total"),  # doc 7 p2
+    ("total workers (f +g)", "workers_total"),  # doc 1 p3; "(f+g)" in the story
+    ("total workers (f+g)", "workers_total"),
+    ("total employees (d+ e) male", "employees_male"),  # doc 1 p3, column-joined
+    ("total employees (d+ e) female", "employees_female"),  # doc 1 p3, column-joined
+    ("no. of fatalities", "fatalities"),  # doc 1 p45 (BRSR P3 Q11)
+    ("total recordable work-related injuries", "recordable_injuries"),  # doc 1 p45
+    ("board of directors total (a)", "board_size"),  # doc 8 p115
+    ("audit fees", "auditor_fees"),  # doc 8 p110
+    ("revenue from operations", "revenue_total"),  # doc 8 p45, doc 6 p217
+    ("gross turnover", "revenue_total"),  # doc 8 p228
+    ("turnover (in rs.)", "revenue_total"),  # BRSR Section A shape
+    ("paid-up capital", "paid_up_capital"),  # doc 7 p1
+    ("net worth", "net_worth"),  # doc 8 p141
+    ("underlying ebitda", "ebitda"),  # doc 6 p217
+    ("operating profit", "operating_income"),  # doc 6 p134
+    ("profit before tax", "profit_before_tax"),  # doc 6 p217
+    ("profit before taxation", "profit_before_tax"),  # doc 8 p45 (IAR 2024-25), decided 2026-11-02
+    ("profit for the year", "net_income"),  # doc 6 p217
+    ("total assets", "total_assets"),  # doc 6 p280
+    ("(c) cash and cash equivalents", "cash_equivalents"),  # doc 6 p355
+    ("(b) trade receivables", "accounts_receivable"),  # doc 6 p355
+    ("inventories", "inventory"),  # doc 6 p282
+    ("net cash from operating activities", "operating_cash_flow"),  # doc 6 p282
+    ("dividend paid", "dividends_paid"),  # doc 6 p374
+    ("r&d expenditure", "rd_expenditure"),  # doc 8 p178, a sentence: currency keys are not limited to table cells
+    # Form wording, copied from the form text on 2026-11-02:
+    # SEBI, Annexure I (BRSR format) to circular SEBI/HO/CFD/CMD-2/P/CIR/2021/562 of 10 May 2021, PDF page 9, Principle 1
+    # Essential Indicator 2, monetary table, row "Penalty/ Fine", column "Amount (In INR)".
+    ("Penalty/ Fine", "regulatory_fines"),
+    # Companies (Corporate Social Responsibility Policy) Amendment Rules 2021, Gazette Part II Section 3(i), Annexure II
+    # (format of the annual report on CSR activities), item 8 row (f) and the set-off table row (ii), pages 18 and 19.
+    ("Total amount spent for the Financial Year", "community_investment"),
+]
+V3_UNMAPPED = [
+    "turnover",  # doc 9 p225 and p233 print "turnover rate" 25 times: bare turnover is not a phrase
+    "employee turnover rate", "voluntary turnover rate", "inventory turnover",
+    "turnover rate for permanent employees and workers",  # doc 1 BRSR P3 Q3, a percent table
+    "total equity and liabilities", "capital expenditure on r&d", "borrowings",
+    "board meetings held",  # reserved
+    "the board of directors held 7 meetings",
+    "number of women on the board", "revenue per employee", "employees by region", "r&d investment",
+    # Ind AS Schedule III Division II prints no "Total current assets", "Total current liabilities" or "Total equity" row
+    # (ICAI Guidance Note on Division II, balance sheet format, pages 111 to 114): these keys are reserved.
+    "total current assets", "total current liabilities", "total equity",
+    "(i) low-carbon r&d investment", "total r&d expenditure (%)",
+]
+
+
+@pytest.mark.parametrize("label, key", V3_LABELS)
+def test_metric_list_v3_maps_printed_labels(label, key):
+    assert match.metric_of(label)[0] == key
+
+
+@pytest.mark.parametrize("label", V3_UNMAPPED)
+def test_metric_list_v3_leaves_these_unmapped(label):
+    assert match.metric_of(label) == (None, None)
+
+
+def test_metric_list_v3_edges():
+    assert match.metric_of("Penalty/ Fine", "Amount (In INR)")[0] == "regulatory_fines"
+    assert match.metric_of("total r&d expenditure", "%") == (None, None)  # the exclusion on the printed unit
+    assert match.metric_of("scope 1 ghg inventory")[0] == "ghg_scope_1"  # "inventories" is not "inventory"
+    assert match.metric_of("board of directors 9")[0] == "board_size"
+    assert match.metric_of("profit before tax and net worth") == (None, "ambiguous")  # two v3 keys
+    assert [match.metric_of(label)[0] for label in (  # BRSR 20(b) and the No. and % columns of one row
+        "total employees (d+ e) differently abled", "permanent employees (d) male", "board of directors female")] == [None] * 3
+
+
+# AC 3 (D1): counts
+CELL, SENTENCE = "t1r2c3", "p1s1"
+
+
+@pytest.mark.parametrize("label, unit, locator, expected", [
+    ("permanent employees (d)", None, CELL, ("count", 1.0, "key")),
+    ("permanent employees (d)", "  ", CELL, ("count", 1.0, "key")),
+    ("permanent employees (d)", "nos.", CELL, ("count", 1.0, "unit")),
+    ("permanent employees (d)", "Persons", CELL, ("count", 1.0, "unit")),
+    ("permanent employees (d)", "A+B+C", CELL, (None, None, None)),
+    ("permanent employees (d)", "FY 2024-25", CELL, (None, None, None)),
+    ("permanent employees (d)", "No. (B)", CELL, (None, None, None)),
+    ("permanent employees (d)", "ML", CELL, (None, None, None)),
+    ("permanent employees (d)", "tco2e", CELL, ("tco2e", 1.0, "unit")),
+    ("permanent employees (d)", None, SENTENCE, (None, None, None)),
+    ("permanent employees (d)", None, None, (None, None, None)),
+    ("board of directors 9", None, SENTENCE, (None, None, None)),
+    ("ghg scope 1", None, CELL, (None, None, None)),
+    ("number of employees", None, CELL, (None, None, None)),
+    ("scope 1 emissions from vehicles", None, CELL, (None, None, None)),
+    ("total energy consumed by employees", None, CELL, (None, None, None)),
+    ("permanent employees (d) (tco2e)", None, CELL, ("tco2e", 1.0, "label")),
+])
+def test_counts_take_a_family_from_the_key_only_in_a_table_cell(label, unit, locator, expected):
+    assert match.assign(label, unit, locator)[2:] == expected
+
+
+def test_a_percent_count_is_unmapped_and_count_words_stay_out_of_the_unit_table():
+    assert match.assign("permanent employees (d)", "%", CELL)[:2] == (None, None)
+    assert match.assign("permanent employees (d)", "nos.")[2:] == (None, None, None)  # no locator: not a table cell
+    assert not match.COUNT_UNITS & set(match.UNITS) and not set(match.CURRENCY_UNITS) & set(match.UNITS)
+    assert match.unit_of("nos.", "permanent employees (d)") == (None, None, None)  # unit_of is unchanged
+
+
+def test_a_count_figure_with_another_family_is_not_convertible(ws, db, gct, make_file, acme):
+    row = "Permanent employees (D)"
+    add(gct, make_file, "a.pdf", [[row, "", "8,616", "7,982"]])
+    b = add(gct, make_file, "b.pdf", [[row, "tCO2e", "5"]], periods=("FY 2024-25",))
+    ready(gct)
+    (s,) = series(gct, "employees_total")
+    assert (s["unit_family"], s["periods"]) == ("count", 2)
+    assert states(db)[ids(gct, b)[(row, "FY 2024-25")]][:2] == ("uncertain", "unit not convertible")
+
+
+# AC 4 (D2): currency
+@pytest.mark.parametrize("unit, label, expected", [
+    ("INR crore", None, ("inr", 1e7, "unit")), ("₹ crore", None, ("inr", 1e7, "unit")),
+    ("Rs. crores", None, ("inr", 1e7, "unit")), ("INR lakh", None, ("inr", 1e5, "unit")),
+    ("EUR million", None, ("eur", 1e6, "unit")), ("GBP billion", None, ("gbp", 1e9, "unit")),
+    ("USD", None, ("usd", 1.0, "unit")), ("$ mn", None, ("usd", 1e6, "unit")), ("€ bn", None, ("eur", 1e9, "unit")),
+    ("in Rs. lakhs", None, ("inr", 1e5, "unit")),
+    (None, "turnover (€ million)", ("eur", 1e6, "label")),
+    (None, "turnover (in rs.)", ("inr", 1.0, "label")),
+    ("in crores", None, (None, None, None)), ("million", None, (None, None, None)),
+    ("in crores", "turnover (in rs.)", (None, None, None)),  # the label is not read
+    ("MtCO2e", None, (None, None, None)), ("mn", None, (None, None, None)),
+])
+def test_currency_units(unit, label, expected):
+    assert match.unit_of(unit, label) == expected
+
+
+def test_currency_words_are_not_in_the_unit_table_and_every_family_is_listed():
+    assert all(f in match.FAMILIES for f, _ in {**match.UNITS, **match.CURRENCY_UNITS}.values())
+    assert "count" in match.FAMILIES and set(match.CURRENCIES) <= set(match.FAMILIES)
+    assert not set(match.CURRENCY_UNITS) & set(match.UNITS) and "m" not in match.PREFIXES
+
+
+# AC 6
+RESERVED_COUNT = {"employees_other", "board_meetings_held", "shareholder_complaints", "regulatory_violations",
+                  "supplier_count", "active_customers", "new_customers_acquired", "fulfillment_centers",
+                  "production_capacity"}  # the count rows of the v3 table in the story
+RESERVED_CURRENCY = {"ceo_salary", "ceo_bonus", "ceo_stock_options", "gross_profit", "current_assets",
+                     "current_liabilities", "total_debt", "shareholders_equity", "free_cash_flow", "capital_expenditure"}
+
+
+def reserved_in_docs() -> set:
+    text = (Path(__file__).parent.parent / "docs" / "matching.md").read_text()
+    section = text.split("## Reserved keys", 1)[1].split("\n## ", 1)[0]
+    return set(re.findall(r"^- `(\w+)`", section, re.M))
+
+
+def test_accepts_is_complete_and_reserved_keys_are_the_documented_ones():
+    mapped = {k for k, _, _ in match.METRICS}
+    assert mapped <= set(match.ACCEPTS) and match.COUNT_KEYS <= mapped
+    reserved = set(match.ACCEPTS) - mapped
+    assert reserved == RESERVED_COUNT | RESERVED_CURRENCY == reserved_in_docs()
+    counts = {k for k, f in match.ACCEPTS.items() if f == ("count",)}
+    currency = {k for k, f in match.ACCEPTS.items() if f == match.CURRENCIES}
+    assert (len(counts), len(currency), len(match.ACCEPTS) - len(counts) - len(currency)) == (16, 27, 13)
+    assert RESERVED_COUNT <= counts and RESERVED_CURRENCY <= currency and match.COUNT_KEYS <= counts
+
+
+def test_no_reserved_key_is_ever_assigned_a_phrase():
+    reserved = set(match.ACCEPTS) - {k for k, _, _ in match.METRICS}
+    for label in ("total current assets", "total current liabilities", "total equity", "total debt", "ceo salary",
+                  "free cash flow", "gross profit", "capital expenditure", "supplier count", "fulfillment centers"):
+        assert match.metric_of(label)[0] not in reserved
+
+
+# AC 7: the extractor reads match.UNITS and unit_text_of, so the new words must not change what it returns.
+# Pasted from b2838b3: (text, _is_unit_cell(text), _extract_unit(text), _extract_unit(f"Scope 1 ({text})")).
+EXTRACT_AT_BASE = [
+    ("tCO2e", True, None, "tCO2e"), ("GJ", True, None, "GJ"), ("Nos.", True, None, "Nos."),
+    ("employees", False, None, None), ("INR crore", True, None, "INR crore"), ("₹", True, None, "₹"),
+    ("A+B+C", False, None, None), ("FY 2024-25", False, None, None), ("persons", False, None, None),
+    ("$", False, None, None), ("Rs. crores", True, None, "Rs. crores"), ("€ million", False, None, None),
+    ("mn", False, None, None), ("crores", True, None, "crores"),
+]
+
+
+@pytest.mark.parametrize("text, is_unit, bare, in_brackets", EXTRACT_AT_BASE)
+def test_the_extractor_answers_as_before(text, is_unit, bare, in_brackets):
+    assert (extract._is_unit_cell(text), extract._extract_unit(text), extract._extract_unit(f"Scope 1 ({text})")) == (
+        is_unit, bare, in_brackets)
+
+
+# AC 8
+def test_versions_and_reassignment(ws, db, gct, make_file, acme, monkeypatch):
+    assert (match.METRICS_VERSION, match.UNITS_VERSION, match.RULES_VERSION) == (3, 2, 4)
+    add(gct, make_file, "a.pdf", [["Permanent employees (D)", "", "8,616", "7,982"]])
+    real = match.CONFIG
+    monkeypatch.setattr(match, "CONFIG", "match-before")
+    ready(gct)
+    before = count(db, "metric_assignment")
+    assert before > 0
+    monkeypatch.setattr(match, "CONFIG", real)
+    (d,) = gct("match", "--json").data["documents"]
+    assert (d["matched"], count(db, "metric_assignment")) == (1, 2 * before)  # every claim once; earlier rows stay
+    (d,) = gct("match", "--json").data["documents"]
+    assert (d["matched"], d["cached"], count(db, "metric_assignment")) == (0, 1, 2 * before)
+
+
+# AC 1
+def test_migration_23_keeps_the_rows_and_accepts_the_key_source(tmp_path):
+    root = tmp_path / "old"
+    root.mkdir()
+    for name in layout.SUBDIRS:
+        (root / name).mkdir()
+    c = store.connect(root / layout.DB_NAME)
+    store.migrate(c, up_to=22)
+    c.execute("PRAGMA foreign_keys = OFF")  # the rows below stand alone; a missing parent must not pass for the CHECK
+    c.execute("INSERT INTO workspace (id, created_at, gct_version) VALUES (1, 't', '0.0.0')")
+    c.execute("INSERT INTO metric_assignment (claim_version_id, metric_key, unit_source, run_id, config_version, created_at)"
+              " VALUES (1, 'ghg_scope_1', 'label', 1, 'c', 't')")
+    with pytest.raises(sqlite3.IntegrityError):
+        c.execute("INSERT INTO metric_assignment (claim_version_id, unit_source, run_id, config_version, created_at)"
+                  " VALUES (1, 'key', 1, 'c', 't')")
+    assert store.migrate(c) == [23]
+    c.execute("PRAGMA foreign_keys = OFF")  # migrate turns it back on
+    assert [tuple(r) for r in c.execute("SELECT id, metric_key, unit_source FROM metric_assignment")] == [
+        (1, "ghg_scope_1", "label")]
+    c.execute("INSERT INTO metric_assignment (claim_version_id, unit_source, run_id, config_version, created_at)"
+              " VALUES (2, 'key', 1, 'c', 't')")
+    with pytest.raises(sqlite3.IntegrityError):
+        c.execute("INSERT INTO metric_assignment (claim_version_id, unit_source, run_id, config_version, created_at)"
+                  " VALUES (3, 'other', 1, 'c', 't')")
+    names = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE tbl_name = 'metric_assignment'")}
+    assert {"metric_assignment_by_version", "metric_assignment_no_update", "metric_assignment_no_delete"} <= names
+    for stmt in ("UPDATE metric_assignment SET id = id", "DELETE FROM metric_assignment"):
+        with pytest.raises(sqlite3.DatabaseError, match="append-only table"):
+            c.execute(stmt)
+    c.close()
+
+
+# AC 5
+def test_a_brsr_employee_table_without_a_unit_is_one_count_series(ws, db, gct, make_file, acme):
+    add(gct, make_file, "a.pdf", [["Permanent employees (D)", "", "8,616", "7,982"]])
+    ready(gct)
+    (s,) = series(gct, "employees_total")
+    assert (s["unit_family"], s["periods"], s["reporting_boundary"]) == ("count", 2, "standalone")
+    pts = gct("series", "show", s["id"], "--all", "--json").data["series"]["points"]
+    assert [(p["value_text"], p["unit_text"], p["unit_key"], p["value_base"], p["link"], p["comparable"]) for p in pts] == [
+        ("7,982", None, "count", 7982.0, "rule", True), ("8,616", None, "count", 8616.0, "rule", True)]
+
+
+def test_revenue_in_one_currency_joins_across_reports_and_another_currency_does_not(ws, db, gct, make_file, acme):
+    row = "Revenue from operations"
+    a = add(gct, make_file, "a.pdf", [[row, "INR crore", "98,763.42", "90,000.5"]])
+    b = add(gct, make_file, "b.pdf", [[row, "INR crore", "89,500"]], periods=("FY 2023-24",))
+    c = add(gct, make_file, "c.pdf", [[row, "EUR mn", "1,200"]], periods=("FY 2024-25",))  # "EUR million" wraps in the 60-point cell
+    ready(gct)
+    ss = {s["unit_family"]: s for s in series(gct, "revenue_total")}
+    assert set(ss) == {"inr", "eur"}
+    assert (ss["inr"]["periods"], ss["inr"]["same_period_sets"]) == (2, 1)
+    shown = gct("series", "show", ss["inr"]["id"], "--all", "--json").data["series"]["points"]
+    assert sorted((p["value_text"], p["document_id"], p["value_base"], p["same_period"]) for p in shown) == [
+        ("89,500", b, 8.95e11, 2), ("90,000.5", a, 9.00005e11, 2), ("98,763.42", a, 9.876342e11, 1)]
+    (e,) = gct("series", "show", ss["eur"]["id"], "--all", "--json").data["series"]["points"]
+    assert (e["document_id"], e["unit_key"], e["value_base"]) == (c, "eur", 1.2e9)
+    assert gct("match", "review", "--json").data["items"] == []  # neither currency is a candidate of the other
+    assert not {st[1] for st in states(db).values()} & {"unit not convertible", "unit unknown"}
+
+
+# AC 12
+def test_a_review_and_a_restatement_recorded_before_the_upgrade_survive_it(ws, db, gct, make_file, acme, monkeypatch):
+    from gct.stages import restate
+    note = [(40, 150, "The figures for the previous year have been restated due to reclassification.")]
+    row = "Permanent employees (D)"
+    real, config = match.assign, match.CONFIG
+
+    def v2(metric_text, unit_text, locator=None):  # the build before 4.6: no family from the key alone
+        out = real(metric_text, unit_text, locator)
+        return (*out[:2], None, None, None) if out[4] == "key" else out
+
+    monkeypatch.setattr(match, "assign", v2)
+    monkeypatch.setattr(match, "CONFIG", "match-v2")
+    a = add(gct, make_file, "a.pdf", [[row, "", "8,700"]], periods=("FY 2024-25",))  # no printed unit
+    b = add(gct, make_file, "b.pdf", [[row, "Nos.", "8,616", "7,982"]])
+    c = add(gct, make_file, "c.pdf", [[row, "Nos.", "8,000"]], periods=("FY 2023-24",), lines=note)
+    ready(gct)
+    claim_a = ids(gct, a)[(row, "FY 2024-25")]
+    assert states(db)[claim_a][:2] == ("uncertain", "unit unknown")
+    (item,) = [i for i in gct("match", "review", "--json").data["items"] if i["claim"] == claim_a]
+    assert gct("match", "link", claim_a, "--series", item["series"], *WHO).code == 0
+    original, restated = ids(gct, b)[(row, "FY 2023-24")], ids(gct, c)[(row, "FY 2023-24")]
+    assert gct("restate", "record", "--original", original, "--restated", restated, "--page", 1,
+               "--quote", "The figures for the previous year have been restated", *WHO).code == 0
+    reviews = [tuple(r) for r in db.execute("SELECT * FROM match_review")]
+    restatements = [tuple(r) for r in db.execute("SELECT * FROM restatement")]
+    assert len(reviews) == len(restatements) == 1
+
+    monkeypatch.setattr(match, "assign", real)
+    monkeypatch.setattr(match, "CONFIG", config)
+    assert gct("match", "--json").code == 0
+    assert [tuple(r) for r in db.execute("SELECT * FROM match_review")] == reviews
+    assert [tuple(r) for r in db.execute("SELECT * FROM restatement")] == restatements
+    assert states(db)[claim_a][0] in ("series", "reviewed") and states(db)[claim_a][1] is None
+    assert not [i for i in gct("match", "review", "--json").data["items"] if i["claim"] == claim_a]
+    (s,) = series(gct, "employees_total")
+    assert s["unit_family"] == "count" and s["id"] == item["series"]
+    claim_pair = gct("restate", "list", "--json").data["pairs"]
+    assert [p["state"] for p in claim_pair if {p["a"]["claim_id"], p["b"]["claim_id"]} == {original, restated}] == ["restatement"]
+    rows = db.execute("SELECT unit_key, unit_source, config_version FROM metric_assignment WHERE claim_version_id ="
+                      " (SELECT MAX(id) FROM claim_version WHERE claim_id = ?) ORDER BY id", (claim_a,)).fetchall()
+    assert [tuple(r) for r in rows] == [(None, None, "match-v2"), ("count", "key", match.CONFIG)]

@@ -670,7 +670,10 @@ def cmd_match_metrics(args) -> None:
                + (f"; not {', '.join(repr(p) for p in x['never'])}" if x["never"] else "") for x in m["metrics"]),
              "Units (text as looked up: base unit x factor):",
              *(f"  {u['text']}: {u['base']} x {u['factor']:g}" for u in m["units"]),
-             "Magnitude words multiplied in: " + ", ".join(f"{p['text']} x {p['factor']:g}" for p in m["prefixes"])]
+             "Magnitude words multiplied in: " + ", ".join(f"{p['text']} x {p['factor']:g}" for p in m["prefixes"]),
+             "Count keys (a bare table-cell number is a count): " + ", ".join(m["count_keys"]),
+             "Printed count words: " + ", ".join(m["count_units"]),
+             "Reserved keys (no phrase yet, never assigned): " + ", ".join(m["reserved_keys"])]
     _print(args, {"status": "ok", **m}, "\n".join(lines))
 
 

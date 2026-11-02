@@ -53,8 +53,8 @@ def test_migration_4_applies_to_a_story_1_3_workspace(tmp_path):
     assert store.migrate(conn, up_to=3) == [1, 2, 3]
     conn.execute("INSERT INTO company (name, created_at) VALUES ('Acme', 't')")
     rid = runs.start(conn, "publish build")
-    assert store.migrate(conn) == [*range(4, 23)]
-    assert [r[0] for r in conn.execute("SELECT version FROM schema_version ORDER BY version")] == [*range(1, 23)]
+    assert store.migrate(conn) == [*range(4, 24)]
+    assert [r[0] for r in conn.execute("SELECT version FROM schema_version ORDER BY version")] == [*range(1, 24)]
     assert [tuple(r) for r in conn.execute("SELECT name, created_at FROM company")] == [("Acme", "t")]
     assert [r["id"] for r in runs.list_runs(conn)] == [rid]
     conn.close()

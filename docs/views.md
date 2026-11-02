@@ -15,7 +15,7 @@ refused (HTTP 400, exit 2) with the field named; an id need not exist.
 |---|---|
 | `company` | company ids |
 | `document` | document ids |
-| `metric` | metric keys (`ghg_scope_1`, `ghg_scope_2`, `ghg_scope_1_2`, `ghg_scope_3`, `energy_total`, `energy_renewable`, `energy_non_renewable`, `water_withdrawal_total`, `water_consumption_total`, `water_discharge_total`, `waste_total`) and `unmapped` for a claim with no key |
+| `metric` | metric keys (`ghg_scope_1`, `ghg_scope_2`, `ghg_scope_1_2`, `ghg_scope_3`, `energy_total`, `energy_renewable`, `energy_non_renewable`, `water_withdrawal_total`, `water_consumption_total`, `water_discharge_total`, `waste_total`, `employees_total`, `workers_total`, `employees_male`, `employees_female`, `fatalities`, `recordable_injuries`, `board_size`, `community_investment`, `regulatory_fines`, `auditor_fees`, `revenue_total`, `paid_up_capital`, `net_worth`, `ebitda`, `operating_income`, `profit_before_tax`, `net_income`, `total_assets`, `cash_equivalents`, `accounts_receivable`, `inventory`, `operating_cash_flow`, `dividends_paid`, `rd_expenditure`) and `unmapped` for a claim with no key |
 | `text` | 1 to 200 characters, found in the metric wording, case not minded |
 | `period` | `{"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}`, either end optional: the claim's known period lies inside, ends included |
 | `boundary` | `standalone`, `subsidiary_set`, `consolidated`, `segment`, `unknown` (a boundary not resolved, accepted or machine-inferred is unknown) |

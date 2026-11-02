@@ -14,13 +14,13 @@ from gct.workspace import registry, runs, store
 from gct.workspace.layout import NOT_FOUND, REFUSED, GctError
 
 METHOD = "match-rules"
-RULES_VERSION = 3  # 2: number_of reads Indian grouping and drops trailing footnote marks (story 4.2)
-METRICS_VERSION = 2  # 2: records the combined-scope list of 4.1 fix 95e3c9e; the list itself is unchanged here
-UNITS_VERSION = 1
+RULES_VERSION = 4  # 2: number_of reads Indian grouping and drops trailing footnote marks (story 4.2); 4: the count rule
+METRICS_VERSION = 3  # 2: records the combined-scope list of 4.1 fix 95e3c9e; 3: count and currency totals (story 4.6)
+UNITS_VERSION = 2  # 2: currency families and magnitude plurals (story 4.6)
 CONFIG = version_of("match", 1, RULES_VERSION, METRICS_VERSION, UNITS_VERSION)
 AMBIGUOUS = "ambiguous"
 
-# Metric list v2: absolute totals only. (key, phrases one of which must appear, phrases none of which may appear).
+# Metric list v3: absolute totals only. (key, phrases one of which must appear, phrases none of which may appear).
 EXCLUDED = ("intensity", "per rupee", "per unit", " per ", "%", "percentage", "ratio", "category")
 WHOLE_WORDS = ("ratio", "category")  # matched as words: "operations" and "generation" contain "ratio"
 METRICS = (
@@ -46,6 +46,37 @@ METRICS = (
     ("water_consumption_total", ("total volume of water consumption",), ()),
     ("water_discharge_total", ("total water discharged",), ()),
     ("waste_total", ("total waste generated",), ()),
+    # Counts (story 4.6). Phrases come from printed labels (labels file 2026-11-02, with document and page in
+    # tests/test_match.py); a key in ACCEPTS without a row here is reserved (docs/matching.md) and never assigned.
+    ("employees_total", ("permanent employees (d)", "total employees (d+ e)"),
+     ("other than", "workers", "covered", "minimum wages", "/", "male", "female", "differently abled")),
+    ("workers_total", ("total workers (f",), ("permanent", "male", "female", "/", "differently abled")),
+    ("employees_male", ("total employees (d+ e) male",), ("%", "covered")),
+    ("employees_female", ("total employees (d+ e) female",), ("%", "covered", "posh")),
+    ("fatalities", ("no. of fatalities",), ("category", "rate")),
+    ("recordable_injuries", ("total recordable work-related injuries",), ("rate", "frequency", "category")),
+    ("board_size", ("board of directors",), ("female", "percentage", "(bod) male", "(bod) female", "meeting", "attendance")),
+    # Currency totals (story 4.6).
+    ("community_investment", ("total amount spent for the financial year",), ("unspent",)),  # form: CSR Rules Annexure II
+    ("regulatory_fines", ("penalty/ fine",), ("settlement", "compounding")),  # form: SEBI BRSR format, Principle 1 Q2
+    ("auditor_fees", ("audit fees",), ("cost audit", "tax audit", "internal")),
+    ("revenue_total", ("revenue from operations", "gross turnover", "turnover (in"),
+     ("rate", "contract", "inc./", "%", "employee", "staff", "attrition", "inventory", "asset")),
+    ("paid_up_capital", ("paid-up capital", "share capital"), ("partly", "per share", "authorised", "bonus")),
+    ("net_worth", ("net worth",), ("yes",)),
+    ("ebitda", ("ebitda",), ("margin", "%", "ebit ")),
+    ("operating_income", ("operating profit", "underlying ebit"), ("ebitda", "margin", "%")),
+    ("profit_before_tax", ("profit before tax", "profit before taxation"), ("effect on", "eur", "inr effect")),
+    ("net_income", ("profit for the year", "profit after tax"), ("margin", "average", "non", "attributable", "%")),
+    ("total_assets", ("total assets",), ("non-current", "current", "financial", "deferred", "fair value", "intangible")),
+    ("cash_equivalents", ("cash and cash equivalents",), ("increased", "decreased", "other bank", "%")),
+    ("accounts_receivable", ("trade receivables",), ("not due", "continued", "allowance", "impairment")),
+    ("inventory", ("inventories",), ("raw materials", "finished goods", "stock-in-trade", "ghg", "emission", "carbon",
+                                     "turnover", "write")),
+    ("operating_cash_flow", ("net cash from operating activities", "net cash provided by operating activities"),
+     ("investing", "financing", "totalled")),
+    ("dividends_paid", ("dividend paid",), ("income", "received", "per share", "(%)", "proposed", "tax on")),
+    ("rd_expenditure", ("r&d expenditure",), ()),
 )
 
 # Unit table v1: text as looked up -> (conversion family named by its base unit, factor to the base unit). Two units are
@@ -64,8 +95,16 @@ UNITS = {
     **dict.fromkeys(("t", "tonnes", "tons", "mt", "metrictonnes"), ("t", 1.0)),
     "kg": ("t", 0.001),
 }
-PREFIXES = {"thousand": 1e3, "'000": 1e3, "lakh": 1e5, "crore": 1e7, "million": 1e6, "billion": 1e9}
-FAMILIES = ("tco2e", "tco2", "gj", "kl", "t")
+PREFIXES = {"thousand": 1e3, "'000": 1e3, "lakh": 1e5, "crore": 1e7, "million": 1e6, "billion": 1e9,
+            "lakhs": 1e5, "crores": 1e7, "millions": 1e6, "billions": 1e9, "mn": 1e6, "bn": 1e9}  # not "m": mtco2e
+CURRENCIES = ("inr", "eur", "usd", "gbp")
+# Currency words, one family per currency, no exchange rate. Kept out of UNITS: extract reads match.UNITS to decide
+# what a unit cell is, so a word added there changes extraction. _lookup merges the two.
+CURRENCY_UNITS = {**dict.fromkeys(("inr", "₹", "rs", "rs.", "rupees"), ("inr", 1.0)),
+                  **dict.fromkeys(("eur", "€", "euro", "euros"), ("eur", 1.0)),
+                  **dict.fromkeys(("usd", "$", "us$"), ("usd", 1.0)),
+                  **dict.fromkeys(("gbp", "£"), ("gbp", 1.0))}
+FAMILIES = ("tco2e", "tco2", "gj", "kl", "t", "count", *CURRENCIES)
 LEFT_OUT = ("mtco2e", "ml")  # a printed unit left out on purpose stays unknown: no unit from the label either
 
 
@@ -139,13 +178,13 @@ def key_unit(text) -> str:
 def _lookup(text: str) -> tuple[str, float] | None:
     """(family, factor) for one unit text, normalised, with one magnitude prefix (before or after the unit)
     multiplied in."""
-    s = unit_text_of(text)
-    if s in UNITS:
-        return UNITS[s]
+    s, table = unit_text_of(text), {**UNITS, **CURRENCY_UNITS}
+    if s in table:
+        return table[s]
     for word, n in PREFIXES.items():
         rest = s[len(word):] if s.startswith(word) else s[:-len(word)] if s.endswith(word) else None
-        if rest in UNITS:
-            return UNITS[rest][0], UNITS[rest][1] * n
+        if rest in table:
+            return table[rest][0], table[rest][1] * n
     return None
 
 
@@ -154,8 +193,8 @@ def unit_of(unit_text, metric_text) -> tuple[str | None, float | None, str | Non
     group (last first), then the label's last one to five words joined, longest first. (None, None, None): unknown."""
     if unit_text and (u := _lookup(unit_text)):
         return *u, "unit"
-    if unit_text and unit_text_of(unit_text) in LEFT_OUT:
-        return None, None, None
+    if unit_text and (unit_text_of(unit_text) in LEFT_OUT or unit_text_of(unit_text) in PREFIXES):
+        return None, None, None  # a magnitude word alone ("in crores") has no currency: the label is not read
     label = label_of(metric_text)
     for group in reversed(re.findall(r"\(([^()]*)\)", label)):
         if u := _lookup(group):
@@ -178,7 +217,7 @@ WHERE a.run_id = ? AND a.stage = 'match' AND a.outcome = 'failed'
 ORDER BY a.id
 """
 VERSIONS_OF = """
-SELECT v.id, v.metric_text, v.unit_text FROM claim c
+SELECT v.id, v.metric_text, v.unit_text, c.locator FROM claim c
 JOIN claim_version v ON v.id = (SELECT MAX(id) FROM claim_version WHERE claim_id = c.id)
 WHERE c.document_id = ? ORDER BY c.id
 """
@@ -198,16 +237,27 @@ class _Doc:
         return str(self.doc["id"])
 
 
-def assign(metric_text, unit_text) -> tuple:
-    """The assignment values (metric_key, rule, unit_key, unit_factor, unit_source) of one claim version."""
-    return (*metric_of(metric_text, unit_text), *unit_of(unit_text, metric_text))
+def assign(metric_text, unit_text, locator=None) -> tuple:
+    """The assignment values (metric_key, rule, unit_key, unit_factor, unit_source) of one claim version. A count key
+    in a table cell takes the family `count` when the printed unit is empty (source `key`) or a count word (source
+    `unit`); a sentence, an unknown printed unit and a label never give one."""
+    key, rule = metric_of(metric_text, unit_text)
+    unit = unit_of(unit_text, metric_text)
+    if key in COUNT_KEYS and unit[0] is None and locator and _row(locator):
+        if not (unit_text or "").strip():
+            unit = ("count", 1.0, "key")
+        elif unit_text_of(unit_text) in COUNT_UNITS:
+            unit = ("count", 1.0, "unit")
+    return key, rule, *unit
 
 
 def _work(run_id: int, item: _Doc, conn) -> dict:
     stamp, rows = store.now(), 0
     with store.transaction(conn):
         for v in item.versions:
-            new = (*assign(v["metric_text"], v["unit_text"]), CONFIG)
+            # only the count rule reads the locator; every other claim is assigned by the two-argument call as before
+            cell = (v["locator"],) if _row(v["locator"]) and metric_of(v["metric_text"], v["unit_text"])[0] in COUNT_KEYS else ()
+            new = (*assign(v["metric_text"], v["unit_text"], *cell), CONFIG)
             last = conn.execute(f"SELECT {', '.join(ASSIGNED)} FROM metric_assignment WHERE claim_version_id = ?"
                                 " ORDER BY id DESC LIMIT 1", (v["id"],)).fetchone()
             if last is not None and tuple(last) == new:
@@ -303,7 +353,23 @@ KNOWN = ("resolved", "accepted", "machine-inferred", "proposed")
 ACCEPTS = {**dict.fromkeys(("ghg_scope_1", "ghg_scope_2", "ghg_scope_2_location", "ghg_scope_2_market", "ghg_scope_1_2", "ghg_scope_3"), ("tco2e", "tco2")),
            **dict.fromkeys(("energy_total", "energy_renewable", "energy_non_renewable"), ("gj",)),
            **dict.fromkeys(("water_withdrawal_total", "water_consumption_total", "water_discharge_total"), ("kl",)),
-           "waste_total": ("t",)}
+           "waste_total": ("t",),
+           # Story 4.6. Keys here without a METRICS row are reserved (docs/matching.md): no phrase, never assigned.
+           **dict.fromkeys(("employees_total", "workers_total", "employees_male", "employees_female", "employees_other",
+                            "fatalities", "recordable_injuries", "board_size", "board_meetings_held",
+                            "shareholder_complaints", "regulatory_violations", "supplier_count", "active_customers",
+                            "new_customers_acquired", "fulfillment_centers", "production_capacity"), ("count",)),
+           **dict.fromkeys(("community_investment", "regulatory_fines", "auditor_fees", "ceo_salary", "ceo_bonus",
+                            "ceo_stock_options", "revenue_total", "paid_up_capital", "net_worth", "gross_profit", "ebitda",
+                            "operating_income", "profit_before_tax", "net_income", "total_assets", "current_assets",
+                            "cash_equivalents", "accounts_receivable", "inventory", "current_liabilities", "total_debt",
+                            "shareholders_equity", "operating_cash_flow", "free_cash_flow", "capital_expenditure",
+                            "dividends_paid", "rd_expenditure"), CURRENCIES)}
+# Keys whose bare table-cell numbers are counts (D1), and the printed words that say so; neither is in UNITS.
+COUNT_KEYS = frozenset(("employees_total", "workers_total", "employees_male", "employees_female", "fatalities",
+                        "recordable_injuries", "board_size"))
+COUNT_UNITS = frozenset(unit_text_of(w) for w in ("nos", "nos.", "no.", "number", "numbers", "persons", "employees",
+                                                  "workers", "meetings", "complaints", "units", "vehicles"))
 NEWEST_REVIEWS = """
 SELECT r.*, c.name, c.organisation FROM match_review r JOIN contributor_version c ON c.id = r.contributor_version_id
 WHERE r.id IN (SELECT MAX(id) FROM match_review GROUP BY claim_version_id, series_key)
@@ -585,5 +651,7 @@ def metrics() -> dict:
     return {"rules_version": RULES_VERSION, "metrics_version": METRICS_VERSION, "units_version": UNITS_VERSION,
             "excluded": list(EXCLUDED),
             "metrics": [{"key": k, "must": list(must), "never": list(never)} for k, must, never in METRICS],
-            "units": [{"text": t, "base": f, "factor": n} for t, (f, n) in UNITS.items()],
-            "prefixes": [{"text": t, "factor": n} for t, n in PREFIXES.items()]}
+            "units": [{"text": t, "base": f, "factor": n} for t, (f, n) in {**UNITS, **CURRENCY_UNITS}.items()],
+            "prefixes": [{"text": t, "factor": n} for t, n in PREFIXES.items()],
+            "count_units": sorted(COUNT_UNITS), "count_keys": sorted(COUNT_KEYS),
+            "reserved_keys": sorted(set(ACCEPTS) - {k for k, _, _ in METRICS})}

@@ -117,11 +117,11 @@ def test_migration_16_applies_after_15_and_its_tables_are_append_only(tmp_path, 
     assert gct("doc", "list", "--workspace", root).code == 0
     c = store.connect(root / layout.DB_NAME)
     assert [r[0] for r in c.execute("SELECT version FROM schema_version ORDER BY version")][-8:] == [
-        15, 16, 17, 18, 19, 20, 21, 22]
+        16, 17, 18, 19, 20, 21, 22, 23]
     (run,) = runs.list_runs(c)
     assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == [
         "applied migration 16", "applied migration 17", "applied migration 18", "applied migration 19",
-        "applied migration 20", "applied migration 21", "applied migration 22"]
+        "applied migration 20", "applied migration 21", "applied migration 22", "applied migration 23"]
     c.close()
     db.execute("INSERT INTO company (name, created_at) VALUES ('Acme', 't')")
     db.execute("INSERT INTO document (company_id, logical_name, version, sha256, kind, file_type, privacy, size_bytes,"
@@ -566,7 +566,7 @@ def test_migrations_13_to_16_apply_in_order_to_a_4_1_workspace(tmp_path, gct):
     c = store.connect(root / layout.DB_NAME)
     (run,) = runs.list_runs(c)
     assert [e["message"] for e in runs.show_run(c, run["id"])["events"] if e["kind"] == "note"] == [
-        f"applied migration {n}" for n in (13, 14, 15, 16, 17, 18, 19, 20, 21, 22)]
+        f"applied migration {n}" for n in (13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23)]
     assert {"restatement", "document_state_change", "sheet_mapping", "claim_note", "document_deletion"} <= {
         t for (t,) in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     c.close()
@@ -867,3 +867,20 @@ def test_a_refused_run_of_several_files_keeps_the_other_files_retry(ws, db, gct,
     assert r.code == 0, r.err
     assert [(i["source"], i["action"]) for i in r.data["items"]] == [(str(keep.resolve()), "registered")]
     assert db.execute("SELECT COUNT(*) FROM document").fetchone()[0] == 2
+
+
+# Story 4.6 AC 1: migration 23 rebuilt metric_assignment; deletion still clears its content and keeps the rest
+def test_deletion_keeps_a_key_sourced_assignment_row_and_its_triggers(ws, db, gct, make_file):
+    gct("company", "add", "Acme")
+    gct("contributor", "add", "ana", "--name", "Ana")
+    a = add(gct, make_file, "a.pdf", [["Permanent employees (D)", "", "8,616", "7,982"]])
+    ready(gct)
+    keyed = "SELECT metric_key, rule, unit_key, unit_factor, unit_source FROM metric_assignment WHERE unit_source = 'key'"
+    assert sorted(tuple(r) for r in db.execute(keyed)) == [("employees_total", "employees_total: permanent employees (d)",
+                                                           "count", 1.0, "key")] * 2
+    assert delete(gct, db, a).code == 0
+    assert [tuple(r) for r in db.execute(keyed)] == [(None, None, None, None, "key")] * 2
+    names = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE tbl_name = 'metric_assignment'")}
+    assert {"metric_assignment_no_update", "metric_assignment_no_delete"} <= names
+    with pytest.raises(sqlite3.DatabaseError, match="append-only table"):
+        db.execute("UPDATE metric_assignment SET id = id")
