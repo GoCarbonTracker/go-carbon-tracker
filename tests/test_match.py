@@ -674,7 +674,7 @@ def test_the_extractor_answers_as_before(text, is_unit, bare, in_brackets):
 
 # AC 8
 def test_versions_and_reassignment(ws, db, gct, make_file, acme, monkeypatch):
-    assert (match.METRICS_VERSION, match.UNITS_VERSION, match.RULES_VERSION) == (3, 2, 4)
+    assert (match.METRICS_VERSION, match.UNITS_VERSION, match.RULES_VERSION) == (4, 2, 4)
     add(gct, make_file, "a.pdf", [["Permanent employees (D)", "", "8,616", "7,982"]])
     real = match.CONFIG
     monkeypatch.setattr(match, "CONFIG", "match-before")
@@ -791,3 +791,21 @@ def test_a_review_and_a_restatement_recorded_before_the_upgrade_survive_it(ws, d
     rows = db.execute("SELECT unit_key, unit_source, config_version FROM metric_assignment WHERE claim_version_id ="
                       " (SELECT MAX(id) FROM claim_version WHERE claim_id = ?) ORDER BY id", (claim_a,)).fetchall()
     assert [tuple(r) for r in rows] == [(None, None, "match-v2"), ("count", "key", match.CONFIG)]
+
+
+# Correction 1: the current extraction joins the column header before the row label (hand run, 2026-11-02)
+@pytest.mark.parametrize("label, key", [
+    ("Male Total Employees (D+ E)", "employees_male"),  # Tata BRSR FY2024-25 doc 1 p3; BRSR FY2023-24 doc 7 p2, cell t2r5c3
+    ("Female Total Employees (D+ E)", "employees_female"),  # doc 1 p3; doc 7 p2, cell t2r5c5
+])
+def test_employees_by_gender_in_the_current_extraction(label, key):
+    assert match.metric_of(label)[0] == key
+
+
+def test_gender_rows_do_not_cross_or_take_the_differently_abled_table():
+    assert match.metric_of("(iii) Employees and workers (including differently abled) of TML, TMPVL and TPEML: "
+                           "Male Total Employees (D+ E)") == (None, None)  # BRSR 20(b), doc 1 p4 and p5
+    assert match.metric_of("Female Total Employees (D+ E) differently abled") == (None, None)
+    assert match.metric_of("Female Total Employees (D+ E)")[0] == "employees_female"  # not ambiguous with male
+    assert match.metric_of("Total Employees (D+ E)")[0] == "employees_total"
+    assert match.metric_of("Male Total Employees (D+ E)")[1] == "employees_male: male total employees (d+ e)"

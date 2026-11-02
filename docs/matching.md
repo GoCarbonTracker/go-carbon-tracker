@@ -6,14 +6,15 @@ resolved only) and the claim states (`gct correct`). Series are never stored in 
 writes them to the published version. Matching links figures. It never says that two values agree or differ; the
 pairs of a same-period set are compared by `gct restate` (`docs/restatements.md`).
 
-Versions: match rules 4, metric list 3, unit table 2. All three are folded into the stage's config version, which is
+Versions: match rules 4, metric list 4, unit table 2. All three are folded into the stage's config version, which is
 stored on every assignment row, so a change to any of them makes the next `gct match` assign every claim again and add
 one row for every newest claim version, even where the key, rule and unit stay the same. Reviews bind to the claim
 version and series, so they and the series stay as they were. Later runs with an unchanged config add a row only where
 the result changes. Match rules 2 (story 4.2) adds the number rule below. Metric list 2 is the combined-scope list of
 4.1 fix 95e3c9e (`scope 1 & 2` and the other combined forms map to `ghg_scope_1_2`, and the exclusion words are checked
 on the printed unit too), given its own version number in story 4.2; the list did not change then. Story 4.6 raises
-all three: match rules 4 adds the count rule, metric list 3 adds the count and currency totals, unit table 2 adds the
+all three, and metric list 4 corrects the two gender rows (the current extraction joins the column header before the row
+label, so the BRSR cells read `Male Total Employees (D+ E)`): match rules 4 adds the count rule, metric list 3 adds the count and currency totals, unit table 2 adds the
 currency families and the magnitude plurals. Because the count and currency families change the series key of a claim
 that had no family before, a claim that was `unit unknown` under the earlier versions becomes a rule point of a series
 after the next `gct match`. A review or restatement recorded before keeps its row, bound to the claim version; the
@@ -52,8 +53,8 @@ Achieve a` with unit `%` is unmapped.
 | `waste_total` | `total waste generated` | |
 | `employees_total` | `permanent employees (d)`, `total employees (d+ e)` | `other than`, `workers`, `covered`, `minimum wages`, `/`, `male`, `female`, `differently abled` |
 | `workers_total` | `total workers (f` | `permanent`, `male`, `female`, `/`, `differently abled` |
-| `employees_male` | `total employees (d+ e) male` | `%`, `covered` |
-| `employees_female` | `total employees (d+ e) female` | `%`, `covered`, `posh` |
+| `employees_male` | `male total employees (d+ e)`, `total employees (d+ e) male` | `%`, `covered`, `female`, `differently abled` |
+| `employees_female` | `female total employees (d+ e)`, `total employees (d+ e) female` | `%`, `covered`, `posh`, `differently abled` |
 | `fatalities` | `no. of fatalities` | `category`, `rate` |
 | `recordable_injuries` | `total recordable work-related injuries` | `rate`, `frequency`, `category` |
 | `board_size` | `board of directors` | `female`, `percentage`, `(bod) male`, `(bod) female`, `meeting`, `attendance` |

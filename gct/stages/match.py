@@ -15,7 +15,8 @@ from gct.workspace.layout import NOT_FOUND, REFUSED, GctError
 
 METHOD = "match-rules"
 RULES_VERSION = 4  # 2: number_of reads Indian grouping and drops trailing footnote marks (story 4.2); 4: the count rule
-METRICS_VERSION = 3  # 2: records the combined-scope list of 4.1 fix 95e3c9e; 3: count and currency totals (story 4.6)
+METRICS_VERSION = 4  # 2: records the combined-scope list of 4.1 fix 95e3c9e; 3: count and currency totals (story 4.6);
+# 4: employees by gender read as the current extraction joins the column header before the row label
 UNITS_VERSION = 2  # 2: currency families and magnitude plurals (story 4.6)
 CONFIG = version_of("match", 1, RULES_VERSION, METRICS_VERSION, UNITS_VERSION)
 AMBIGUOUS = "ambiguous"
@@ -51,8 +52,10 @@ METRICS = (
     ("employees_total", ("permanent employees (d)", "total employees (d+ e)"),
      ("other than", "workers", "covered", "minimum wages", "/", "male", "female", "differently abled")),
     ("workers_total", ("total workers (f",), ("permanent", "male", "female", "/", "differently abled")),
-    ("employees_male", ("total employees (d+ e) male",), ("%", "covered")),
-    ("employees_female", ("total employees (d+ e) female",), ("%", "covered", "posh")),
+    ("employees_male", ("male total employees (d+ e)", "total employees (d+ e) male"),
+     ("%", "covered", "female", "differently abled")),
+    ("employees_female", ("female total employees (d+ e)", "total employees (d+ e) female"),
+     ("%", "covered", "posh", "differently abled")),
     ("fatalities", ("no. of fatalities",), ("category", "rate")),
     ("recordable_injuries", ("total recordable work-related injuries",), ("rate", "frequency", "category")),
     ("board_size", ("board of directors",), ("female", "percentage", "(bod) male", "(bod) female", "meeting", "attendance")),
